@@ -1,15 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Zap, Activity, Globe, Sparkles } from 'lucide-react';
-import { SignIn, SignUp } from '@clerk/clerk-react';
+import { CustomAuth } from './CustomAuth';
 
 interface AuthLandingProps {
-  onBypassDemo: () => void;
-  onToast: (msg: string) => void;
+  onToast?: (msg: string, type?: 'success' | 'info' | 'error') => void;
 }
 
-export const AuthLanding: React.FC<AuthLandingProps> = ({ onBypassDemo }) => {
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
-
+export const AuthLanding: React.FC<AuthLandingProps> = ({ onToast }) => {
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
       {/* Top Navbar */}
@@ -23,13 +20,10 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onBypassDemo }) => {
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBypassDemo}
-            className="btn btn-secondary text-xs"
-          >
-            Explore Demo Fleet Preview →
-          </button>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-[#71717a] bg-[#f4f4f5] px-2.5 py-1 rounded-md">
+            Production Gateway
+          </span>
         </div>
       </header>
 
@@ -94,83 +88,23 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onBypassDemo }) => {
             </div>
           </div>
 
-          {/* Right Column: Clerk Auth Card */}
+          {/* Right Column: Custom Auth Card */}
           <div className="lg:col-span-6 flex flex-col items-center justify-center">
             <div className="w-full max-w-md bg-white border border-[#e4e4e7] rounded-2xl p-6 sm:p-8 shadow-xl">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#f1f1f2]">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded bg-[#171717] text-white flex items-center justify-center text-xs font-bold">
-                    TP
-                  </span>
-                  <span className="font-semibold text-sm text-[#171717]">
-                    {authMode === 'signin' ? 'Sign In' : 'Create Account'}
-                  </span>
-                </div>
-
-                <div className="flex gap-1 bg-[#f4f4f5] p-0.5 rounded-lg text-xs font-medium">
-                  <button
-                    onClick={() => setAuthMode('signin')}
-                    className={`px-2.5 py-1 rounded-md transition-colors ${
-                      authMode === 'signin' ? 'bg-white text-[#171717] font-semibold shadow-sm' : 'text-[#71717a]'
-                    }`}
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    onClick={() => setAuthMode('signup')}
-                    className={`px-2.5 py-1 rounded-md transition-colors ${
-                      authMode === 'signup' ? 'bg-white text-[#171717] font-semibold shadow-sm' : 'text-[#71717a]'
-                    }`}
-                  >
-                    Register
-                  </button>
+              <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#f1f1f2]">
+                <span className="w-7 h-7 rounded-lg bg-[#171717] text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                  TP
+                </span>
+                <div>
+                  <h2 className="font-semibold text-sm text-[#171717]">TurboPress Engine</h2>
+                  <p className="text-[11px] text-[#71717a]">SaaS Control Plane Access</p>
                 </div>
               </div>
 
-              {authMode === 'signin' ? (
-                <SignIn
-                  routing="hash"
-                  appearance={{
-                    elements: {
-                      rootBox: 'w-full',
-                      card: 'shadow-none p-0 border-0 bg-transparent w-full',
-                      headerTitle: 'hidden',
-                      headerSubtitle: 'hidden',
-                      socialButtonsBlockButton: 'border-[#e4e4e7] hover:bg-[#f8f8f7] text-[#171717] text-xs font-medium',
-                      formButtonPrimary: 'bg-[#171717] hover:bg-black text-white text-xs font-semibold py-2.5',
-                      footerAction: 'text-xs text-[#71717a]',
-                      formFieldInput: 'border-[#e4e4e7] text-xs focus:border-[#f03e2f]',
-                      formFieldLabel: 'text-xs font-medium text-[#3f3f46]',
-                    },
-                  }}
-                />
-              ) : (
-                <SignUp
-                  routing="hash"
-                  appearance={{
-                    elements: {
-                      rootBox: 'w-full',
-                      card: 'shadow-none p-0 border-0 bg-transparent w-full',
-                      headerTitle: 'hidden',
-                      headerSubtitle: 'hidden',
-                      socialButtonsBlockButton: 'border-[#e4e4e7] hover:bg-[#f8f8f7] text-[#171717] text-xs font-medium',
-                      formButtonPrimary: 'bg-[#171717] hover:bg-black text-white text-xs font-semibold py-2.5',
-                      footerAction: 'text-xs text-[#71717a]',
-                      formFieldInput: 'border-[#e4e4e7] text-xs focus:border-[#f03e2f]',
-                      formFieldLabel: 'text-xs font-medium text-[#3f3f46]',
-                    },
-                  }}
-                />
-              )}
-
-              <div className="pt-4 mt-4 border-t border-[#f1f1f2] text-center">
-                <button
-                  onClick={onBypassDemo}
-                  className="text-xs text-[#71717a] hover:text-[#171717] underline font-mono"
-                >
-                  Skip login & explore Sandbox Demo Fleet →
-                </button>
-              </div>
+              <CustomAuth
+                initialMode="signin"
+                onToast={onToast}
+              />
             </div>
           </div>
         </div>

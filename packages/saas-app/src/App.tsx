@@ -30,7 +30,6 @@ export function App() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
 
   const [currentView, setCurrentView] = useState<AppView>('overview');
-  const [isDemoBypassed, setIsDemoBypassed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCmdkOpen, setIsCmdkOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -79,10 +78,10 @@ export function App() {
 
   // Fetch Live Fleet Data from Backend API
   const refreshFleetData = useCallback(async () => {
-    if (!isSignedIn && !isDemoBypassed) return;
+    if (!isSignedIn) return;
 
     try {
-      const token = (await getToken()) || (isDemoBypassed ? 'demo_token' : null);
+      const token = await getToken();
 
       const [sitesRes, jobsRes, billingRes] = await Promise.allSettled([
         api.getSites(token),
@@ -111,20 +110,20 @@ export function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [isSignedIn, isDemoBypassed, getToken, selectedSite]);
+  }, [isSignedIn, getToken, selectedSite]);
 
   // Initial Load and view-switch refresh
   useEffect(() => {
-    if (isLoaded && (isSignedIn || isDemoBypassed)) {
+    if (isLoaded && isSignedIn) {
       refreshFleetData();
-    } else if (isLoaded && !isSignedIn && !isDemoBypassed) {
+    } else if (isLoaded && !isSignedIn) {
       setIsLoading(false);
     }
-  }, [isLoaded, isSignedIn, isDemoBypassed, refreshFleetData]);
+  }, [isLoaded, isSignedIn, refreshFleetData]);
 
   // Polling for active jobs every 8 seconds
   useEffect(() => {
-    if (!isSignedIn && !isDemoBypassed) return;
+    if (!isSignedIn) return;
 
     const hasActiveJobs = jobs.some((j) => j.status === 'processing' || j.status === 'queued');
     if (!hasActiveJobs && currentView !== 'jobs') return;
@@ -134,7 +133,7 @@ export function App() {
     }, 8000);
 
     return () => clearInterval(interval);
-  }, [isSignedIn, isDemoBypassed, jobs, currentView, refreshFleetData]);
+  }, [isSignedIn, jobs, currentView, refreshFleetData]);
 
   // Polar Checkout Action
   const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual') => {
@@ -363,14 +362,10 @@ export function App() {
     );
   }
 
-  // If unauthenticated and demo preview not bypassed, render dedicated Auth Landing
-  if (!isSignedIn && !isDemoBypassed) {
+  // If unauthenticated, render dedicated Custom Auth Landing
+  if (!isSignedIn) {
     return (
       <AuthLanding
-        onBypassDemo={() => {
-          setIsDemoBypassed(true);
-          setCurrentView('overview');
-        }}
         onToast={addToast}
       />
     );
