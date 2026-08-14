@@ -95,5 +95,32 @@ export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variable
   c.set('userId', userId);
   c.set('userEmail', userEmail);
 
+  // Auto-provision user in D1 if not present
+  try {
+    await c.env.DB.prepare(
+      'INSERT OR IGNORE INTO users (id, email, created_at, updated_at) VALUES (?, ?, unixepoch(), unixepoch())'
+    )
+      .bind(userId, userEmail)
+      .run();
+
+    // Auto-provision starter subscription if none exists
+    const existingSub = await c.env.DB.prepare(
+      'SELECT id FROM subscriptions WHERE user_id = ? LIMIT 1'
+    )
+      .bind(userId)
+      .first();
+
+    if (!existingSub) {
+      const subId = `sub_starter_${userId}`;
+      await c.env.DB.prepare(
+        'INSERT OR IGNORE INTO subscriptions (id, user_id, plan_id, status, max_sites, current_period_end, created_at, updated_at) VALUES (?, ?, ?, ?, ?, unixepoch() + 86400 * 365, unixepoch(), unixepoch())'
+      )
+        .bind(subId, userId, 'plan_starter', 'active', 5)
+        .run();
+    }
+  } catch (err) {
+    console.error('[saasUserAuthMiddleware] Error auto-provisioning user:', err);
+  }
+
   await next();
 };

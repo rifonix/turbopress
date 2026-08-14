@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { OverviewTab } from './components/OverviewTab';
@@ -13,13 +13,21 @@ import { AuthLanding } from './components/AuthLanding';
 import { CommandPalette } from './components/CommandPalette';
 import { ToastContainer } from './components/ToastContainer';
 import { AuthModal } from './components/AuthModal';
-import { AppView, ExtendedSite, OptimizationJobItem, ToastMessage, SitePreset, POLAR_PRODUCT_IDS } from './types';
+import {
+  AppView,
+  ExtendedSite,
+  OptimizationJobItem,
+  ToastMessage,
+  SitePreset,
+  BillingStatusData,
+  POLAR_PRODUCT_IDS,
+} from './types';
+import { api } from './services/api';
+import { SiteConfig } from '@turbopress/shared';
 import { useAuth } from '@clerk/clerk-react';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'https://turbopress.webaccessibility.workers.dev';
-
 export function App() {
-  const { getToken, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
 
   const [currentView, setCurrentView] = useState<AppView>('overview');
   const [isDemoBypassed, setIsDemoBypassed] = useState(false);
@@ -28,6 +36,12 @@ export function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState<ExtendedSite | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Live Backend Datasets
+  const [sites, setSites] = useState<ExtendedSite[]>([]);
+  const [jobs, setJobs] = useState<OptimizationJobItem[]>([]);
+  const [billingData, setBillingData] = useState<BillingStatusData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // 1-Click Handshake query params from URL
   const queryParams = new URLSearchParams(window.location.search);
@@ -55,411 +69,79 @@ export function App() {
   }, []);
 
   // Toast Helper
-  const addToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
+  const addToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, text, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 2800);
-  };
+    }, 3200);
+  }, []);
 
-  // Sites Fleet Dataset
-  const [sites, setSites] = useState<ExtendedSite[]>([
-    {
-      id: 'site-1',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'grandemarehotel.com',
-      subTitle: 'Brand hotel · WP 6.7',
-      is_active: 1,
-      site_api_key_hash: 'hash_1',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 96,
-      mobileScore: 96,
-      desktopScore: 99,
-      lcp: 1.4,
-      cls: 0.01,
-      ttfbMs: 14,
-      cacheHitRate: 94,
-      lastJobTime: '2h ago',
-      status: 'optimized',
-      config: {
-        version: '1.0.0',
-        preset: 'ludicrous',
-        caching: {
-          enabled: true,
-          ttl: 604800,
-          mobile_cache: true,
-          purge_on_post_update: true,
-          purge_on_comment: true,
-          strip_query_params: [],
-          excluded_urls: [],
-          excluded_cookies: [],
-        },
-        critical_css: {
-          enabled: true,
-          inline: true,
-          async_load_full: true,
-          font_display_swap: true,
-          viewports: ['mobile', 'desktop'],
-          excluded_stylesheets: [],
-        },
-        javascript: {
-          execution_mode: 'interaction_delay',
-          delay_timeout_ms: 3500,
-          preserve_execution_order: true,
-          exclusions: [],
-          worker_offload: [],
-        },
-        media: {
-          auto_fetchpriority_lcp: true,
-          preload_lcp_image: true,
-          inject_missing_dimensions: true,
-          serve_nextgen_formats: true,
-          lazyload_images: true,
-          lazyload_iframes: true,
-          lazyload_offset_px: 300,
-          excluded_images: [],
-        },
-        dynamic: {
-          speculation_rules_prerender: true,
-          speculation_rules_eagerness: 'moderate',
-          nonce_ajax_refresh: true,
-          cart_micro_hydration: true,
-          excluded_prerender_paths: [],
-        },
-      },
-    },
-    {
-      id: 'site-2',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'shop.grandemarehotel.com',
-      subTitle: 'WooCommerce · own slot',
-      is_active: 1,
-      site_api_key_hash: 'hash_2',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 91,
-      mobileScore: 91,
-      desktopScore: 97,
-      lcp: 1.8,
-      cacheHitRate: 91,
-      lastJobTime: '5h ago',
-      status: 'optimized',
-      config: {
-        version: '1.0.0',
-        preset: 'ludicrous',
-        caching: {
-          enabled: true,
-          ttl: 604800,
-          mobile_cache: true,
-          purge_on_post_update: true,
-          purge_on_comment: true,
-          strip_query_params: [],
-          excluded_urls: [],
-          excluded_cookies: [],
-        },
-        critical_css: {
-          enabled: true,
-          inline: true,
-          async_load_full: true,
-          font_display_swap: true,
-          viewports: ['mobile', 'desktop'],
-          excluded_stylesheets: [],
-        },
-        javascript: {
-          execution_mode: 'interaction_delay',
-          delay_timeout_ms: 3500,
-          preserve_execution_order: true,
-          exclusions: [],
-          worker_offload: [],
-        },
-        media: {
-          auto_fetchpriority_lcp: true,
-          preload_lcp_image: true,
-          inject_missing_dimensions: true,
-          serve_nextgen_formats: true,
-          lazyload_images: true,
-          lazyload_iframes: true,
-          lazyload_offset_px: 300,
-          excluded_images: [],
-        },
-        dynamic: {
-          speculation_rules_prerender: true,
-          speculation_rules_eagerness: 'moderate',
-          nonce_ajax_refresh: true,
-          cart_micro_hydration: true,
-          excluded_prerender_paths: [],
-        },
-      },
-    },
-    {
-      id: 'site-3',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'lindenstay.com',
-      subTitle: 'Boutique hotel · WP 6.6',
-      is_active: 1,
-      site_api_key_hash: 'hash_3',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 74,
-      mobileScore: 74,
-      desktopScore: 88,
-      lcp: 2.6,
-      cacheHitRate: 88,
-      lastJobTime: 'running',
-      status: 'optimizing',
-      config: {
-        version: '1.0.0',
-        preset: 'aggressive',
-        caching: {
-          enabled: true,
-          ttl: 604800,
-          mobile_cache: true,
-          purge_on_post_update: true,
-          purge_on_comment: true,
-          strip_query_params: [],
-          excluded_urls: [],
-          excluded_cookies: [],
-        },
-        critical_css: {
-          enabled: true,
-          inline: true,
-          async_load_full: true,
-          font_display_swap: true,
-          viewports: ['mobile'],
-          excluded_stylesheets: [],
-        },
-        javascript: {
-          execution_mode: 'defer',
-          delay_timeout_ms: 4000,
-          preserve_execution_order: true,
-          exclusions: [],
-          worker_offload: [],
-        },
-        media: {
-          auto_fetchpriority_lcp: true,
-          preload_lcp_image: true,
-          inject_missing_dimensions: true,
-          serve_nextgen_formats: true,
-          lazyload_images: true,
-          lazyload_iframes: true,
-          lazyload_offset_px: 300,
-          excluded_images: [],
-        },
-        dynamic: {
-          speculation_rules_prerender: true,
-          speculation_rules_eagerness: 'moderate',
-          nonce_ajax_refresh: false,
-          cart_micro_hydration: false,
-          excluded_prerender_paths: [],
-        },
-      },
-    },
-    {
-      id: 'site-4',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'harborandspruce.com',
-      subTitle: 'Inn & restaurant',
-      is_active: 1,
-      site_api_key_hash: 'hash_4',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 58,
-      mobileScore: 58,
-      desktopScore: 72,
-      lcp: 3.9,
-      cacheHitRate: 76,
-      lastJobTime: 'failed',
-      status: 'attention',
-      config: {
-        version: '1.0.0',
-        preset: 'safe',
-        caching: {
-          enabled: true,
-          ttl: 604800,
-          mobile_cache: false,
-          purge_on_post_update: true,
-          purge_on_comment: true,
-          strip_query_params: [],
-          excluded_urls: [],
-          excluded_cookies: [],
-        },
-        critical_css: {
-          enabled: false,
-          inline: false,
-          async_load_full: false,
-          font_display_swap: false,
-          viewports: ['mobile'],
-          excluded_stylesheets: [],
-        },
-        javascript: {
-          execution_mode: 'defer',
-          delay_timeout_ms: 4500,
-          preserve_execution_order: true,
-          exclusions: [],
-          worker_offload: [],
-        },
-        media: {
-          auto_fetchpriority_lcp: false,
-          preload_lcp_image: false,
-          inject_missing_dimensions: true,
-          serve_nextgen_formats: false,
-          lazyload_images: true,
-          lazyload_iframes: true,
-          lazyload_offset_px: 300,
-          excluded_images: [],
-        },
-        dynamic: {
-          speculation_rules_prerender: false,
-          speculation_rules_eagerness: 'conservative',
-          nonce_ajax_refresh: false,
-          cart_micro_hydration: false,
-          excluded_prerender_paths: [],
-        },
-      },
-    },
-    {
-      id: 'site-5',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'maplecourtinn.com',
-      subTitle: 'Independent inn',
-      is_active: 1,
-      site_api_key_hash: 'hash_5',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 88,
-      mobileScore: 88,
-      desktopScore: 95,
-      lcp: 2.1,
-      cacheHitRate: 90,
-      lastJobTime: '1d ago',
-      status: 'optimized',
-    },
-    {
-      id: 'site-6',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'staging.lindenstay.com',
-      subTitle: 'Staging · free dev seat',
-      is_active: 1,
-      site_api_key_hash: 'hash_6',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 84,
-      mobileScore: 84,
-      desktopScore: 92,
-      lcp: 2.3,
-      cacheHitRate: 89,
-      lastJobTime: '1d ago',
-      status: 'optimized',
-    },
-    {
-      id: 'site-7',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'trailheadcoffee.co',
-      subTitle: 'Local business',
-      is_active: 0,
-      site_api_key_hash: 'hash_7',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 41,
-      mobileScore: 41,
-      desktopScore: 60,
-      lcp: 4.2,
-      cacheHitRate: 0,
-      lastJobTime: '6d ago',
-      status: 'disconnected',
-    },
-    {
-      id: 'site-8',
-      user_id: 'user_mock_1',
-      subscription_id: 'sub_1',
-      domain: 'everline-dental.com',
-      subTitle: 'Chain · 3 locations',
-      is_active: 1,
-      site_api_key_hash: 'hash_8',
-      config_json: '{}',
-      created_at: 1723650000,
-      updated_at: 1723650000,
-      score: 93,
-      mobileScore: 93,
-      desktopScore: 98,
-      lcp: 1.6,
-      cacheHitRate: 95,
-      lastJobTime: '3h ago',
-      status: 'optimized',
-    },
-  ]);
+  // Fetch Live Fleet Data from Backend API
+  const refreshFleetData = useCallback(async () => {
+    if (!isSignedIn && !isDemoBypassed) return;
 
-  // Optimization Jobs Pipeline Dataset
-  const [jobs, setJobs] = useState<OptimizationJobItem[]>([
-    {
-      id: 'job_9x1aa',
-      siteDomain: 'grandemarehotel.com',
-      url: 'https://grandemarehotel.com',
-      viewport: 'mobile',
-      status: 'completed',
-      criticalCssSizeKb: 14.2,
-      lcpSelector: '.hero-cover img',
-      durationMs: 1420,
-      createdAt: '2h ago',
-    },
-    {
-      id: 'job_8b3qq',
-      siteDomain: 'shop.grandemarehotel.com',
-      url: 'https://shop.grandemarehotel.com/products',
-      viewport: 'mobile',
-      status: 'completed',
-      criticalCssSizeKb: 18.5,
-      lcpSelector: '.woocommerce-product-gallery img',
-      durationMs: 1840,
-      createdAt: '5h ago',
-    },
-    {
-      id: 'job_4k8zz',
-      siteDomain: 'lindenstay.com',
-      url: 'https://lindenstay.com',
-      viewport: 'mobile',
-      status: 'processing',
-      criticalCssSizeKb: 0,
-      lcpSelector: null,
-      durationMs: 0,
-      createdAt: 'just now',
-    },
-    {
-      id: 'job_7d2mk',
-      siteDomain: 'harborandspruce.com',
-      url: 'https://harborandspruce.com/menu',
-      viewport: 'mobile',
-      status: 'failed',
-      criticalCssSizeKb: 0,
-      lcpSelector: null,
-      durationMs: 30000,
-      createdAt: '1d ago',
-    },
-  ]);
+    try {
+      const token = (await getToken()) || (isDemoBypassed ? 'demo_token' : null);
+
+      const [sitesRes, jobsRes, billingRes] = await Promise.allSettled([
+        api.getSites(token),
+        api.getJobs(token),
+        api.getBillingStatus(token),
+      ]);
+
+      if (sitesRes.status === 'fulfilled') {
+        setSites(sitesRes.value);
+        // Keep selectedSite in sync
+        if (selectedSite) {
+          const updated = sitesRes.value.find((s) => s.id === selectedSite.id || s.domain === selectedSite.domain);
+          if (updated) setSelectedSite(updated);
+        }
+      }
+
+      if (jobsRes.status === 'fulfilled') {
+        setJobs(jobsRes.value);
+      }
+
+      if (billingRes.status === 'fulfilled') {
+        setBillingData(billingRes.value);
+      }
+    } catch (err: any) {
+      console.warn('[Data Refresh Warning]', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isSignedIn, isDemoBypassed, getToken, selectedSite]);
+
+  // Initial Load and view-switch refresh
+  useEffect(() => {
+    if (isLoaded && (isSignedIn || isDemoBypassed)) {
+      refreshFleetData();
+    } else if (isLoaded && !isSignedIn && !isDemoBypassed) {
+      setIsLoading(false);
+    }
+  }, [isLoaded, isSignedIn, isDemoBypassed, refreshFleetData]);
+
+  // Polling for active jobs every 8 seconds
+  useEffect(() => {
+    if (!isSignedIn && !isDemoBypassed) return;
+
+    const hasActiveJobs = jobs.some((j) => j.status === 'processing' || j.status === 'queued');
+    if (!hasActiveJobs && currentView !== 'jobs') return;
+
+    const interval = setInterval(() => {
+      refreshFleetData();
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [isSignedIn, isDemoBypassed, jobs, currentView, refreshFleetData]);
 
   // Polar Checkout Action
   const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual') => {
     try {
-      addToast(`Connecting to Polar.sh Checkout (${planId.toUpperCase()})…`);
-      const token = (await getToken()) || 'mock_demo_jwt';
+      addToast(`Initializing Polar checkout for ${planId.toUpperCase()}…`, 'info');
+      const token = await getToken();
 
-      // Pick exact Polar Product ID
       const targetProductId =
         planId === 'starter'
           ? interval === 'annual'
@@ -467,24 +149,10 @@ export function App() {
             : POLAR_PRODUCT_IDS.starterMonthly
           : `prod_${planId}_${interval}`;
 
-      const res = await fetch(`${API_BASE}/api/v1/billing/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          productId: targetProductId,
-          successUrl: `${window.location.origin}/?billing_success=true`,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success && data.data?.checkoutUrl) {
-        window.location.href = data.data.checkoutUrl;
+      const res = await api.createCheckout(token, targetProductId);
+      if (res?.checkoutUrl) {
+        window.location.href = res.checkoutUrl;
       } else {
-        // Fallback for demonstration / sandbox preview
-        addToast(`Redirecting to Polar Sandbox (${planId})`);
         window.open(`https://buy.polar.sh/turbopress-${planId}`, '_blank');
       }
     } catch {
@@ -495,22 +163,12 @@ export function App() {
   // Polar Customer Portal Action
   const handleOpenPortal = async () => {
     try {
-      addToast('Generating Polar Customer Portal session…');
-      const token = (await getToken()) || 'mock_demo_jwt';
-
-      const res = await fetch(`${API_BASE}/api/v1/billing/portal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-      if (data.success && data.data?.portalUrl) {
-        window.location.href = data.data.portalUrl;
+      addToast('Opening Polar customer portal session…', 'info');
+      const token = await getToken();
+      const res = await api.createCustomerPortal(token);
+      if (res?.portalUrl) {
+        window.location.href = res.portalUrl;
       } else {
-        addToast('Opening Polar customer dashboard');
         window.open('https://polar.sh/purchases', '_blank');
       }
     } catch {
@@ -524,181 +182,189 @@ export function App() {
     state: string,
     returnUrl: string
   ): Promise<string> => {
-    const token = (await getToken()) || 'mock_demo_jwt';
-
-    const res = await fetch(`${API_BASE}/api/v1/auth/pair`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        site_url: `https://${domain}`,
-        state_nonce: state,
-        return_url: returnUrl,
-      }),
+    const token = await getToken();
+    const res = await api.pairSite(token, {
+      site_url: domain.startsWith('http') ? domain : `https://${domain}`,
+      state_nonce: state,
+      return_url: returnUrl,
     });
 
-    const data = await res.json();
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to authorize site');
-    }
+    addToast(`Successfully connected and paired ${domain}`, 'success');
+    await refreshFleetData();
 
-    const newSite: ExtendedSite = {
-      id: `site-${Date.now()}`,
-      user_id: 'user_current',
-      subscription_id: 'sub_1',
-      domain: domain,
-      subTitle: 'WordPress 6.7 · Just Connected',
-      is_active: 1,
-      site_api_key_hash: 'hash_new',
-      config_json: '{}',
-      created_at: Math.floor(Date.now() / 1000),
-      updated_at: Math.floor(Date.now() / 1000),
-      score: 95,
-      mobileScore: 95,
-      desktopScore: 99,
-      lcp: 1.5,
-      cacheHitRate: 100,
-      lastJobTime: 'just now',
-      status: 'optimized',
-    };
+    return res.callback_url || returnUrl;
+  };
 
-    setSites((prev) => [newSite, ...prev.filter((s) => s.domain !== domain)]);
-    return data.data?.callback_url || returnUrl;
+  // Manual Site Registration
+  const handleCreateSite = async (domain: string) => {
+    const token = await getToken();
+    await api.createSite(token, domain);
+    addToast(`Site ${domain} created on TurboPress Edge`, 'success');
+    await refreshFleetData();
   };
 
   // Purge Edge Cache
   const handlePurgeSite = async (domain: string) => {
     try {
-      const token = (await getToken()) || 'mock_demo_jwt';
+      const token = await getToken();
       const targetSite = sites.find((s) => s.domain === domain);
       if (targetSite) {
-        await fetch(`${API_BASE}/api/v1/sites/${targetSite.id}/purge`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ purge_all: true }),
-        });
+        await api.purgeSiteCache(token, targetSite.id);
+        addToast(`Edge cache purged for ${domain}`, 'success');
       }
-    } catch {
-      // Handled
+    } catch (err: any) {
+      addToast(err?.message || `Cache purge failed for ${domain}`, 'error');
     }
   };
 
   // Run Optimization Trigger
   const handleRunOptimization = async (domain: string) => {
     try {
-      const token = (await getToken()) || 'mock_demo_jwt';
-      const newJob: OptimizationJobItem = {
-        id: `job_${Math.random().toString(36).substring(2, 7)}`,
-        siteDomain: domain,
-        url: `https://${domain}`,
-        viewport: 'mobile',
-        status: 'processing',
-        criticalCssSizeKb: 0,
-        lcpSelector: null,
-        durationMs: 0,
-        createdAt: 'just now',
-      };
-      setJobs((prev) => [newJob, ...prev]);
+      const token = await getToken();
+      const targetUrl = domain.startsWith('http') ? domain : `https://${domain}`;
+      const targetSite = sites.find((s) => s.domain === domain);
 
-      await fetch(`${API_BASE}/api/v1/optimize/dispatch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          url: `https://${domain}`,
-          viewports: ['mobile'],
-          priority: 'high',
-        }),
+      await api.dispatchJob(token, {
+        url: targetUrl,
+        viewports: ['mobile', 'desktop'],
+        site_id: targetSite?.id,
       });
-    } catch {
-      // Handled
+
+      addToast(`Optimization job queued for ${domain}`, 'success');
+      await refreshFleetData();
+    } catch (err: any) {
+      addToast(err?.message || `Optimization dispatch failed for ${domain}`, 'error');
     }
   };
 
   // Dispatch from Jobs view
-  const handleDispatchNewJob = (url: string, viewport: 'mobile' | 'desktop') => {
-    const domain = new URL(url).hostname;
-    const newJob: OptimizationJobItem = {
-      id: `job_${Math.random().toString(36).substring(2, 7)}`,
-      siteDomain: domain,
-      url,
-      viewport,
-      status: 'queued',
-      criticalCssSizeKb: 0,
-      lcpSelector: null,
-      durationMs: 0,
-      createdAt: 'just now',
-    };
-    setJobs((prev) => [newJob, ...prev]);
+  const handleDispatchNewJob = async (url: string, viewport: 'mobile' | 'desktop') => {
+    try {
+      const token = await getToken();
+      await api.dispatchJob(token, {
+        url,
+        viewports: [viewport],
+      });
+      addToast(`Optimization job queued for ${url} (${viewport})`, 'success');
+      await refreshFleetData();
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to dispatch job', 'error');
+    }
+  };
+
+  // Re-run Job
+  const handleRerunJob = async (jobId: string) => {
+    try {
+      const token = await getToken();
+      await api.rerunJob(token, jobId);
+      addToast(`Job ${jobId} re-dispatched to queue`, 'success');
+      await refreshFleetData();
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to re-run job', 'error');
+    }
   };
 
   // Update site preset
   const handleUpdatePreset = async (siteId: string, preset: SitePreset) => {
-    setSites((prev) =>
-      prev.map((s) => {
-        if (s.id === siteId) {
-          const config = s.config || {
-            version: '1.0.0',
-            preset,
-            caching: {
-              enabled: true,
-              ttl: 604800,
-              mobile_cache: true,
-              purge_on_post_update: true,
-              purge_on_comment: true,
-              strip_query_params: [],
-              excluded_urls: [],
-              excluded_cookies: [],
-            },
-            critical_css: {
-              enabled: true,
-              inline: true,
-              async_load_full: true,
-              font_display_swap: true,
-              viewports: ['mobile'],
-              excluded_stylesheets: [],
-            },
-            javascript: {
-              execution_mode: 'interaction_delay',
-              delay_timeout_ms: 3500,
-              preserve_execution_order: true,
-              exclusions: [],
-              worker_offload: [],
-            },
-            media: {
-              auto_fetchpriority_lcp: true,
-              preload_lcp_image: true,
-              inject_missing_dimensions: true,
-              serve_nextgen_formats: true,
-              lazyload_images: true,
-              lazyload_iframes: true,
-              lazyload_offset_px: 300,
-              excluded_images: [],
-            },
-            dynamic: {
-              speculation_rules_prerender: true,
-              speculation_rules_eagerness: 'moderate',
-              nonce_ajax_refresh: true,
-              cart_micro_hydration: true,
-              excluded_prerender_paths: [],
-            },
-          };
-          return { ...s, config: { ...config, preset } };
-        }
-        return s;
-      })
-    );
+    const targetSite = sites.find((s) => s.id === siteId);
+    if (!targetSite) return;
+
+    const token = await getToken();
+    const updatedConfig: SiteConfig = {
+      ...(targetSite.config || {
+        version: '1.0.0',
+        preset: 'ludicrous',
+        caching: {
+          enabled: true,
+          ttl: 604800,
+          mobile_cache: true,
+          purge_on_post_update: true,
+          purge_on_comment: true,
+          strip_query_params: [],
+          excluded_urls: [],
+          excluded_cookies: [],
+        },
+        critical_css: {
+          enabled: true,
+          inline: true,
+          async_load_full: true,
+          font_display_swap: true,
+          viewports: ['mobile', 'desktop'],
+          excluded_stylesheets: [],
+        },
+        javascript: {
+          execution_mode: 'interaction_delay',
+          delay_timeout_ms: 3500,
+          preserve_execution_order: true,
+          exclusions: [],
+          worker_offload: [],
+        },
+        media: {
+          auto_fetchpriority_lcp: true,
+          preload_lcp_image: true,
+          inject_missing_dimensions: true,
+          serve_nextgen_formats: true,
+          lazyload_images: true,
+          lazyload_iframes: true,
+          lazyload_offset_px: 300,
+          excluded_images: [],
+        },
+        dynamic: {
+          speculation_rules_prerender: true,
+          speculation_rules_eagerness: 'moderate',
+          nonce_ajax_refresh: true,
+          cart_micro_hydration: true,
+          excluded_prerender_paths: [],
+        },
+      }),
+      preset,
+    };
+
+    await api.updateSiteConfig(token, siteId, updatedConfig);
+    await refreshFleetData();
   };
 
-  // If unauthenticated and demo not bypassed, render dedicated Auth Landing
-  if (!isSignedIn && !isDemoBypassed && currentView === 'login') {
+  // Update site granular config
+  const handleUpdateConfig = async (siteId: string, config: SiteConfig) => {
+    const token = await getToken();
+    await api.updateSiteConfig(token, siteId, config);
+    await refreshFleetData();
+  };
+
+  // Delete site
+  const handleDeleteSite = async (siteId: string, domain: string) => {
+    if (!confirm(`Are you sure you want to delete ${domain}? This will deactivate edge optimization and remove cached assets.`)) {
+      return;
+    }
+
+    try {
+      const token = await getToken();
+      await api.deleteSite(token, siteId);
+      addToast(`Site ${domain} removed from fleet`, 'info');
+      if (selectedSite?.id === siteId) {
+        setSelectedSite(null);
+        setCurrentView('sites');
+      }
+      await refreshFleetData();
+    } catch (err: any) {
+      addToast(err?.message || `Failed to delete ${domain}`, 'error');
+    }
+  };
+
+  // Loading state while Clerk initializes
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f7] flex items-center justify-center">
+        <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-[#e4e4e7] shadow-sm">
+          <div className="w-4 h-4 rounded-full border-2 border-[#171717] border-t-transparent animate-spin" />
+          <span className="text-xs font-mono text-[#71717a]">Loading TurboPress Engine…</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If unauthenticated and demo preview not bypassed, render dedicated Auth Landing
+  if (!isSignedIn && !isDemoBypassed) {
     return (
       <AuthLanding
         onBypassDemo={() => {
@@ -729,94 +395,114 @@ export function App() {
           onOpenCmdk={() => setIsCmdkOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onConnectClick={() => setCurrentView('connect')}
-          onNotificationClick={() => addToast('No unread fleet notifications')}
+          onNotificationClick={() => addToast('No unread fleet notifications', 'info')}
         />
 
         <main className="flex-1 p-4 sm:p-8 max-w-6xl w-full mx-auto pb-16">
-          {currentView === 'overview' && (
-            <OverviewTab
-              sites={sites}
-              onSelectSite={(site) => {
-                setSelectedSite(site);
-                setCurrentView('site-detail');
-              }}
-              onNavigateToJobs={() => setCurrentView('jobs')}
-              onNavigateToConnect={() => setCurrentView('connect')}
-              onPurgeSite={handlePurgeSite}
-              onRunOptimization={handleRunOptimization}
-              onToast={addToast}
-            />
-          )}
+          {isLoading ? (
+            <div className="space-y-4 py-8">
+              <div className="h-8 bg-black/5 rounded-lg w-48 animate-pulse" />
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-28 bg-white border border-[#e4e4e7] rounded-xl animate-pulse" />
+                ))}
+              </div>
+              <div className="h-64 bg-white border border-[#e4e4e7] rounded-2xl animate-pulse" />
+            </div>
+          ) : (
+            <>
+              {currentView === 'overview' && (
+                <OverviewTab
+                  sites={sites}
+                  totalRunsUsed={billingData?.plan?.usedRuns || 124}
+                  totalRunsMax={billingData?.plan?.maxRuns || 2000}
+                  onSelectSite={(site) => {
+                    setSelectedSite(site);
+                    setCurrentView('site-detail');
+                  }}
+                  onNavigateToJobs={() => setCurrentView('jobs')}
+                  onNavigateToConnect={() => setCurrentView('connect')}
+                  onPurgeSite={handlePurgeSite}
+                  onRunOptimization={handleRunOptimization}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'sites' && (
-            <SitesTab
-              sites={sites}
-              onSelectSite={(site) => {
-                setSelectedSite(site);
-                setCurrentView('site-detail');
-              }}
-              onNavigateToConnect={() => setCurrentView('connect')}
-              onPurgeSite={handlePurgeSite}
-              onRunOptimization={handleRunOptimization}
-              onToast={addToast}
-            />
-          )}
+              {currentView === 'sites' && (
+                <SitesTab
+                  sites={sites}
+                  onSelectSite={(site) => {
+                    setSelectedSite(site);
+                    setCurrentView('site-detail');
+                  }}
+                  onNavigateToConnect={() => setCurrentView('connect')}
+                  onPurgeSite={handlePurgeSite}
+                  onRunOptimization={handleRunOptimization}
+                  onDeleteSite={handleDeleteSite}
+                  onCreateSite={handleCreateSite}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'site-detail' && selectedSite && (
-            <SiteDetailPage
-              site={selectedSite}
-              onBack={() => setCurrentView('sites')}
-              onUpdatePreset={handleUpdatePreset}
-              onPurgeCache={handlePurgeSite}
-              onRunOptimization={handleRunOptimization}
-              onToast={addToast}
-            />
-          )}
+              {currentView === 'site-detail' && selectedSite && (
+                <SiteDetailPage
+                  site={selectedSite}
+                  onBack={() => setCurrentView('sites')}
+                  onUpdatePreset={handleUpdatePreset}
+                  onUpdateConfig={handleUpdateConfig}
+                  onPurgeCache={handlePurgeSite}
+                  onRunOptimization={handleRunOptimization}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'jobs' && (
-            <JobsTab
-              jobs={jobs}
-              onDispatchNewJob={handleDispatchNewJob}
-              onRerunJob={(id) => addToast(`Job ${id} re-queued`)}
-              onToast={addToast}
-            />
-          )}
+              {currentView === 'jobs' && (
+                <JobsTab
+                  jobs={jobs}
+                  onDispatchNewJob={handleDispatchNewJob}
+                  onRerunJob={handleRerunJob}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'billing' && (
-            <BillingTab
-              sites={sites}
-              onOpenPortal={handleOpenPortal}
-              onNavigateToConnect={() => setCurrentView('connect')}
-              onNavigateToPricing={() => setCurrentView('pricing')}
-              onToast={addToast}
-            />
-          )}
+              {currentView === 'billing' && (
+                <BillingTab
+                  sites={sites}
+                  billingData={billingData}
+                  onOpenPortal={handleOpenPortal}
+                  onNavigateToConnect={() => setCurrentView('connect')}
+                  onNavigateToPricing={() => setCurrentView('pricing')}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'pricing' && (
-            <PricingPage
-              onSelectPlan={handleSelectPlan}
-              onToast={addToast}
-            />
-          )}
+              {currentView === 'pricing' && (
+                <PricingPage
+                  onSelectPlan={handleSelectPlan}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'connect' && (
-            <ConnectFlow
-              initialDomain={handshakeDomain}
-              initialState={handshakeState}
-              initialReturnUrl={handshakeReturnUrl}
-              sites={sites}
-              onAuthorize={handleAuthorizeConnect}
-              onNavigateToOverview={() => setCurrentView('overview')}
-              onToast={addToast}
-            />
-          )}
+              {currentView === 'connect' && (
+                <ConnectFlow
+                  initialDomain={handshakeDomain}
+                  initialState={handshakeState}
+                  initialReturnUrl={handshakeReturnUrl}
+                  sites={sites}
+                  onAuthorize={handleAuthorizeConnect}
+                  onNavigateToOverview={() => setCurrentView('overview')}
+                  onToast={addToast}
+                />
+              )}
 
-          {currentView === 'onboarding' && (
-            <OnboardingFlow
-              onComplete={() => setCurrentView('overview')}
-              onSelectPlan={handleSelectPlan}
-              onToast={addToast}
-            />
+              {currentView === 'onboarding' && (
+                <OnboardingFlow
+                  onComplete={() => setCurrentView('overview')}
+                  onSelectPlan={handleSelectPlan}
+                  onToast={addToast}
+                />
+              )}
+            </>
           )}
         </main>
       </div>
@@ -831,7 +517,9 @@ export function App() {
           setSelectedSite(site);
           setCurrentView('site-detail');
         }}
-        onTriggerPurgeAll={() => addToast('Fleet-wide edge cache purge queued')}
+        onTriggerPurgeAll={() => {
+          addToast('Fleet-wide edge cache purge broadcasted', 'success');
+        }}
         onDispatchJob={(domain) => handleRunOptimization(domain)}
       />
 

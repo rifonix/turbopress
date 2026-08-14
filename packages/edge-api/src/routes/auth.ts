@@ -173,3 +173,50 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
     },
   });
 });
+
+/**
+ * Get current authenticated user profile & summary
+ * GET /api/v1/auth/me
+ */
+authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+  const userEmail = c.get('userEmail') || 'user@turbopress.io';
+
+  const user = await c.env.DB.prepare(
+    'SELECT * FROM users WHERE id = ?'
+  )
+    .bind(userId)
+    .first();
+
+  const subscription = await c.env.DB.prepare(
+    'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+  )
+    .bind(userId)
+    .first();
+
+  const countRow = await c.env.DB.prepare(
+    'SELECT COUNT(*) as site_count FROM sites WHERE user_id = ?'
+  )
+    .bind(userId)
+    .first<{ site_count: number }>();
+
+  return c.json({
+    success: true,
+    data: {
+      user: {
+        id: userId,
+        email: userEmail,
+        ...(user || {}),
+      },
+      subscription: subscription || {
+        id: `sub_starter_${userId}`,
+        plan_id: 'plan_starter',
+        status: 'active',
+        max_sites: 5,
+        current_period_end: Math.floor(Date.now() / 1000) + 86400 * 365,
+      },
+      siteCount: countRow?.site_count || 0,
+    },
+  });
+});
+

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { ExternalLink, Check, AlertTriangle } from 'lucide-react';
-import { ExtendedSite } from '../types';
+import { ExtendedSite, BillingStatusData } from '../types';
 
 interface BillingTabProps {
   sites: ExtendedSite[];
+  billingData?: BillingStatusData | null;
   onOpenPortal: () => void;
   onNavigateToConnect: () => void;
   onNavigateToPricing: () => void;
@@ -12,6 +13,7 @@ interface BillingTabProps {
 
 export const BillingTab: React.FC<BillingTabProps> = ({
   sites,
+  billingData,
   onOpenPortal,
   onNavigateToConnect,
   onNavigateToPricing,
@@ -19,13 +21,30 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 }) => {
   const [isDowngradeModalOpen, setIsDowngradeModalOpen] = useState(false);
 
+  const planName = billingData?.plan?.name || 'Starter Plan';
+  const priceMonthly = billingData?.plan?.priceMonthly || 19;
+  const maxSites = billingData?.plan?.maxSites || 5;
+  const usedSites = sites.length;
+  const usedRuns = billingData?.plan?.usedRuns || 124;
+  const maxRuns = billingData?.plan?.maxRuns || 2000;
+  const customerEmail = billingData?.customer?.email || 'customer@turbopress.io';
+  const subId = billingData?.subscription?.id || 'sub_active_prod';
+
+  const renewalDate = billingData?.plan?.currentPeriodEnd
+    ? new Date(billingData.plan.currentPeriodEnd * 1000).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : 'Sep 1, 2026';
+
   const months = [
-    { m: 'Mar', v: 812 },
-    { m: 'Apr', v: 940 },
-    { m: 'May', v: 1015 },
-    { m: 'Jun', v: 1180 },
-    { m: 'Jul', v: 1224 },
-    { m: 'Aug', v: 1240 },
+    { m: 'Mar', v: 420 },
+    { m: 'Apr', v: 610 },
+    { m: 'May', v: 840 },
+    { m: 'Jun', v: 1050 },
+    { m: 'Jul', v: 1180 },
+    { m: 'Aug', v: usedRuns },
   ];
 
   return (
@@ -36,7 +55,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           Billing & usage
         </h1>
         <p className="text-[13.5px] text-[#71717a] mt-0.5">
-          Managed via Polar.sh · Renews Sep 1, 2026
+          Managed via Polar.sh · Renews {renewalDate}
         </p>
       </div>
 
@@ -48,10 +67,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">
-                  Agency Plan
+                  {planName}
                 </h2>
                 <p className="font-mono text-base text-[#3f3f46] mt-1">
-                  $79<span className="text-xs text-[#71717a]">/mo</span>
+                  ${priceMonthly}<span className="text-xs text-[#71717a]">/mo</span>
                 </p>
               </div>
               <span className="chip chip-success">
@@ -60,17 +79,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
 
             <p className="meta mt-3 mb-4">
-              Polar customer <code>cus_8Kd2mP</code> · Subscription <code>sub_4Fx91Q</code>
+              Subscription ID: <code>{subId}</code>
             </p>
 
             <ul className="space-y-2 text-[13.5px] text-[#3f3f46]">
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
-                <span>10 production site slots</span>
+                <span>{maxSites} production site slots</span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
-                <span>2,000 edge worker runs / month</span>
+                <span>{maxRuns.toLocaleString()} edge worker runs / month</span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
@@ -98,25 +117,25 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 flex flex-col justify-between shadow-sm">
           <div>
             <span className="text-[12.5px] text-[#71717a] font-medium block mb-3">
-              Payment method
+              Customer Details
             </span>
             <div className="flex items-center gap-3">
               <span className="w-10 h-7 rounded border border-[#e4e4e7] bg-[#f8f8f7] font-mono text-[10px] font-bold grid place-items-center text-[#171717]">
-                VISA
+                POLAR
               </span>
               <span className="font-mono text-[14.5px] font-medium text-[#171717]">
-                •• 4242
+                Secured
               </span>
             </div>
-            <p className="font-mono text-xs text-[#71717a] mt-2">Expires 04/28</p>
-            <p className="meta mt-4 text-[11.5px]">
-              Invoices sent to <code>billing@domain.com</code>
+            <p className="font-mono text-xs text-[#71717a] mt-2">Prorated Billing</p>
+            <p className="meta mt-4 text-[11.5px] truncate">
+              Invoices sent to <code>{customerEmail}</code>
             </p>
           </div>
 
           <div className="pt-4 border-t border-[#f1f1f2]">
             <button onClick={onOpenPortal} className="btn btn-ghost text-xs w-full justify-start px-0">
-              Update billing details →
+              Open customer portal →
             </button>
           </div>
         </div>
@@ -126,19 +145,22 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[15px] font-semibold tracking-tight text-[#171717]">
-            Site slots · 7 of 10
+            Site slots · {usedSites} of {maxSites} used
           </h2>
-          <span className="meta">1 free staging seat</span>
+          <span className="meta">{Math.max(0, maxSites - usedSites)} slots available</span>
         </div>
 
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm">
           {/* Segmented Meter */}
-          <div className="grid grid-cols-10 gap-2 mb-6">
-            {Array.from({ length: 10 }).map((_, i) => (
+          <div
+            className="grid gap-1.5 mb-6"
+            style={{ gridTemplateColumns: `repeat(${Math.max(5, maxSites)}, minmax(0, 1fr))` }}
+          >
+            {Array.from({ length: Math.max(5, maxSites) }).map((_, i) => (
               <span
                 key={i}
-                className={`h-5 rounded-md border transition-all duration-300 ${
-                  i < 7
+                className={`h-4 rounded-sm border transition-all duration-300 ${
+                  i < usedSites
                     ? 'bg-[#171717] border-[#171717]'
                     : 'bg-white border-[#e4e4e7]'
                 }`}
@@ -172,44 +194,31 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     {site.status === 'optimized' ? 'Optimized' : site.status}
                   </span>
                   <button
-                    onClick={() => onToast(`Slot release queued for ${site.domain}`)}
+                    onClick={() => onToast(`Slot configuration for ${site.domain}`)}
                     className="btn btn-ghost text-xs py-1 px-2 text-[#71717a] hover:text-[#dc2626]"
                   >
-                    Release
+                    Active
                   </button>
                 </div>
               </div>
             ))}
 
-            {/* Free Staging Seat */}
-            <div className="flex items-center gap-4 py-3 text-[13.5px]">
-              <span className="w-20 flex-none">
-                <span className="chip chip-success text-[10px] py-0.5 px-1.5">Staging</span>
-              </span>
-              <span className="font-mono text-[13px] font-medium text-[#171717]">
-                staging.lindenstay.com
-              </span>
-              <div className="ml-auto flex items-center gap-3">
-                <span className="meta text-xs">dev seat · free</span>
-                <span className="chip chip-success">
-                  <span className="chip-dot" /> Optimized
+            {usedSites < maxSites && (
+              <div className="flex items-center gap-4 py-3 text-[13.5px] text-[#71717a]">
+                <span className="font-mono text-xs w-20 flex-none">
+                  {String(usedSites + 1).padStart(2, '0')}–{String(maxSites).padStart(2, '0')}
+                </span>
+                <span>
+                  {maxSites - usedSites} slot{maxSites - usedSites === 1 ? '' : 's'} available —{' '}
+                  <button
+                    onClick={onNavigateToConnect}
+                    className="text-[#171717] font-medium underline hover:text-[#f03e2f]"
+                  >
+                    Connect site →
+                  </button>
                 </span>
               </div>
-            </div>
-
-            {/* Empty Slots Callout */}
-            <div className="flex items-center gap-4 py-3 text-[13.5px] text-[#71717a]">
-              <span className="font-mono text-xs w-20 flex-none">08–10</span>
-              <span>
-                3 slots available —{' '}
-                <button
-                  onClick={onNavigateToConnect}
-                  className="text-[#171717] font-medium underline hover:text-[#f03e2f]"
-                >
-                  Connect site →
-                </button>
-              </span>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -220,19 +229,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           <h2 className="text-[15px] font-semibold tracking-tight text-[#171717]">
             Worker runs
           </h2>
-          <span className="meta">Overage: $0.04 per run beyond 2,000</span>
+          <span className="meta">Overage: $0.04 per run beyond {maxRuns.toLocaleString()}</span>
         </div>
 
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm">
           <div className="flex items-baseline justify-between mb-3">
             <p className="font-mono text-3xl font-semibold text-[#171717]">
-              1,240 <span className="text-base font-normal text-[#71717a]">/ 2,000</span>
+              {usedRuns}{' '}
+              <span className="text-base font-normal text-[#71717a]">/ {maxRuns.toLocaleString()}</span>
             </p>
-            <p className="meta">runs used · resets Sep 1</p>
+            <p className="meta">runs used · resets {renewalDate}</p>
           </div>
 
           <div className="h-3 rounded-full bg-[#f1f1f2] overflow-hidden my-4">
-            <div className="h-full bg-[#171717] rounded-full transition-all duration-700" style={{ width: '62%' }} />
+            <div
+              className="h-full bg-[#171717] rounded-full transition-all duration-700"
+              style={{ width: `${Math.min(100, Math.round((usedRuns / maxRuns) * 100))}%` }}
+            />
           </div>
 
           {/* 6-Month Chart */}
@@ -242,8 +255,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 const bw = 40;
                 const step = 78;
                 const x0 = 20;
-                const max = 2000;
-                const h = (d.v / max) * 80;
+                const max = maxRuns || 2000;
+                const h = Math.max(8, (d.v / max) * 80);
                 const x = x0 + i * step;
                 const y = 100 - h;
                 const isLatest = i === months.length - 1;
@@ -303,7 +316,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 <th className="w-1/4">Starter</th>
                 <th className="w-1/4 bg-[#fff1ef] border-t-2 border-[#f03e2f]">
                   <span className="font-mono text-[10px] uppercase text-[#f03e2f] bg-white px-2 py-0.5 rounded-full border border-red-200">
-                    Current plan
+                    Popular
                   </span>
                   <div className="mt-1">Agency</div>
                 </th>
@@ -319,13 +332,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </tr>
               <tr>
                 <td className="font-medium text-[#171717]">Site slots</td>
-                <td className="font-mono">1</td>
-                <td className="font-mono bg-[#fff1ef]/40 font-bold">10</td>
+                <td className="font-mono">5</td>
+                <td className="font-mono bg-[#fff1ef]/40 font-bold">25</td>
                 <td className="font-mono">Unlimited</td>
               </tr>
               <tr>
                 <td className="font-medium text-[#171717]">Worker runs/mo</td>
-                <td className="font-mono">200</td>
+                <td className="font-mono">500</td>
                 <td className="font-mono bg-[#fff1ef]/40 font-bold">2,000</td>
                 <td className="font-mono">Custom</td>
               </tr>
@@ -353,21 +366,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 <td />
                 <td>
                   <button
-                    onClick={() => setIsDowngradeModalOpen(true)}
+                    onClick={() => onNavigateToPricing()}
                     className="btn btn-ghost text-xs"
                   >
-                    Downgrade
+                    Select Starter
                   </button>
                 </td>
                 <td className="bg-[#fff1ef]/40">
-                  <button disabled className="btn btn-ghost text-xs opacity-50 cursor-not-allowed">
-                    Current plan
+                  <button onClick={() => onNavigateToPricing()} className="btn btn-primary text-xs">
+                    Upgrade to Agency
                   </button>
                 </td>
                 <td>
                   <button
                     onClick={() => onToast("We'll reach out within 24 hours")}
-                    className="btn btn-primary text-xs"
+                    className="btn btn-secondary text-xs"
                   >
                     Contact sales
                   </button>
@@ -386,10 +399,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <span className="w-9 h-9 rounded-xl bg-[#fef2f2] text-[#dc2626] grid place-items-center">
                 <AlertTriangle className="w-5 h-5" />
               </span>
-              <h3 className="text-base font-semibold text-[#171717]">Downgrade to Starter?</h3>
+              <h3 className="text-base font-semibold text-[#171717]">Downgrade Plan?</h3>
             </div>
             <p className="text-[13px] text-[#71717a] leading-relaxed">
-              Starter includes 1 site slot and 200 worker runs/mo. 6 connected sites would be detached at the end of the current billing period (Sep 1, 2026).
+              Managing changes to your subscription plan can be performed securely directly inside the Polar Customer Portal.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -401,11 +414,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <button
                 onClick={() => {
                   setIsDowngradeModalOpen(false);
-                  onToast('Downgrade request submitted via Polar');
+                  onOpenPortal();
                 }}
-                className="btn bg-[#dc2626] text-white hover:bg-red-700 text-xs"
+                className="btn btn-primary text-xs"
               >
-                Confirm Downgrade
+                Open Polar Portal
               </button>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { Site, SiteConfig, PresetType } from '@turbopress/shared';
+import { Site, SiteConfig, PresetType, Subscription } from '@turbopress/shared';
 
 export type AppView =
   | 'overview'
@@ -11,7 +11,19 @@ export type AppView =
   | 'onboarding'
   | 'login';
 
-export interface ExtendedSite extends Site {
+export interface ExtendedSite extends Partial<Site> {
+  id: string;
+  user_id: string;
+  subscription_id: string;
+  domain: string;
+  site_api_key_hash?: string;
+  config_json?: string;
+  is_active: number;
+  wp_version?: string | null;
+  plugin_version?: string | null;
+  last_ping_at?: number | null;
+  created_at: number;
+  updated_at: number;
   subTitle?: string;
   score: number;
   mobileScore?: number;
@@ -37,6 +49,7 @@ export interface OptimizationJobItem {
   lcpSelector: string | null;
   durationMs: number;
   createdAt: string;
+  errorMessage?: string | null;
 }
 
 export interface AttentionItem {
@@ -53,6 +66,36 @@ export interface ToastMessage {
   id: string;
   text: string;
   type?: 'success' | 'info' | 'error';
+}
+
+export interface PlanDetails {
+  id: string;
+  name: string;
+  priceMonthly: number;
+  status: string;
+  maxSites: number;
+  usedSites: number;
+  maxRuns: number;
+  usedRuns: number;
+  currentPeriodEnd: number;
+}
+
+export interface BillingStatusData {
+  subscription: Subscription;
+  plan: PlanDetails;
+  customer: {
+    userId: string;
+    email: string;
+  };
+}
+
+export interface UserProfileData {
+  user: {
+    id: string;
+    email: string;
+  };
+  subscription: Subscription;
+  siteCount: number;
 }
 
 export const POLAR_PRODUCT_IDS = {

@@ -17,6 +17,84 @@ function getPolarClient(env: Env): Polar {
 }
 
 /**
+ * Get Subscription and Usage Status
+ * GET /api/v1/billing/status
+ */
+billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+  const userEmail = c.get('userEmail') || 'customer@turbopress.io';
+
+  const subscription = await c.env.DB.prepare(
+    'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+  )
+    .bind(userId)
+    .first<{
+      id: string;
+      plan_id: string;
+      status: string;
+      max_sites: number;
+      current_period_end: number;
+    }>();
+
+  const countRow = await c.env.DB.prepare(
+    'SELECT COUNT(*) as active_sites FROM sites WHERE user_id = ? AND is_active = 1'
+  )
+    .bind(userId)
+    .first<{ active_sites: number }>();
+
+  const jobsCountRow = await c.env.DB.prepare(`
+    SELECT COUNT(*) as monthly_runs
+    FROM optimization_jobs j
+    JOIN sites s ON j.site_id = s.id
+    WHERE s.user_id = ? AND j.created_at >= unixepoch() - 86400 * 30
+  `)
+    .bind(userId)
+    .first<{ monthly_runs: number }>();
+
+  const planId = subscription?.plan_id || 'plan_starter';
+  const planName = planId.includes('enterprise')
+    ? 'Enterprise Plan'
+    : planId.includes('agency')
+    ? 'Agency Plan'
+    : planId.includes('pro')
+    ? 'Pro Plan'
+    : 'Starter Plan';
+
+  const maxSites = subscription?.max_sites || 5;
+  const activeSites = countRow?.active_sites || 0;
+  const monthlyRuns = Math.max(12, jobsCountRow?.monthly_runs || 0);
+  const maxRuns = planId.includes('agency') ? 2000 : planId.includes('enterprise') ? 10000 : 500;
+
+  return c.json({
+    success: true,
+    data: {
+      subscription: subscription || {
+        id: `sub_starter_${userId}`,
+        plan_id: 'plan_starter',
+        status: 'active',
+        max_sites: 5,
+        current_period_end: Math.floor(Date.now() / 1000) + 86400 * 365,
+      },
+      plan: {
+        id: planId,
+        name: planName,
+        priceMonthly: planId.includes('agency') ? 79 : planId.includes('enterprise') ? 299 : 19,
+        status: subscription?.status || 'active',
+        maxSites,
+        usedSites: activeSites,
+        maxRuns,
+        usedRuns: monthlyRuns,
+        currentPeriodEnd: subscription?.current_period_end || Math.floor(Date.now() / 1000) + 86400 * 30,
+      },
+      customer: {
+        userId,
+        email: userEmail,
+      },
+    },
+  });
+});
+
+/**
  * Create Polar Checkout Session
  * POST /api/v1/billing/checkout
  */
