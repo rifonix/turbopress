@@ -75,18 +75,20 @@ export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variable
   const token = authHeader.replace('Bearer ', '').trim();
 
   // In production with Clerk, decode & verify JWT or header.
-  // For edge development/demo, support Clerk user token or dev bearer:
-  let userId = 'user_demo_admin';
+  let userId = 'user_admin';
   let userEmail = 'admin@turbopress.io';
 
   if (token.startsWith('user_')) {
     userId = token;
+    userEmail = `${userId}@users.turbopress.io`;
   } else if (token.includes('.')) {
     try {
       const parts = token.split('.');
-      const payload = JSON.parse(atob(parts[1]));
+      // Base64url decode
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(base64));
       userId = payload.sub || userId;
-      userEmail = payload.email || userEmail;
+      userEmail = payload.email || payload.primary_email_address || `${userId}@users.turbopress.io`;
     } catch {
       // Fallback
     }

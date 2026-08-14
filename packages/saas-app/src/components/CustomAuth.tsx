@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useSignIn, useSignUp } from '@clerk/clerk-react';
+import { useSignIn, useSignUp, useClerk } from '@clerk/clerk-react';
 import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, ArrowLeft, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 
@@ -14,8 +14,9 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
   onSuccess,
   onToast,
 }) => {
-  const { signIn, isLoaded: isSignInLoaded, setActive: setSignInActive } = useSignIn();
-  const { signUp, isLoaded: isSignUpLoaded, setActive: setSignUpActive } = useSignUp();
+  const { setActive } = useClerk();
+  const { signIn, isLoaded: isSignInLoaded } = useSignIn();
+  const { signUp, isLoaded: isSignUpLoaded } = useSignUp();
 
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
   const [step, setStep] = useState<'credentials' | 'verify-email' | 'reset-password' | 'verify-reset'>('credentials');
@@ -39,13 +40,13 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
     setErrorMessage('');
 
     try {
-      if (mode === 'signin') {
+      if (mode === 'signin' && signIn) {
         await signIn.authenticateWithRedirect({
           strategy: 'oauth_google',
           redirectUrl: window.location.origin,
           redirectUrlComplete: window.location.origin,
         });
-      } else {
+      } else if (signUp) {
         await signUp.authenticateWithRedirect({
           strategy: 'oauth_google',
           redirectUrl: window.location.origin,
@@ -54,6 +55,7 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
       }
     } catch (err: any) {
       setIsLoading(false);
+      console.error('[Clerk Google SSO Error]', err);
       if (isClerkAPIResponseError(err)) {
         setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Google sign-in failed');
       } else {
@@ -76,7 +78,9 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
       });
 
       if (result.status === 'complete') {
-        await setSignInActive({ session: result.createdSessionId });
+        if (result.createdSessionId) {
+          await setActive({ session: result.createdSessionId });
+        }
         if (onToast) onToast('Signed in successfully', 'success');
         if (onSuccess) onSuccess();
       } else if (result.status === 'needs_first_factor') {
@@ -95,6 +99,7 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
         setErrorMessage(`Additional authentication required (${result.status})`);
       }
     } catch (err: any) {
+      console.error('[Clerk SignIn Error]', err);
       if (isClerkAPIResponseError(err)) {
         setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Invalid email or password');
       } else {
@@ -119,16 +124,23 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
       });
 
       if (result.status === 'complete') {
-        await setSignUpActive({ session: result.createdSessionId });
+        if (result.createdSessionId) {
+          await setActive({ session: result.createdSessionId });
+        }
         if (onToast) onToast('Account created and signed in!', 'success');
         if (onSuccess) onSuccess();
       } else {
-        // Send email verification code
-        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+        // Attempt to prepare email verification code
+        try {
+          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+        } catch (prepErr) {
+          console.warn('[Clerk] Email verification preparation note:', prepErr);
+        }
         setStep('verify-email');
         setInfoMessage(`We sent a 6-digit verification code to ${email}`);
       }
     } catch (err: any) {
+      console.error('[Clerk SignUp Error]', err);
       if (isClerkAPIResponseError(err)) {
         setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Registration failed');
       } else {
@@ -153,7 +165,9 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
         });
 
         if (result.status === 'complete') {
-          await setSignUpActive({ session: result.createdSessionId });
+          if (result.createdSessionId) {
+            await setActive({ session: result.createdSessionId });
+          }
           if (onToast) onToast('Email verified successfully! Welcome to TurboPress.', 'success');
           if (onSuccess) onSuccess();
         } else {
@@ -166,16 +180,52 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
         });
 
         if (result.status === 'complete') {
-          await setSignInActive({ session: result.createdSessionId });
+          if (result.createdSessionId) {
+            await setActive({ session: result.createdSessionId });
+          }
           if (onToast) onToast('Signed in successfully', 'success');
           if (onSuccess) onSuccess();
         }
       }
     } catch (err: any) {
+      console.error('[Clerk Verification Error]', err);
       if (isClerkAPIResponseError(err)) {
         setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Invalid verification code');
       } else {
         setErrorMessage(err?.message || 'Verification failed');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle Resend Verification Code
+  const handleResendCode = async () => {
+    if (!isLoaded) return;
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      if (mode === 'signup' && signUp) {
+        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+        setInfoMessage(`A fresh verification code was sent to ${email}`);
+      } else if (mode === 'signin' && signIn) {
+        const factor = (signIn.supportedFirstFactors as any[])?.find(
+          (f) => f.strategy === 'email_code'
+        );
+        if (factor?.emailAddressId) {
+          await signIn.prepareFirstFactor({
+            strategy: 'email_code',
+            emailAddressId: factor.emailAddressId,
+          } as any);
+          setInfoMessage(`A fresh verification code was sent to ${email}`);
+        }
+      }
+    } catch (err: any) {
+      if (isClerkAPIResponseError(err)) {
+        setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Failed to resend code');
+      } else {
+        setErrorMessage(err?.message || 'Failed to resend code');
       }
     } finally {
       setIsLoading(false);
@@ -213,6 +263,7 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
       setStep('verify-reset');
       setInfoMessage(`We sent a password reset code to ${email}`);
     } catch (err: any) {
+      console.error('[Clerk Reset Error]', err);
       if (isClerkAPIResponseError(err)) {
         setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Failed to send reset code');
       } else {
@@ -242,12 +293,15 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
         });
 
         if (resetResult.status === 'complete') {
-          await setSignInActive({ session: resetResult.createdSessionId });
+          if (resetResult.createdSessionId) {
+            await setActive({ session: resetResult.createdSessionId });
+          }
           if (onToast) onToast('Password reset successfully! Signed in.', 'success');
           if (onSuccess) onSuccess();
         }
       }
     } catch (err: any) {
+      console.error('[Clerk Reset Confirm Error]', err);
       if (isClerkAPIResponseError(err)) {
         setErrorMessage(err.errors[0]?.longMessage || err.errors[0]?.message || 'Reset failed');
       } else {
@@ -260,6 +314,9 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
 
   return (
     <div className="w-full text-left">
+      {/* Turnstile Bot Detection Anchor for Clerk */}
+      <div id="clerk-captcha" className="hidden" />
+
       {/* STEP: Verify Email OTP Code */}
       {step === 'verify-email' && (
         <div className="space-y-4 animate-fade-in">
@@ -310,6 +367,18 @@ export const CustomAuth: React.FC<CustomAuthProps> = ({
                 placeholder="123456"
                 className="w-full px-4 py-3 bg-white border border-[#e4e4e7] rounded-xl text-center font-mono text-xl tracking-[0.3em] text-[#171717] focus:outline-none focus:border-[#f03e2f] focus:ring-2 focus:ring-red-100"
               />
+            </div>
+
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#71717a]">Didn't receive code?</span>
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={isLoading}
+                className="text-[#f03e2f] hover:underline font-medium"
+              >
+                Resend code
+              </button>
             </div>
 
             <button
