@@ -3,6 +3,7 @@ import { Env, AppVariables } from './types/env.js';
 import { corsMiddleware } from './middleware/cors.js';
 import { errorHandler } from './middleware/error.js';
 import { authRoutes } from './routes/auth.js';
+import { clerkWebhookRoutes } from './routes/clerk-webhook.js';
 import { siteRoutes } from './routes/sites.js';
 import { optimizeRoutes } from './routes/optimize.js';
 import { billingRoutes } from './routes/billing.js';
@@ -27,6 +28,7 @@ app.get('/health', (c) => {
 
 // Mount Routes
 app.route('/api/v1/auth', authRoutes);
+app.route('/api/v1/auth', clerkWebhookRoutes);
 app.route('/api/v1/sites', siteRoutes);
 app.route('/api/v1/optimize', optimizeRoutes);
 app.route('/api/v1/billing', billingRoutes);

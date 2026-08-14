@@ -20,6 +20,7 @@ export interface Env {
   POLAR_ACCESS_TOKEN?: string;
   POLAR_WEBHOOK_SECRET: string;
   CLERK_SECRET_KEY?: string;
+  CLERK_WEBHOOK_SIGNING_SECRET?: string;
 }
 
 export interface AppVariables {
