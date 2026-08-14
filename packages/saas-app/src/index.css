@@ -3,10 +3,224 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --bg: #f8f8f7;
+  --surface: #ffffff;
+  --surface-warm: #fff1ef;
+  --fg: #171717;
+  --fg-2: #3f3f46;
+  --muted: #71717a;
+  --border: #e4e4e7;
+  --border-soft: #f1f1f2;
+  --accent: #f03e2f;
+  --accent-on: #ffffff;
+  --accent-hover: #dc2e20;
+  --accent-active: #c52518;
+  --success: #16a34a;
+  --warn: #f59e0b;
+  --danger: #dc2626;
+  --font-display: "Inter", system-ui, -apple-system, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, Menlo, monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 9999px;
+  --elev-ring: 0 0 0 1px var(--border);
+  --elev-raised: 0 18px 42px rgba(23, 23, 23, 0.08);
+  --focus-ring: 0 0 0 3px rgba(240, 62, 47, 0.2);
 }
 
 body {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Custom Chips */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.chip-success {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #dcfce7;
+}
+
+.chip-warn {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fef3c7;
+}
+
+.chip-warn .chip-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.chip-danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fee2e2;
+}
+
+.chip-neutral {
+  background: #f4f4f5;
+  color: #71717a;
+  border: 1px solid #e4e4e7;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
+}
+
+/* Custom Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  min-height: 34px;
+  transition: all 140ms cubic-bezier(0.2, 0, 0, 1);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover {
+  background: #fafafa;
+  border-color: #d4d4d8;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--fg-2);
+}
+
+.btn-ghost:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--fg);
+}
+
+/* Tables */
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.ds-table th {
+  text-align: left;
+  padding: 10px 16px;
+  color: var(--muted);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.ds-table td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+}
+
+.ds-table tbody tr {
+  transition: background 120ms ease;
+}
+
+.ds-table tbody tr:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.ds-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Gauge Rings */
+.ring {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: none;
+}
+
+.ring svg {
+  transform: rotate(-90deg);
+  display: block;
+}
+
+.ring-num {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }

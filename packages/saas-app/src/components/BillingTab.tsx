@@ -1,162 +1,416 @@
-import React from 'react';
-import { Check, Sparkles, Zap, Shield, ExternalLink } from 'lucide-react';
+import React, { useState } from 'react';
+import { ExternalLink, Check, AlertTriangle } from 'lucide-react';
+import { ExtendedSite } from '../types';
 
 interface BillingTabProps {
-  siteCount: number;
-  maxSites: number;
+  sites: ExtendedSite[];
+  onOpenPortal: () => void;
+  onNavigateToConnect: () => void;
+  onNavigateToPricing: () => void;
+  onToast: (msg: string) => void;
 }
 
-export const BillingTab: React.FC<BillingTabProps> = ({ siteCount, maxSites }) => {
+export const BillingTab: React.FC<BillingTabProps> = ({
+  sites,
+  onOpenPortal,
+  onNavigateToConnect,
+  onNavigateToPricing,
+  onToast,
+}) => {
+  const [isDowngradeModalOpen, setIsDowngradeModalOpen] = useState(false);
+
+  const months = [
+    { m: 'Mar', v: 812 },
+    { m: 'Apr', v: 940 },
+    { m: 'May', v: 1015 },
+    { m: 'Jun', v: 1180 },
+    { m: 'Jul', v: 1224 },
+    { m: 'Aug', v: 1240 },
+  ];
+
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+    <div className="space-y-8 animate-fade-in">
+      {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-extrabold text-slate-900">Subscription & Metering</h1>
-        <p className="text-xs sm:text-sm text-slate-500">
-          Managed via Polar.sh. Upgrade for additional WordPress slots and dedicated Puppeteer concurrency.
+        <h1 className="text-2xl font-semibold tracking-tight text-[#171717]">
+          Billing & usage
+        </h1>
+        <p className="text-[13.5px] text-[#71717a] mt-0.5">
+          Managed via Polar.sh · Renews Sep 1, 2026
         </p>
       </div>
 
-      {/* Seat Utilization Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <div className="flex justify-between items-center mb-3">
+      {/* Row 1: Current Plan & Payment Method Grid */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Current Plan Card (2 cols) */}
+        <div className="md:col-span-2 bg-white border border-[#e4e4e7] rounded-2xl p-6 flex flex-col justify-between shadow-sm">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Active Site Seats</h3>
-            <p className="text-xs text-slate-500">
-              You are using {siteCount} of {maxSites} allocated site licenses.
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">
+                  Agency Plan
+                </h2>
+                <p className="font-mono text-base text-[#3f3f46] mt-1">
+                  $79<span className="text-xs text-[#71717a]">/mo</span>
+                </p>
+              </div>
+              <span className="chip chip-success">
+                <span className="chip-dot" /> Active
+              </span>
+            </div>
+
+            <p className="meta mt-3 mb-4">
+              Polar customer <code>cus_8Kd2mP</code> · Subscription <code>sub_4Fx91Q</code>
+            </p>
+
+            <ul className="space-y-2 text-[13.5px] text-[#3f3f46]">
+              <li className="flex items-center gap-2.5">
+                <Check className="w-4 h-4 text-[#16a34a] flex-none" />
+                <span>10 production site slots</span>
+              </li>
+              <li className="flex items-center gap-2.5">
+                <Check className="w-4 h-4 text-[#16a34a] flex-none" />
+                <span>2,000 edge worker runs / month</span>
+              </li>
+              <li className="flex items-center gap-2.5">
+                <Check className="w-4 h-4 text-[#16a34a] flex-none" />
+                <span>AVIF + Critical CSS Edge AST pipeline</span>
+              </li>
+              <li className="flex items-center gap-2.5">
+                <Check className="w-4 h-4 text-[#16a34a] flex-none" />
+                <span>Dedicated priority email support</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="pt-6 mt-6 border-t border-[#f1f1f2] flex items-center gap-3">
+            <button onClick={onOpenPortal} className="btn btn-secondary text-xs sm:text-[13px]">
+              <span>Manage on Polar</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onNavigateToPricing} className="btn btn-ghost text-xs sm:text-[13px]">
+              Change plan
+            </button>
+          </div>
+        </div>
+
+        {/* Payment Method Card (1 col) */}
+        <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 flex flex-col justify-between shadow-sm">
+          <div>
+            <span className="text-[12.5px] text-[#71717a] font-medium block mb-3">
+              Payment method
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="w-10 h-7 rounded border border-[#e4e4e7] bg-[#f8f8f7] font-mono text-[10px] font-bold grid place-items-center text-[#171717]">
+                VISA
+              </span>
+              <span className="font-mono text-[14.5px] font-medium text-[#171717]">
+                •• 4242
+              </span>
+            </div>
+            <p className="font-mono text-xs text-[#71717a] mt-2">Expires 04/28</p>
+            <p className="meta mt-4 text-[11.5px]">
+              Invoices sent to <code>billing@domain.com</code>
             </p>
           </div>
-          <span className="text-sm font-extrabold text-slate-900">
-            {Math.round((siteCount / maxSites) * 100)}%
-          </span>
+
+          <div className="pt-4 border-t border-[#f1f1f2]">
+            <button onClick={onOpenPortal} className="btn btn-ghost text-xs w-full justify-start px-0">
+              Update billing details →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Row 2: Site Slots Allocation */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[15px] font-semibold tracking-tight text-[#171717]">
+            Site slots · 7 of 10
+          </h2>
+          <span className="meta">1 free staging seat</span>
         </div>
 
-        <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-sky-500 to-cyan-500 rounded-full transition-all"
-            style={{ width: `${Math.min((siteCount / maxSites) * 100, 100)}%` }}
-          />
+        <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm">
+          {/* Segmented Meter */}
+          <div className="grid grid-cols-10 gap-2 mb-6">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <span
+                key={i}
+                className={`h-5 rounded-md border transition-all duration-300 ${
+                  i < 7
+                    ? 'bg-[#171717] border-[#171717]'
+                    : 'bg-white border-[#e4e4e7]'
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Allocation List */}
+          <div className="divide-y divide-[#f1f1f2]">
+            {sites.map((site, index) => (
+              <div key={site.id} className="flex items-center gap-4 py-3 text-[13.5px]">
+                <span className="font-mono text-xs text-[#71717a] w-20 flex-none">
+                  slot {String(index + 1).padStart(2, '0')}
+                </span>
+                <span className="font-mono text-[13px] font-medium text-[#171717]">
+                  {site.domain}
+                </span>
+                <div className="ml-auto flex items-center gap-3">
+                  <span
+                    className={`chip ${
+                      site.status === 'optimized'
+                        ? 'chip-success'
+                        : site.status === 'optimizing'
+                        ? 'chip-warn'
+                        : site.status === 'attention'
+                        ? 'chip-danger'
+                        : 'chip-neutral'
+                    }`}
+                  >
+                    {site.status !== 'disconnected' && <span className="chip-dot" />}
+                    {site.status === 'optimized' ? 'Optimized' : site.status}
+                  </span>
+                  <button
+                    onClick={() => onToast(`Slot release queued for ${site.domain}`)}
+                    className="btn btn-ghost text-xs py-1 px-2 text-[#71717a] hover:text-[#dc2626]"
+                  >
+                    Release
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Free Staging Seat */}
+            <div className="flex items-center gap-4 py-3 text-[13.5px]">
+              <span className="w-20 flex-none">
+                <span className="chip chip-success text-[10px] py-0.5 px-1.5">Staging</span>
+              </span>
+              <span className="font-mono text-[13px] font-medium text-[#171717]">
+                staging.lindenstay.com
+              </span>
+              <div className="ml-auto flex items-center gap-3">
+                <span className="meta text-xs">dev seat · free</span>
+                <span className="chip chip-success">
+                  <span className="chip-dot" /> Optimized
+                </span>
+              </div>
+            </div>
+
+            {/* Empty Slots Callout */}
+            <div className="flex items-center gap-4 py-3 text-[13.5px] text-[#71717a]">
+              <span className="font-mono text-xs w-20 flex-none">08–10</span>
+              <span>
+                3 slots available —{' '}
+                <button
+                  onClick={onNavigateToConnect}
+                  className="text-[#171717] font-medium underline hover:text-[#f03e2f]"
+                >
+                  Connect site →
+                </button>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Plan Tiers Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Starter */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Shield className="w-4 h-4 text-slate-500" />
-              <span className="text-xs font-bold uppercase text-slate-500">Starter</span>
-            </div>
-            <div className="flex items-baseline gap-1 mb-4">
-              <span className="text-3xl font-extrabold text-slate-900">$19</span>
-              <span className="text-xs text-slate-500">/month</span>
-            </div>
-            <ul className="space-y-2.5 text-xs text-slate-600 mb-6">
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Up to 5 WordPress Sites</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Sub-15ms Static Disk Cache</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Cloudflare Critical CSS Extraction</span>
-              </li>
-            </ul>
-          </div>
-          <button className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors">
-            Current Plan
-          </button>
+      {/* Row 3: Worker Runs Metering */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[15px] font-semibold tracking-tight text-[#171717]">
+            Worker runs
+          </h2>
+          <span className="meta">Overage: $0.04 per run beyond 2,000</span>
         </div>
 
-        {/* Pro */}
-        <div className="bg-white rounded-3xl border-2 border-sky-500 p-6 shadow-lg shadow-sky-500/10 flex flex-col justify-between relative">
-          <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-sky-500 text-white text-[10px] font-extrabold uppercase px-3 py-0.5 rounded-full shadow-sm">
-            Most Popular
-          </span>
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Zap className="w-4 h-4 text-sky-500" />
-              <span className="text-xs font-bold uppercase text-sky-600">Pro</span>
-            </div>
-            <div className="flex items-baseline gap-1 mb-4">
-              <span className="text-3xl font-extrabold text-slate-900">$49</span>
-              <span className="text-xs text-slate-500">/month</span>
-            </div>
-            <ul className="space-y-2.5 text-xs text-slate-600 mb-6">
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Up to 25 WordPress Sites</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>3-Tier JS Delay + jQuery Stubbing</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Dynamic Nonce & Cart Micro-Hydration</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>W3C Speculation Rules Prerendering</span>
-              </li>
-            </ul>
+        <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm">
+          <div className="flex items-baseline justify-between mb-3">
+            <p className="font-mono text-3xl font-semibold text-[#171717]">
+              1,240 <span className="text-base font-normal text-[#71717a]">/ 2,000</span>
+            </p>
+            <p className="meta">runs used · resets Sep 1</p>
           </div>
-          <button className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 rounded-xl text-xs font-bold shadow-md shadow-sky-500/25 transition-all">
-            Upgrade to Pro
-          </button>
-        </div>
 
-        {/* Agency */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              <span className="text-xs font-bold uppercase text-amber-600">Agency</span>
-            </div>
-            <div className="flex items-baseline gap-1 mb-4">
-              <span className="text-3xl font-extrabold text-slate-900">$149</span>
-              <span className="text-xs text-slate-500">/month</span>
-            </div>
-            <ul className="space-y-2.5 text-xs text-slate-600 mb-6">
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>100 WordPress Sites</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>Dedicated Chromium Browser Concurrency</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-500" />
-                <span>White-label WordPress Plugin Branding</span>
-              </li>
-            </ul>
+          <div className="h-3 rounded-full bg-[#f1f1f2] overflow-hidden my-4">
+            <div className="h-full bg-[#171717] rounded-full transition-all duration-700" style={{ width: '62%' }} />
           </div>
-          <button className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors">
-            Contact Sales
-          </button>
+
+          {/* 6-Month Chart */}
+          <div className="pt-6 border-t border-[#f1f1f2]">
+            <svg viewBox="0 0 480 140" className="w-full h-32" role="img" aria-label="Worker runs chart">
+              {months.map((d, i) => {
+                const bw = 40;
+                const step = 78;
+                const x0 = 20;
+                const max = 2000;
+                const h = (d.v / max) * 80;
+                const x = x0 + i * step;
+                const y = 100 - h;
+                const isLatest = i === months.length - 1;
+
+                return (
+                  <g key={d.m}>
+                    <rect
+                      x={x}
+                      y={y}
+                      width={bw}
+                      height={h}
+                      rx="4"
+                      fill={isLatest ? '#171717' : '#e4e4e7'}
+                    />
+                    <text
+                      x={x + bw / 2}
+                      y={y - 6}
+                      textAnchor="middle"
+                      fontFamily="monospace"
+                      fontSize="10"
+                      fill="#71717a"
+                    >
+                      {d.v}
+                    </text>
+                    <text
+                      x={x + bw / 2}
+                      y={120}
+                      textAnchor="middle"
+                      fontFamily="monospace"
+                      fontSize="11"
+                      fill="#71717a"
+                    >
+                      {d.m}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
         </div>
       </div>
 
-      {/* Polar Customer Portal Link */}
-      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center">
-        <div>
-          <h4 className="text-sm font-bold text-slate-900">Manage Payment Methods & Invoices</h4>
-          <p className="text-xs text-slate-500">Update credit cards, download tax receipts, or cancel anytime.</p>
+      {/* Row 4: Plan Comparison Table */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[15px] font-semibold tracking-tight text-[#171717]">
+            Compare plans
+          </h2>
+          <span className="meta">Switch anytime · Prorated via Polar</span>
         </div>
-        <a
-          href="https://polar.sh"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 bg-white border border-slate-200 px-4 py-2 rounded-xl shadow-sm"
-        >
-          <span>Polar Portal</span>
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
+
+        <div className="bg-white border border-[#e4e4e7] rounded-2xl overflow-hidden shadow-sm">
+          <table className="ds-table">
+            <thead>
+              <tr className="bg-[#fafafa]">
+                <th className="w-1/4">Features</th>
+                <th className="w-1/4">Starter</th>
+                <th className="w-1/4 bg-[#fff1ef] border-t-2 border-[#f03e2f]">
+                  <span className="font-mono text-[10px] uppercase text-[#f03e2f] bg-white px-2 py-0.5 rounded-full border border-red-200">
+                    Current plan
+                  </span>
+                  <div className="mt-1">Agency</div>
+                </th>
+                <th className="w-1/4">Enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="font-medium text-[#171717]">Price</td>
+                <td className="font-mono">$19/mo</td>
+                <td className="font-mono bg-[#fff1ef]/40 font-bold">$79/mo</td>
+                <td className="font-mono">Custom</td>
+              </tr>
+              <tr>
+                <td className="font-medium text-[#171717]">Site slots</td>
+                <td className="font-mono">1</td>
+                <td className="font-mono bg-[#fff1ef]/40 font-bold">10</td>
+                <td className="font-mono">Unlimited</td>
+              </tr>
+              <tr>
+                <td className="font-medium text-[#171717]">Worker runs/mo</td>
+                <td className="font-mono">200</td>
+                <td className="font-mono bg-[#fff1ef]/40 font-bold">2,000</td>
+                <td className="font-mono">Custom</td>
+              </tr>
+              <tr>
+                <td className="font-medium text-[#171717]">AVIF & Critical CSS</td>
+                <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
+                <td className="bg-[#fff1ef]/40"><Check className="w-4 h-4 text-[#16a34a]" /></td>
+                <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
+              </tr>
+              <tr>
+                <td className="font-medium text-[#171717]">Priority support</td>
+                <td className="text-[#a1a1aa]">—</td>
+                <td className="bg-[#fff1ef]/40"><Check className="w-4 h-4 text-[#16a34a]" /></td>
+                <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
+              </tr>
+              <tr>
+                <td className="font-medium text-[#171717]">SSO & Custom SLA</td>
+                <td className="text-[#a1a1aa]">—</td>
+                <td className="bg-[#fff1ef]/40 text-[#a1a1aa]">—</td>
+                <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr className="bg-[#fafafa]">
+                <td />
+                <td>
+                  <button
+                    onClick={() => setIsDowngradeModalOpen(true)}
+                    className="btn btn-ghost text-xs"
+                  >
+                    Downgrade
+                  </button>
+                </td>
+                <td className="bg-[#fff1ef]/40">
+                  <button disabled className="btn btn-ghost text-xs opacity-50 cursor-not-allowed">
+                    Current plan
+                  </button>
+                </td>
+                <td>
+                  <button
+                    onClick={() => onToast("We'll reach out within 24 hours")}
+                    className="btn btn-primary text-xs"
+                  >
+                    Contact sales
+                  </button>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
+
+      {/* Downgrade Confirmation Dialog */}
+      {isDowngradeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl border border-[#e4e4e7] p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-[#fef2f2] text-[#dc2626] grid place-items-center">
+                <AlertTriangle className="w-5 h-5" />
+              </span>
+              <h3 className="text-base font-semibold text-[#171717]">Downgrade to Starter?</h3>
+            </div>
+            <p className="text-[13px] text-[#71717a] leading-relaxed">
+              Starter includes 1 site slot and 200 worker runs/mo. 6 connected sites would be detached at the end of the current billing period (Sep 1, 2026).
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsDowngradeModalOpen(false)}
+                className="btn btn-ghost text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setIsDowngradeModalOpen(false);
+                  onToast('Downgrade request submitted via Polar');
+                }}
+                className="btn bg-[#dc2626] text-white hover:bg-red-700 text-xs"
+              >
+                Confirm Downgrade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
