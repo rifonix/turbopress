@@ -7,7 +7,7 @@
   ],
   "pages_build_output_dir": "./dist",
   "vars": {
-    "VITE_CLERK_PUBLISHABLE_KEY": "pk_test_dHVyYm9wcmVzcy1kZW1vLWNsaWVudA",
+    "VITE_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk",
     "VITE_API_BASE_URL": "https://api.turbopress.io",
     "ENVIRONMENT": "production"
   },

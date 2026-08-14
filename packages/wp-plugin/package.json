@@ -1,0 +1,9 @@
+{
+  "name": "@turbopress/wp-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turbopress WordPress Client Plugin",
+  "scripts": {
+    "build": "echo 'WordPress plugin assets ready'"
+  }
+}

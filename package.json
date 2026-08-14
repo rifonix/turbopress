@@ -7,7 +7,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run --workspaces --if-present build",
+    "build": "npm run build --workspace=@turbopress/shared && npm run build --workspace=@turbopress/saas-app && npm run build --workspace=@turbopress/edge-api",
+    "build:saas": "npm run build --workspace=@turbopress/shared && npm run build --workspace=@turbopress/saas-app",
+    "build:edge": "npm run build --workspace=@turbopress/shared && npm run build --workspace=@turbopress/edge-api",
     "test": "npm run --workspaces --if-present test",
     "lint": "npm run --workspaces --if-present lint",
     "dev:edge": "npm run --workspace=@turbopress/edge-api dev",
