@@ -1,0 +1,269 @@
+/* Turbopress Admin Dashboard CSS */
+
+.turbopress-admin-wrap {
+  max-width: 1100px;
+  margin: 20px 20px 40px 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+}
+
+.tp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.tp-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.tp-header h1 {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+  padding: 0;
+}
+
+.tp-subtitle {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.tp-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+}
+
+.tp-card h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 6px 0;
+}
+
+.tp-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 20px 0;
+}
+
+/* Status Card */
+.tp-status-card {
+  border-left: 4px solid #94a3b8;
+}
+
+.tp-status-card.connected {
+  border-left-color: #10b981;
+  background: linear-gradient(to right, #f0fdf4, #ffffff);
+}
+
+.tp-status-card.disconnected {
+  border-left-color: #f59e0b;
+  background: linear-gradient(to right, #fffbeb, #ffffff);
+}
+
+.tp-card-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tp-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tp-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.connected .tp-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+}
+
+.disconnected .tp-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+
+.tp-status-text h3 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.tp-status-text p {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.tp-connect-btn {
+  font-weight: 600 !important;
+  padding: 6px 16px !important;
+  height: auto !important;
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
+}
+
+/* Presets Grid */
+.tp-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.tp-preset-box {
+  position: relative;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #f8fafc;
+}
+
+.tp-preset-box:hover {
+  border-color: #cbd5e1;
+}
+
+.tp-preset-box.active {
+  border-color: #0284c7;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
+}
+
+.tp-preset-box input[type="radio"] {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  margin: 0;
+}
+
+.tp-preset-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #0284c7;
+  margin-bottom: 6px;
+}
+
+.tp-tag-gold {
+  color: #b45309;
+}
+
+.tp-preset-content h4 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  color: #0f172a;
+}
+
+.tp-preset-content p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Form switches */
+.tp-table th {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  width: 240px;
+  padding: 16px 0;
+}
+
+.tp-table td {
+  padding: 16px 0;
+}
+
+.tp-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+  margin-right: 12px;
+}
+
+.tp-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.tp-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .2s;
+  border-radius: 24px;
+}
+
+.tp-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .2s;
+  border-radius: 50%;
+}
+
+input:checked + .tp-slider {
+  background-color: #0284c7;
+}
+
+input:checked + .tp-slider:before {
+  transform: translateX(20px);
+}
+
+.tp-label-desc {
+  font-size: 13px;
+  color: #64748b;
+  vertical-align: middle;
+}
+
+.tp-form-footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tp-status-msg {
+  font-size: 14px;
+  font-weight: 600;
+}

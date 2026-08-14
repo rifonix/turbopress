@@ -1,0 +1,99 @@
+import { MiddlewareHandler } from 'hono';
+import { Env, AppVariables } from '../types/env.js';
+import { sha256, normalizeDomain, Site, SiteConfig } from '@turbopress/shared';
+
+export interface CachedSiteData {
+  id: string;
+  user_id: string;
+  domain: string;
+  site_api_key_hash: string;
+  config_json: string;
+  is_active: number;
+}
+
+export const siteAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variables: AppVariables }> = async (c, next) => {
+  const authHeader = c.req.header('Authorization');
+  const rawDomain = c.req.header('X-Site-Domain');
+
+  if (!authHeader || !authHeader.startsWith('Bearer ') || !rawDomain) {
+    return c.json({ success: false, error: 'Unauthorized: Missing Authorization or X-Site-Domain header' }, 401);
+  }
+
+  const apiKey = authHeader.replace('Bearer ', '').trim();
+  const domain = normalizeDomain(rawDomain);
+  const keyHash = await sha256(apiKey);
+
+  const kvKey = `site:${domain}`;
+  const cached = await c.env.KV.get<CachedSiteData>(kvKey, 'json');
+
+  let siteData: CachedSiteData | null = cached;
+
+  if (!siteData) {
+    // Fallback query to D1 SQL
+    const row = await c.env.DB.prepare(
+      'SELECT id, user_id, domain, site_api_key_hash, config_json, is_active FROM sites WHERE domain = ? LIMIT 1'
+    )
+      .bind(domain)
+      .first<CachedSiteData>();
+
+    if (!row) {
+      return c.json({ success: false, error: 'Site not registered' }, 401);
+    }
+
+    siteData = row;
+    // Cache in KV for 1 hour
+    await c.env.KV.put(kvKey, JSON.stringify(siteData), { expirationTtl: 3600 });
+  }
+
+  if (siteData.site_api_key_hash !== keyHash) {
+    return c.json({ success: false, error: 'Invalid API Key' }, 403);
+  }
+
+  if (!siteData.is_active) {
+    return c.json({ success: false, error: 'Site license is inactive or subscription expired' }, 403);
+  }
+
+  let parsedConfig: SiteConfig;
+  try {
+    parsedConfig = JSON.parse(siteData.config_json);
+  } catch {
+    parsedConfig = {} as SiteConfig;
+  }
+
+  c.set('site', siteData as unknown as Site);
+  c.set('siteConfig', parsedConfig);
+
+  await next();
+};
+
+export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variables: AppVariables }> = async (c, next) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ success: false, error: 'Unauthorized: Missing user auth token' }, 401);
+  }
+
+  const token = authHeader.replace('Bearer ', '').trim();
+
+  // In production with Clerk, decode & verify JWT or header.
+  // For edge development/demo, support Clerk user token or dev bearer:
+  let userId = 'user_demo_admin';
+  let userEmail = 'admin@turbopress.io';
+
+  if (token.startsWith('user_')) {
+    userId = token;
+  } else if (token.includes('.')) {
+    try {
+      const parts = token.split('.');
+      const payload = JSON.parse(atob(parts[1]));
+      userId = payload.sub || userId;
+      userEmail = payload.email || userEmail;
+    } catch {
+      // Fallback
+    }
+  }
+
+  c.set('userId', userId);
+  c.set('userEmail', userEmail);
+
+  await next();
+};

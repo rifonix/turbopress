@@ -1,0 +1,82 @@
+import { z } from 'zod';
+
+export const PresetTypeSchema = z.enum(['safe', 'aggressive', 'ludicrous', 'custom']);
+export const ViewportModeSchema = z.enum(['mobile', 'desktop']);
+export const JobStatusSchema = z.enum(['queued', 'processing', 'completed', 'failed']);
+export const SubscriptionStatusSchema = z.enum(['active', 'past_due', 'canceled', 'revoked', 'trialing']);
+
+export const CachingConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  ttl: z.number().int().positive().default(604800),
+  mobile_cache: z.boolean().default(true),
+  purge_on_post_update: z.boolean().default(true),
+  purge_on_comment: z.boolean().default(false),
+  strip_query_params: z.array(z.string()).default([]),
+  excluded_urls: z.array(z.string()).default([]),
+  excluded_cookies: z.array(z.string()).default([])
+});
+
+export const CriticalCssConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  inline: z.boolean().default(true),
+  async_load_full: z.boolean().default(true),
+  font_display_swap: z.boolean().default(true),
+  viewports: z.array(ViewportModeSchema).default(['mobile', 'desktop']),
+  custom_css_injections: z.string().optional(),
+  excluded_stylesheets: z.array(z.string()).default([])
+});
+
+export const JavascriptConfigSchema = z.object({
+  execution_mode: z.enum(['none', 'defer', 'interaction_delay']).default('interaction_delay'),
+  delay_timeout_ms: z.number().int().min(0).max(10000).default(3500),
+  preserve_execution_order: z.boolean().default(true),
+  exclusions: z.array(z.string()).default([]),
+  worker_offload: z.array(z.string()).default([])
+});
+
+export const MediaConfigSchema = z.object({
+  auto_fetchpriority_lcp: z.boolean().default(true),
+  preload_lcp_image: z.boolean().default(true),
+  inject_missing_dimensions: z.boolean().default(true),
+  serve_nextgen_formats: z.boolean().default(true),
+  lazyload_images: z.boolean().default(true),
+  lazyload_iframes: z.boolean().default(true),
+  lazyload_offset_px: z.number().int().min(0).max(2000).default(300),
+  excluded_images: z.array(z.string()).default([])
+});
+
+export const DynamicConfigSchema = z.object({
+  speculation_rules_prerender: z.boolean().default(true),
+  speculation_rules_eagerness: z.enum(['immediate', 'eager', 'moderate', 'conservative']).default('moderate'),
+  nonce_ajax_refresh: z.boolean().default(true),
+  cart_micro_hydration: z.boolean().default(true),
+  excluded_prerender_paths: z.array(z.string()).default([])
+});
+
+export const SiteConfigSchema = z.object({
+  version: z.string().default('1.0.0'),
+  preset: PresetTypeSchema.default('ludicrous'),
+  caching: CachingConfigSchema,
+  critical_css: CriticalCssConfigSchema,
+  javascript: JavascriptConfigSchema,
+  media: MediaConfigSchema,
+  dynamic: DynamicConfigSchema
+});
+
+export const HandshakeRequestSchema = z.object({
+  domain: z.string().min(3).max(255),
+  state: z.string().min(10),
+  return_url: z.string().url(),
+  wp_version: z.string().optional(),
+  plugin_version: z.string().optional()
+});
+
+export const OptimizationDispatchSchema = z.object({
+  url: z.string().url(),
+  viewports: z.array(ViewportModeSchema).optional().default(['mobile', 'desktop'])
+});
+
+export const PurgeCacheRequestSchema = z.object({
+  urls: z.array(z.string()).optional(),
+  purge_all: z.boolean().optional().default(false)
+});

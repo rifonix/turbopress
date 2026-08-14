@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "turbopress-edge-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-14",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "turbopress-db",
+      "database_id": "b18efb43-46d8-4273-8fe8-4a82d64238ef",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "e4d1d13005314aebbe15c5606b7ac23b"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS_BUCKET",
+      "bucket_name": "turbopress-assets"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "turbopress-optimization-queue",
+        "binding": "OPTIMIZATION_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "turbopress-optimization-queue",
+        "max_batch_size": 5,
+        "max_batch_timeout": 30,
+        "max_retries": 3,
+        "dead_letter_queue": "turbopress-dlq"
+      }
+    ]
+  },
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "SAAS_APP_URL": "https://app.turbopress.io"
+  }
+}
