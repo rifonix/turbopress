@@ -21,7 +21,7 @@ define('TURBOPRESS_PLUGIN_FILE', __FILE__);
 define('TURBOPRESS_PATH', plugin_dir_path(__FILE__));
 define('TURBOPRESS_URL', plugin_dir_url(__FILE__));
 define('TURBOPRESS_CACHE_DIR', WP_CONTENT_DIR . '/cache/turbopress');
-define('TURBOPRESS_DEFAULT_API_BASE', 'https://api.turbopress.io');
+define('TURBOPRESS_DEFAULT_API_BASE', 'https://turbopress.webaccessibility.workers.dev');
 
 // Autoload Includes
 require_once TURBOPRESS_PATH . 'includes/class-plugin.php';

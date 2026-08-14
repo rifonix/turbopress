@@ -48,6 +48,6 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "SAAS_APP_URL": "https://app.turbopress.io"
+    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev"
   }
 }

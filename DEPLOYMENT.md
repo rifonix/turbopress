@@ -67,7 +67,7 @@ npx wrangler pages deploy dist --project-name=turbopress-app
 
 1. Log into your **Polar.sh Dashboard**.
 2. Navigate to **Settings → Webhooks → Add Webhook**.
-3. Set the Webhook URL: `https://api.turbopress.io/api/v1/billing/polar-webhook`
+3. Set the Webhook URL: `https://turbopress.webaccessibility.workers.dev/api/v1/billing/polar-webhook`
 4. Subscribe to the following events:
    - `subscription.created`
    - `subscription.updated`

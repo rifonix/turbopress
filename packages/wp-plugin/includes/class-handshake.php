@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) {
 class Handshake {
     public const STATE_TRANSIENT_PREFIX = 'tp_auth_state_';
 
-    public static function generate_connect_url(string $saas_app_url = 'https://app.turbopress.io'): string {
+    public static function generate_connect_url(string $saas_app_url = 'https://turbopress.webaccessibility.workers.dev'): string {
         $state = wp_generate_password(32, false);
         set_transient(self::STATE_TRANSIENT_PREFIX . $state, time(), 3600);
 
