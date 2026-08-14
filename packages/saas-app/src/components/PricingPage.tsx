@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Check } from 'lucide-react';
+import { POLAR_PRODUCT_IDS } from '../types';
 
 interface PricingPageProps {
   onSelectPlan: (planId: string, interval: 'monthly' | 'annual') => void;
@@ -12,14 +13,15 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
   const plans = [
     {
       id: 'starter',
-      productId: 'prod_starter_monthly',
-      name: 'Starter',
+      productIdMonthly: POLAR_PRODUCT_IDS.starterMonthly,
+      productIdYearly: POLAR_PRODUCT_IDS.starterYearly,
+      name: 'TurboPress Starter',
       description: 'Perfect for single business sites and solo creators.',
       priceMonthly: 19,
       priceAnnual: 15,
-      slots: '1 production site',
+      slots: '1 production site slot',
       runs: '200 optimization runs / mo',
-      popular: false,
+      popular: true,
       features: [
         '1 WordPress site slot',
         'Free staging development seat',
@@ -31,8 +33,9 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
     },
     {
       id: 'pro',
-      productId: 'prod_pro_monthly',
-      name: 'Pro',
+      productIdMonthly: POLAR_PRODUCT_IDS.proMonthly,
+      productIdYearly: POLAR_PRODUCT_IDS.proYearly,
+      name: 'TurboPress Pro',
       description: 'For growing brands, WooCommerce stores, and power users.',
       priceMonthly: 49,
       priceAnnual: 39,
@@ -51,14 +54,15 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
     },
     {
       id: 'agency',
-      productId: 'prod_agency_monthly',
-      name: 'Agency',
+      productIdMonthly: POLAR_PRODUCT_IDS.agencyMonthly,
+      productIdYearly: POLAR_PRODUCT_IDS.agencyYearly,
+      name: 'TurboPress Agency',
       description: 'For digital agencies and client fleet managers.',
       priceMonthly: 79,
       priceAnnual: 63,
       slots: '10 production sites',
       runs: '2,000 optimization runs / mo',
-      popular: true,
+      popular: false,
       features: [
         '10 WordPress site slots ($7.90/site)',
         'Unlimited free staging seats',
@@ -71,8 +75,9 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
     },
     {
       id: 'enterprise',
-      productId: 'prod_enterprise',
-      name: 'Enterprise',
+      productIdMonthly: 'prod_enterprise',
+      productIdYearly: 'prod_enterprise',
+      name: 'TurboPress Enterprise',
       description: 'For large publishing networks and high-traffic fleets.',
       priceMonthly: null,
       priceAnnual: null,
@@ -131,6 +136,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {plans.map((p) => {
           const price = interval === 'annual' ? p.priceAnnual : p.priceMonthly;
+          const currentProductId = interval === 'annual' ? p.productIdYearly : p.productIdMonthly;
 
           return (
             <div
@@ -162,8 +168,8 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
                   ) : (
                     <span className="font-mono text-2xl font-bold text-[#171717]">Custom</span>
                   )}
-                  <p className="font-mono text-[11px] text-[#71717a] mt-1">
-                    {p.slots} · {p.runs}
+                  <p className="font-mono text-[11px] text-[#71717a] mt-1 truncate" title={currentProductId}>
+                    {p.slots}
                   </p>
                 </div>
 
@@ -209,7 +215,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
               Do I need to change my nameservers or DNS?
             </h4>
             <p className="text-[#71717a] leading-relaxed">
-              No. Turbopress runs as a lightweight WordPress drop-in client paired with Cloudflare Workers. Your DNS and web host remain 100% unchanged.
+              No. TurboPress runs as a lightweight WordPress drop-in client paired with Cloudflare Workers. Your DNS and web host remain 100% unchanged.
             </p>
           </div>
           <div>

@@ -3,23 +3,26 @@ import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { OverviewTab } from './components/OverviewTab';
 import { SitesTab } from './components/SitesTab';
+import { SiteDetailPage } from './components/SiteDetailPage';
 import { JobsTab } from './components/JobsTab';
 import { BillingTab } from './components/BillingTab';
 import { PricingPage } from './components/PricingPage';
 import { ConnectFlow } from './components/ConnectFlow';
+import { OnboardingFlow } from './components/OnboardingFlow';
+import { AuthLanding } from './components/AuthLanding';
 import { CommandPalette } from './components/CommandPalette';
 import { ToastContainer } from './components/ToastContainer';
-import { SiteDetailModal } from './components/SiteDetailModal';
 import { AuthModal } from './components/AuthModal';
-import { AppView, ExtendedSite, OptimizationJobItem, ToastMessage, SitePreset } from './types';
+import { AppView, ExtendedSite, OptimizationJobItem, ToastMessage, SitePreset, POLAR_PRODUCT_IDS } from './types';
 import { useAuth } from '@clerk/clerk-react';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'https://turbopress.webaccessibility.workers.dev';
 
 export function App() {
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
 
   const [currentView, setCurrentView] = useState<AppView>('overview');
+  const [isDemoBypassed, setIsDemoBypassed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCmdkOpen, setIsCmdkOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -74,7 +77,11 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 96,
+      mobileScore: 96,
+      desktopScore: 99,
       lcp: 1.4,
+      cls: 0.01,
+      ttfbMs: 14,
       cacheHitRate: 94,
       lastJobTime: '2h ago',
       status: 'optimized',
@@ -137,6 +144,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 91,
+      mobileScore: 91,
+      desktopScore: 97,
       lcp: 1.8,
       cacheHitRate: 91,
       lastJobTime: '5h ago',
@@ -200,6 +209,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 74,
+      mobileScore: 74,
+      desktopScore: 88,
       lcp: 2.6,
       cacheHitRate: 88,
       lastJobTime: 'running',
@@ -263,6 +274,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 58,
+      mobileScore: 58,
+      desktopScore: 72,
       lcp: 3.9,
       cacheHitRate: 76,
       lastJobTime: 'failed',
@@ -326,6 +339,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 88,
+      mobileScore: 88,
+      desktopScore: 95,
       lcp: 2.1,
       cacheHitRate: 90,
       lastJobTime: '1d ago',
@@ -343,6 +358,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 84,
+      mobileScore: 84,
+      desktopScore: 92,
       lcp: 2.3,
       cacheHitRate: 89,
       lastJobTime: '1d ago',
@@ -360,6 +377,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 41,
+      mobileScore: 41,
+      desktopScore: 60,
       lcp: 4.2,
       cacheHitRate: 0,
       lastJobTime: '6d ago',
@@ -377,6 +396,8 @@ export function App() {
       created_at: 1723650000,
       updated_at: 1723650000,
       score: 93,
+      mobileScore: 93,
+      desktopScore: 98,
       lcp: 1.6,
       cacheHitRate: 95,
       lastJobTime: '3h ago',
@@ -438,6 +459,14 @@ export function App() {
       addToast(`Connecting to Polar.sh Checkout (${planId.toUpperCase()})…`);
       const token = (await getToken()) || 'mock_demo_jwt';
 
+      // Pick exact Polar Product ID
+      const targetProductId =
+        planId === 'starter'
+          ? interval === 'annual'
+            ? POLAR_PRODUCT_IDS.starterYearly
+            : POLAR_PRODUCT_IDS.starterMonthly
+          : `prod_${planId}_${interval}`;
+
       const res = await fetch(`${API_BASE}/api/v1/billing/checkout`, {
         method: 'POST',
         headers: {
@@ -445,7 +474,7 @@ export function App() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          productId: `prod_${planId}_${interval}`,
+          productId: targetProductId,
           successUrl: `${window.location.origin}/?billing_success=true`,
         }),
       });
@@ -454,6 +483,7 @@ export function App() {
       if (data.success && data.data?.checkoutUrl) {
         window.location.href = data.data.checkoutUrl;
       } else {
+        // Fallback for demonstration / sandbox preview
         addToast(`Redirecting to Polar Sandbox (${planId})`);
         window.open(`https://buy.polar.sh/turbopress-${planId}`, '_blank');
       }
@@ -526,6 +556,8 @@ export function App() {
       created_at: Math.floor(Date.now() / 1000),
       updated_at: Math.floor(Date.now() / 1000),
       score: 95,
+      mobileScore: 95,
+      desktopScore: 99,
       lcp: 1.5,
       cacheHitRate: 100,
       lastJobTime: 'just now',
@@ -665,11 +697,25 @@ export function App() {
     );
   };
 
+  // If unauthenticated and demo not bypassed, render dedicated Auth Landing
+  if (!isSignedIn && !isDemoBypassed && currentView === 'login') {
+    return (
+      <AuthLanding
+        onBypassDemo={() => {
+          setIsDemoBypassed(true);
+          setCurrentView('overview');
+        }}
+        onToast={addToast}
+      />
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-[#f8f8f7]">
-      {/* Sidebar Navigation */}
+      {/* Fixed Sticky Sidebar Navigation */}
       <Sidebar
         currentView={currentView}
+        selectedSite={selectedSite}
         onNavigate={(view) => setCurrentView(view)}
         siteCount={sites.length}
         jobCount={jobs.length}
@@ -690,7 +736,10 @@ export function App() {
           {currentView === 'overview' && (
             <OverviewTab
               sites={sites}
-              onSelectSite={(site) => setSelectedSite(site)}
+              onSelectSite={(site) => {
+                setSelectedSite(site);
+                setCurrentView('site-detail');
+              }}
               onNavigateToJobs={() => setCurrentView('jobs')}
               onNavigateToConnect={() => setCurrentView('connect')}
               onPurgeSite={handlePurgeSite}
@@ -702,9 +751,23 @@ export function App() {
           {currentView === 'sites' && (
             <SitesTab
               sites={sites}
-              onSelectSite={(site) => setSelectedSite(site)}
+              onSelectSite={(site) => {
+                setSelectedSite(site);
+                setCurrentView('site-detail');
+              }}
               onNavigateToConnect={() => setCurrentView('connect')}
               onPurgeSite={handlePurgeSite}
+              onRunOptimization={handleRunOptimization}
+              onToast={addToast}
+            />
+          )}
+
+          {currentView === 'site-detail' && selectedSite && (
+            <SiteDetailPage
+              site={selectedSite}
+              onBack={() => setCurrentView('sites')}
+              onUpdatePreset={handleUpdatePreset}
+              onPurgeCache={handlePurgeSite}
               onRunOptimization={handleRunOptimization}
               onToast={addToast}
             />
@@ -747,6 +810,14 @@ export function App() {
               onToast={addToast}
             />
           )}
+
+          {currentView === 'onboarding' && (
+            <OnboardingFlow
+              onComplete={() => setCurrentView('overview')}
+              onSelectPlan={handleSelectPlan}
+              onToast={addToast}
+            />
+          )}
         </main>
       </div>
 
@@ -756,22 +827,13 @@ export function App() {
         onClose={() => setIsCmdkOpen(false)}
         sites={sites}
         onNavigate={(view) => setCurrentView(view)}
-        onSelectSite={(site) => setSelectedSite(site)}
+        onSelectSite={(site) => {
+          setSelectedSite(site);
+          setCurrentView('site-detail');
+        }}
         onTriggerPurgeAll={() => addToast('Fleet-wide edge cache purge queued')}
         onDispatchJob={(domain) => handleRunOptimization(domain)}
       />
-
-      {/* Site Detail & Optimization Configuration Modal */}
-      {selectedSite && (
-        <SiteDetailModal
-          site={selectedSite}
-          onClose={() => setSelectedSite(null)}
-          onUpdatePreset={handleUpdatePreset}
-          onPurgeCache={handlePurgeSite}
-          onRunOptimization={handleRunOptimization}
-          onToast={addToast}
-        />
-      )}
 
       {/* Auth Modal (Sign in / Sign up) */}
       <AuthModal
