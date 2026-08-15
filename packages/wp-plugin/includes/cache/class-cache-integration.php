@@ -50,6 +50,12 @@ class CacheIntegration {
     ];
 
     public function init(): void {
+        // Self-heal: an outdated Turbopress drop-in (e.g. left by a plugin
+        // update that couldn't rewrite it) is upgraded on admin requests.
+        if (is_admin() && !self::is_our_dropin_installed() && self::dropin_is_turbopress()) {
+            self::install_dropin();
+        }
+
         // Mirror foreign plugin purges into our page cache.
         foreach (self::FOREIGN_PURGE_ACTIONS as $action) {
             add_action($action, [$this, 'mirror_foreign_purge']);
@@ -82,8 +88,19 @@ class CacheIntegration {
     }
 
     /**
+     * Does the installed drop-in carry the Turbopress signature? Catches
+     * LEGACY Turbopress drop-ins (older plugin versions) and files whose
+     * bytes drifted (FTP line-ending rewrites) — these are ours to manage,
+     * never a foreign conflict.
+     */
+    private static function dropin_is_turbopress(?string $content = null): bool {
+        $content ??= ((string) @file_get_contents(self::dropin_path()));
+        return $content !== '' && stripos($content, 'turbopress') !== false;
+    }
+
+    /**
      * Identify foreign ownership of the installed drop-in.
-     * Returns owner key or null when absent/ours/unknown.
+     * Returns owner key or null when absent/ours (current OR legacy).
      */
     public static function detect_foreign_dropin(): ?array {
         $dest = self::dropin_path();
@@ -92,6 +109,13 @@ class CacheIntegration {
         }
 
         $content = (string) @file_get_contents($dest);
+
+        // Turbopress-signed file (e.g. a 1.1.0 drop-in left after update):
+        // outdated but OURS — upgradable, never a foreign conflict.
+        if (self::dropin_is_turbopress($content)) {
+            return null;
+        }
+
         foreach (self::FOREIGN_OWNERS as $key => $meta) {
             foreach ($meta['markers'] as $marker) {
                 if (stripos($content, $marker) !== false) {
@@ -105,14 +129,21 @@ class CacheIntegration {
     }
 
     /**
-     * Install our drop-in only when the slot is free (or already ours).
-     * Returns true when our drop-in ends up installed afterwards.
+     * Install our drop-in when the slot is free OR holds a Turbopress
+     * (possibly legacy) file. Returns true when our current drop-in ends
+     * up installed afterwards.
      */
     public static function install_dropin(): bool {
         $foreign = self::detect_foreign_dropin();
         if ($foreign !== null) {
             update_option(self::CONFLICT_OPTION, $foreign + ['detected_at' => time()]);
             return false;
+        }
+
+        // Up-to-date already: nothing to do.
+        if (self::is_our_dropin_installed()) {
+            delete_option(self::CONFLICT_OPTION);
+            return true;
         }
 
         $copied = @copy(self::source_path(), self::dropin_path());
@@ -125,10 +156,11 @@ class CacheIntegration {
     }
 
     /**
-     * Remove our drop-in — but never touch a file owned by another plugin.
+     * Remove our drop-in — current, legacy Turbopress-signed versions, but
+     * never a file owned by another plugin.
      */
     public static function remove_dropin(): bool {
-        if (self::is_our_dropin_installed()) {
+        if (self::is_our_dropin_installed() || self::dropin_is_turbopress()) {
             return @unlink(self::dropin_path());
         }
         return false; // Foreign or missing: not ours to delete.
@@ -152,12 +184,14 @@ class CacheIntegration {
      */
     public static function get_status(): array {
         $foreign = self::detect_foreign_dropin();
+        $current = self::is_our_dropin_installed();
         return [
-            'dropin_installed' => self::is_our_dropin_installed(),
+            'dropin_installed' => $current,
             'dropin_present' => file_exists(self::dropin_path()),
+            'dropin_outdated' => !$current && $foreign === null && self::dropin_is_turbopress(),
             'foreign_owner' => $foreign['label'] ?? null,
             'wp_cache_constant' => defined('WP_CACHE') && WP_CACHE,
-            'turbopress_serving' => self::is_our_dropin_installed() && (defined('WP_CACHE') && WP_CACHE),
+            'turbopress_serving' => $current && (defined('WP_CACHE') && WP_CACHE),
         ];
     }
 
