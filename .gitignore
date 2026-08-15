@@ -37,3 +37,7 @@ Thumbs.db
 
 # WordPress Cache Test Dirs
 wp-content/cache/
+
+# Reference plugin sources (local only, never commit)
+packages/nitropack/
+packages/airlift/
