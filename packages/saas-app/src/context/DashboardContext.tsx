@@ -91,7 +91,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [isSignedIn, jobs, pathname, refreshFleetData]);
 
   // Actions
-  const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual') => {
+  const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => {
     try {
       addToast(`Initializing Polar checkout for ${planId.toUpperCase()}…`, 'info');
       const token = await getToken();
@@ -103,14 +103,14 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             : POLAR_PRODUCT_IDS.starterMonthly
           : `prod_${planId}_${interval}`;
 
-      const res = await api.createCheckout(token, targetProductId);
+      const res = await api.createCheckout(token, targetProductId, returnTo);
       if (res?.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       } else {
-        window.open(`https://buy.polar.sh/turbopress-${planId}`, '_blank');
+        addToast('Unable to initialize Polar checkout session', 'error');
       }
-    } catch {
-      window.open(`https://buy.polar.sh/turbopress-${planId}`, '_blank');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to initialize Polar checkout session', 'error');
     }
   };
 
@@ -124,8 +124,8 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       } else {
         window.open('https://polar.sh/purchases', '_blank');
       }
-    } catch {
-      window.open('https://polar.sh/purchases', '_blank');
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to open customer portal', 'error');
     }
   };
 
@@ -136,8 +136,8 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   ): Promise<string> => {
     const token = await getToken();
     const res = await api.pairSite(token, {
-      site_url: domain.startsWith('http') ? domain : `https://${domain}`,
-      state_nonce: state,
+      domain,
+      state,
       return_url: returnUrl,
     });
 

@@ -5,12 +5,14 @@ import { Check, Zap, ArrowLeft, Play } from 'lucide-react';
 import { POLAR_PRODUCT_IDS } from '../types';
 
 interface OnboardingFlowProps {
+  hasActivePlan?: boolean;
   onComplete: () => void;
-  onSelectPlan: (planId: string, interval: 'monthly' | 'annual') => void;
-  onToast: (msg: string) => void;
+  onSelectPlan: (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => void;
+  onToast: (msg: string, type?: 'success' | 'info' | 'error') => void;
 }
 
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
+  hasActivePlan = false,
   onComplete,
   onSelectPlan,
   onToast,
@@ -34,6 +36,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }, 2400);
   };
 
+  const handleProceedToConnect = () => {
+    if (!hasActivePlan) {
+      onToast('Please activate a TurboPress plan to proceed with site connection', 'error');
+      return;
+    }
+    setStep(2);
+  };
+
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-fade-in py-4">
       {/* Onboarding Progress Bar */}
@@ -42,12 +52,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           <span className="w-2 h-2 rounded-full bg-[#f03e2f] animate-pulse" />
           <strong className="text-[#171717]">TurboPress Onboarding</strong> · Step {step} of 4
         </span>
-        <button
-          onClick={onComplete}
-          className="text-[#71717a] hover:text-[#171717] underline text-xs"
-        >
-          Skip to Dashboard →
-        </button>
+        {hasActivePlan && (
+          <button
+            onClick={onComplete}
+            className="text-[#71717a] hover:text-[#171717] underline text-xs"
+          >
+            Skip to Dashboard →
+          </button>
+        )}
       </div>
 
       {/* STEP 1: CHOOSE PLAN & PURCHASE */}
@@ -58,91 +70,114 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               Step 1
             </span>
             <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">
-              Choose your TurboPress Plan
+              {hasActivePlan ? 'Your TurboPress Plan is Active' : 'Choose your TurboPress Plan'}
             </h2>
             <p className="text-[13.5px] text-[#71717a]">
-              Instant access to sub-15ms edge caching and Chromium Critical CSS pipeline.
+              {hasActivePlan
+                ? 'Your account is ready for 1-Click Zero-DNS edge optimization.'
+                : 'An active plan is required to unlock sub-15ms edge caching and Critical CSS extraction.'}
             </p>
           </div>
 
-          {/* Monthly / Annual Toggle */}
-          <div className="flex items-center justify-center sm:justify-start gap-3 pt-1">
-            <span className={`text-xs font-medium ${billingInterval === 'monthly' ? 'text-[#171717]' : 'text-[#71717a]'}`}>
-              Monthly
-            </span>
-            <button
-              onClick={() => setBillingInterval(billingInterval === 'monthly' ? 'annual' : 'monthly')}
-              className={`w-11 h-6 rounded-full p-1 transition-colors border ${
-                billingInterval === 'annual' ? 'bg-[#171717] border-[#171717]' : 'bg-[#e4e4e7] border-[#d4d4d8]'
-              }`}
-            >
-              <div
-                className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                  billingInterval === 'annual' ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-            <span className={`text-xs font-medium ${billingInterval === 'annual' ? 'text-[#171717]' : 'text-[#71717a]'}`}>
-              Annual <span className="text-[#16a34a] font-bold">(Save 20%)</span>
-            </span>
-          </div>
-
-          {/* Starter Plan Featured Card */}
-          <div className="p-6 rounded-2xl border-2 border-[#f03e2f] bg-[#fff1ef]/30 space-y-4 relative">
-            <span className="font-mono text-[10px] font-bold uppercase tracking-wider bg-[#f03e2f] text-white px-2.5 py-0.5 rounded-full absolute top-4 right-4">
-              Recommended
-            </span>
-            <div>
-              <h3 className="text-lg font-semibold text-[#171717]">TurboPress Starter</h3>
-              <p className="text-xs text-[#71717a] mt-0.5">
-                Product ID: <code>{billingInterval === 'monthly' ? POLAR_PRODUCT_IDS.starterMonthly : POLAR_PRODUCT_IDS.starterYearly}</code>
-              </p>
-              <div className="flex items-baseline gap-1 mt-3">
-                <span className="font-mono text-3xl font-bold text-[#171717]">
-                  ${billingInterval === 'monthly' ? '19' : '15'}
+          {hasActivePlan ? (
+            <div className="p-6 rounded-2xl border border-[#dcfce7] bg-[#f0fdf4] space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="w-8 h-8 rounded-full bg-[#16a34a] text-white flex items-center justify-center">
+                  <Check className="w-5 h-5" />
                 </span>
-                <span className="font-mono text-xs text-[#71717a]">/ month</span>
+                <div>
+                  <h3 className="font-semibold text-sm text-[#166534]">Active Subscription Confirmed</h3>
+                  <p className="text-xs text-[#15803d]">You are ready to connect your WordPress site.</p>
+                </div>
               </div>
+              <button
+                onClick={() => setStep(2)}
+                className="w-full btn btn-primary py-2.5 text-xs font-semibold"
+              >
+                Continue to Connect WordPress Site →
+              </button>
             </div>
+          ) : (
+            <>
+              {/* Monthly / Annual Toggle */}
+              <div className="flex items-center justify-center sm:justify-start gap-3 pt-1">
+                <span
+                  className={`text-xs font-medium ${
+                    billingInterval === 'monthly' ? 'text-[#171717]' : 'text-[#71717a]'
+                  }`}
+                >
+                  Monthly
+                </span>
+                <button
+                  onClick={() =>
+                    setBillingInterval(billingInterval === 'monthly' ? 'annual' : 'monthly')
+                  }
+                  className={`w-11 h-6 rounded-full p-1 transition-colors border ${
+                    billingInterval === 'annual'
+                      ? 'bg-[#171717] border-[#171717]'
+                      : 'bg-[#e4e4e7] border-[#d4d4d8]'
+                  }`}
+                >
+                  <div
+                    className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                      billingInterval === 'annual' ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+                <span
+                  className={`text-xs font-medium ${
+                    billingInterval === 'annual' ? 'text-[#171717]' : 'text-[#71717a]'
+                  }`}
+                >
+                  Annual <span className="text-[#16a34a] font-bold">(Save 20%)</span>
+                </span>
+              </div>
 
-            <ul className="space-y-2 text-xs text-[#3f3f46]">
-              <li className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                <span>1 Production WordPress site slot</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                <span>Unlimited free local and staging seats</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                <span>200 Cloudflare Chromium Puppeteer runs / month</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                <span>Sub-15ms advanced-cache.php drop-in caching</span>
-              </li>
-            </ul>
+              {/* Starter Plan Featured Card */}
+              <div className="p-6 rounded-2xl border-2 border-[#f03e2f] bg-[#fff1ef]/30 space-y-4 relative">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider bg-[#f03e2f] text-white px-2.5 py-0.5 rounded-full absolute top-4 right-4">
+                  Recommended
+                </span>
+                <div>
+                  <h3 className="text-lg font-semibold text-[#171717]">TurboPress Starter</h3>
+                  <div className="flex items-baseline gap-1 mt-3">
+                    <span className="font-mono text-3xl font-bold text-[#171717]">
+                      ${billingInterval === 'monthly' ? '19' : '15'}
+                    </span>
+                    <span className="font-mono text-xs text-[#71717a]">/ month</span>
+                  </div>
+                </div>
 
-            <button
-              onClick={() => {
-                onSelectPlan('starter', billingInterval);
-                setStep(2);
-              }}
-              className="w-full btn btn-primary py-2 text-xs font-semibold"
-            >
-              Activate Starter via Polar Checkout →
-            </button>
-          </div>
+                <ul className="space-y-2 text-xs text-[#3f3f46]">
+                  <li className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
+                    <span>1 Production WordPress site slot</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
+                    <span>Unlimited free local and staging seats</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
+                    <span>200 Cloudflare Chromium Puppeteer runs / month</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
+                    <span>Sub-15ms advanced-cache.php drop-in caching</span>
+                  </li>
+                </ul>
 
-          <div className="text-center pt-2">
-            <button
-              onClick={() => setStep(2)}
-              className="text-xs text-[#71717a] hover:text-[#171717] underline"
-            >
-              I already purchased / Continue to site setup →
-            </button>
-          </div>
+                <button
+                  onClick={() => {
+                    onSelectPlan('starter', billingInterval, '/onboarding');
+                  }}
+                  className="w-full btn btn-primary py-2.5 text-xs font-semibold"
+                >
+                  Activate Starter Plan via Polar Checkout →
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

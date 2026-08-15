@@ -69,19 +69,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">
-                  {planName}
+                  {billingData?.hasActivePlan ? planName : 'No Active Plan'}
                 </h2>
                 <p className="font-mono text-base text-[#3f3f46] mt-1">
-                  ${priceMonthly}<span className="text-xs text-[#71717a]">/mo</span>
+                  ${billingData?.hasActivePlan ? priceMonthly : 0}
+                  <span className="text-xs text-[#71717a]">/mo</span>
                 </p>
               </div>
-              <span className="chip chip-success">
-                <span className="chip-dot" /> Active
+              <span className={`chip ${billingData?.hasActivePlan ? 'chip-success' : 'chip-neutral'}`}>
+                {billingData?.hasActivePlan && <span className="chip-dot" />}
+                {billingData?.hasActivePlan ? 'Active' : 'Inactive'}
               </span>
             </div>
 
             <p className="meta mt-3 mb-4">
-              Subscription ID: <code>{subId}</code>
+              Subscription ID: <code>{billingData?.hasActivePlan ? subId : 'None'}</code>
             </p>
 
             <ul className="space-y-2 text-[13.5px] text-[#3f3f46]">
@@ -105,13 +107,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
 
           <div className="pt-6 mt-6 border-t border-[#f1f1f2] flex items-center gap-3">
-            <button onClick={onOpenPortal} className="btn btn-secondary text-xs sm:text-[13px]">
-              <span>Manage on Polar</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={onNavigateToPricing} className="btn btn-ghost text-xs sm:text-[13px]">
-              Change plan
-            </button>
+            {billingData?.hasActivePlan ? (
+              <>
+                <button onClick={onOpenPortal} className="btn btn-secondary text-xs sm:text-[13px]">
+                  <span>Manage on Polar</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={onNavigateToPricing} className="btn btn-ghost text-xs sm:text-[13px]">
+                  Change plan
+                </button>
+              </>
+            ) : (
+              <button onClick={onNavigateToPricing} className="btn btn-primary text-xs sm:text-[13px]">
+                Choose a Plan & Activate →
+              </button>
+            )}
           </div>
         </div>
 

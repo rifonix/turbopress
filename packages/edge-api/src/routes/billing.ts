@@ -25,7 +25,7 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
   const userEmail = c.get('userEmail') || 'customer@turbopress.io';
 
   const subscription = await c.env.DB.prepare(
-    'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+    'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
   )
     .bind(userId)
     .first<{
@@ -51,40 +51,70 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
     .bind(userId)
     .first<{ monthly_runs: number }>();
 
-  const planId = subscription?.plan_id || 'plan_starter';
-  const planName = planId.includes('enterprise')
+  const activeSites = countRow?.active_sites || 0;
+  const monthlyRuns = jobsCountRow?.monthly_runs || 0;
+
+  if (!subscription) {
+    return c.json({
+      success: true,
+      data: {
+        hasActivePlan: false,
+        subscription: null,
+        plan: {
+          id: 'none',
+          name: 'No Active Plan',
+          priceMonthly: 0,
+          status: 'inactive',
+          maxSites: 0,
+          usedSites: activeSites,
+          maxRuns: 0,
+          usedRuns: monthlyRuns,
+          currentPeriodEnd: 0,
+        },
+        customer: {
+          userId,
+          email: userEmail,
+        },
+      },
+    });
+  }
+
+  const planId = subscription.plan_id;
+  const isStarter =
+    planId === 'ca0c63de-5a98-4829-8b0f-8e81f579b58a' ||
+    planId === '3907e862-b1e1-4006-9289-040cabe18c2d' ||
+    planId.includes('starter');
+  const isAgency = planId.includes('agency');
+  const isEnterprise = planId.includes('enterprise');
+  const isPro = planId.includes('pro');
+
+  const planName = isEnterprise
     ? 'Enterprise Plan'
-    : planId.includes('agency')
+    : isAgency
     ? 'Agency Plan'
-    : planId.includes('pro')
+    : isPro
     ? 'Pro Plan'
     : 'Starter Plan';
 
-  const maxSites = subscription?.max_sites || 5;
-  const activeSites = countRow?.active_sites || 0;
-  const monthlyRuns = Math.max(12, jobsCountRow?.monthly_runs || 0);
-  const maxRuns = planId.includes('agency') ? 2000 : planId.includes('enterprise') ? 10000 : 500;
+  const maxSites = subscription.max_sites || (isAgency ? 25 : isEnterprise ? 100 : isPro ? 10 : 5);
+  const maxRuns = isAgency ? 2000 : isEnterprise ? 10000 : isPro ? 1000 : 500;
+  const priceMonthly = isAgency ? 79 : isEnterprise ? 299 : isPro ? 49 : 19;
 
   return c.json({
     success: true,
     data: {
-      subscription: subscription || {
-        id: `sub_starter_${userId}`,
-        plan_id: 'plan_starter',
-        status: 'active',
-        max_sites: 5,
-        current_period_end: Math.floor(Date.now() / 1000) + 86400 * 365,
-      },
+      hasActivePlan: true,
+      subscription,
       plan: {
         id: planId,
         name: planName,
-        priceMonthly: planId.includes('agency') ? 79 : planId.includes('enterprise') ? 299 : 19,
-        status: subscription?.status || 'active',
+        priceMonthly,
+        status: subscription.status,
         maxSites,
         usedSites: activeSites,
         maxRuns,
         usedRuns: monthlyRuns,
-        currentPeriodEnd: subscription?.current_period_end || Math.floor(Date.now() / 1000) + 86400 * 30,
+        currentPeriodEnd: subscription.current_period_end,
       },
       customer: {
         userId,
@@ -103,20 +133,26 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const userEmail = c.get('userEmail') || 'customer@turbopress.io';
   const body = await c.req.json().catch(() => ({}));
   const productId = body.productId || body.product_id;
+  const returnTo = body.returnTo || body.return_to;
 
   if (!productId) {
     return c.json({ success: false, error: 'Missing productId' }, 400);
   }
 
   const polar = getPolarClient(c.env);
-  const saasUrl = c.env.SAAS_APP_URL || 'https://app.turbopress.io';
-  const successUrl = `${saasUrl}/billing?success=1&checkoutId={CHECKOUT_ID}`;
+  const saasUrl = c.env.SAAS_APP_URL || 'https://turbopress.webaccessibility.workers.dev';
+  const successUrl = returnTo
+    ? `${saasUrl}${returnTo.startsWith('/') ? returnTo : `/${returnTo}`}${
+        returnTo.includes('?') ? '&' : '?'
+      }checkout_success=1&checkoutId={CHECKOUT_ID}`
+    : `${saasUrl}/billing?success=1&checkoutId={CHECKOUT_ID}`;
 
   try {
     const session = await polar.checkouts.create({
       products: [productId],
       successUrl,
       customerEmail: userEmail,
+      customerExternalId: userId,
       metadata: {
         userId,
         source: 'turbopress_saas_checkout',
@@ -143,11 +179,10 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
 billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
   const polar = getPolarClient(c.env);
-  const saasUrl = c.env.SAAS_APP_URL || 'https://app.turbopress.io';
 
   try {
     const session = await polar.customerSessions.create({
-      customerId: userId,
+      customerExternalId: userId,
     });
 
     return c.json({
@@ -218,14 +253,20 @@ billingRoutes.post('/polar-webhook', async (c) => {
       case 'subscription.updated':
       case 'subscription.active': {
         const subId = data.id;
-        const customerId = data.customer_id || data.customerId || data.user_id;
+        const customerId = data.customer_id || data.customerId;
+        const externalCustomerId =
+          data.customer?.external_id ||
+          data.customer?.externalCustomerId ||
+          data.metadata?.userId ||
+          data.external_customer_id;
+        const customerEmail = data.customer?.email || '';
         const status = data.status || 'active';
         const planId = data.product_id || data.productId || data.plan_id || 'plan_starter';
         const currentPeriodEnd = data.current_period_end || data.currentPeriodEnd
           ? Math.floor(new Date(data.current_period_end || data.currentPeriodEnd).getTime() / 1000)
           : Math.floor(Date.now() / 1000) + 86400 * 30;
 
-        // Determine max site slots based on product name / metadata
+        // Determine max site slots based on product ID / name
         let maxSites = 5;
         const productName = (data.product?.name || '').toLowerCase();
         if (productName.includes('agency') || planId.includes('agency')) {
@@ -236,20 +277,37 @@ billingRoutes.post('/polar-webhook', async (c) => {
           maxSites = 10;
         }
 
-        // Find user by polar_customer_id or email
-        const user = await c.env.DB.prepare(
-          'SELECT id FROM users WHERE polar_customer_id = ? OR email = ?'
-        )
-          .bind(customerId, data.customer?.email || '')
-          .first<{ id: string }>();
+        // Find or create user
+        let userId = externalCustomerId;
+        if (!userId) {
+          const existingUser = await c.env.DB.prepare(
+            'SELECT id FROM users WHERE polar_customer_id = ? OR email = ?'
+          )
+            .bind(customerId || '', customerEmail)
+            .first<{ id: string }>();
 
-        const userId = user?.id || `user_${customerId}`;
+          userId = existingUser?.id || `user_${customerId || Date.now()}`;
+        }
+
+        if (customerEmail) {
+          await c.env.DB.prepare(`
+            INSERT INTO users (id, email, polar_customer_id, updated_at)
+            VALUES (?, ?, ?, unixepoch())
+            ON CONFLICT(id) DO UPDATE SET
+              email = excluded.email,
+              polar_customer_id = coalesce(excluded.polar_customer_id, polar_customer_id),
+              updated_at = unixepoch()
+          `)
+            .bind(userId, customerEmail, customerId || null)
+            .run();
+        }
 
         // Upsert subscription
         await c.env.DB.prepare(`
           INSERT INTO subscriptions (id, user_id, plan_id, status, max_sites, current_period_end, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, unixepoch())
           ON CONFLICT(id) DO UPDATE SET
+            user_id = excluded.user_id,
             status = excluded.status,
             plan_id = excluded.plan_id,
             max_sites = excluded.max_sites,

@@ -63,13 +63,30 @@ export const SiteConfigSchema = z.object({
   dynamic: DynamicConfigSchema
 });
 
-export const HandshakeRequestSchema = z.object({
-  domain: z.string().min(3).max(255),
-  state: z.string().min(10),
-  return_url: z.string().url(),
-  wp_version: z.string().optional(),
-  plugin_version: z.string().optional()
-});
+export const HandshakeRequestSchema = z
+  .object({
+    domain: z.string().optional(),
+    site_url: z.string().optional(),
+    state: z.string().optional(),
+    state_nonce: z.string().optional(),
+    return_url: z.string(),
+    wp_version: z.string().optional(),
+    plugin_version: z.string().optional(),
+  })
+  .transform((data) => {
+    const rawDomain = data.domain || data.site_url || '';
+    const cleanDomain = rawDomain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim().toLowerCase();
+    const cleanState = data.state || data.state_nonce || '';
+    return {
+      domain: cleanDomain,
+      state: cleanState,
+      return_url: data.return_url,
+      wp_version: data.wp_version,
+      plugin_version: data.plugin_version,
+    };
+  })
+  .refine((data) => data.domain.length >= 3, { message: 'A valid domain is required' })
+  .refine((data) => data.state.length >= 6, { message: 'A valid state nonce is required' });
 
 export const OptimizationDispatchSchema = z.object({
   url: z.string().url(),

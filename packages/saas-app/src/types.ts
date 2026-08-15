@@ -81,7 +81,8 @@ export interface PlanDetails {
 }
 
 export interface BillingStatusData {
-  subscription: Subscription;
+  hasActivePlan: boolean;
+  subscription: Subscription | null;
   plan: PlanDetails;
   customer: {
     userId: string;
@@ -94,7 +95,8 @@ export interface UserProfileData {
     id: string;
     email: string;
   };
-  subscription: Subscription;
+  hasActivePlan: boolean;
+  subscription: Subscription | null;
   siteCount: number;
 }
 
@@ -113,7 +115,7 @@ export interface DashboardContextType {
   handleUpdateConfig: (siteId: string, config: SiteConfig) => Promise<void>;
   handleDispatchNewJob: (url: string, viewport: 'mobile' | 'desktop') => Promise<void>;
   handleRerunJob: (jobId: string) => Promise<void>;
-  handleSelectPlan: (planId: string, interval: 'monthly' | 'annual') => Promise<void>;
+  handleSelectPlan: (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => Promise<void>;
   handleOpenPortal: () => Promise<void>;
   handleAuthorizeConnect: (domain: string, state: string, returnUrl: string) => Promise<string>;
 }

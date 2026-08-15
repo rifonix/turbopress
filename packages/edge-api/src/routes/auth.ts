@@ -31,24 +31,26 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     .bind(userId, userEmail)
     .run();
 
-  // 2. Check Polar Subscription / Entitlements
+  // 2. Check Polar Subscription / Entitlements (PLAN GATING)
   const subscription = await c.env.DB.prepare(
     'SELECT id, plan_id, status, max_sites FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
   )
     .bind(userId)
     .first<{ id: string; plan_id: string; status: string; max_sites: number }>();
 
-  // Default demo / starter subscription if none yet created
-  const subscriptionId = subscription?.id || `sub_starter_${userId}`;
-  const maxSites = subscription?.max_sites || 5;
-
   if (!subscription) {
-    await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO subscriptions (id, user_id, plan_id, status, max_sites, current_period_end) VALUES (?, ?, ?, ?, ?, ?)'
-    )
-      .bind(subscriptionId, userId, 'plan_starter', 'active', maxSites, Math.floor(Date.now() / 1000) + 86400 * 365)
-      .run();
+    return c.json(
+      {
+        success: false,
+        code: 'SUBSCRIPTION_REQUIRED',
+        error: 'Active subscription required. Please purchase a TurboPress plan to connect your WordPress site.',
+      },
+      402
+    );
   }
+
+  const subscriptionId = subscription.id;
+  const maxSites = subscription.max_sites || 5;
 
   // 3. Check site count limit
   const countResult = await c.env.DB.prepare(
@@ -132,6 +134,22 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     { expirationTtl: 3600 }
   );
 
+  // 7. Construct Callback URL for WordPress return
+  let callbackUrl = payload.return_url;
+  try {
+    const parsed = new URL(payload.return_url);
+    parsed.searchParams.set('turbopress_pair', '1');
+    parsed.searchParams.set('state', payload.state);
+    parsed.searchParams.set('api_key', apiKey);
+    parsed.searchParams.set('site_id', activeSiteId);
+    callbackUrl = parsed.toString();
+  } catch {
+    const sep = payload.return_url.includes('?') ? '&' : '?';
+    callbackUrl = `${payload.return_url}${sep}turbopress_pair=1&state=${encodeURIComponent(
+      payload.state
+    )}&api_key=${encodeURIComponent(apiKey)}&site_id=${encodeURIComponent(activeSiteId)}`;
+  }
+
   return c.json({
     success: true,
     data: {
@@ -139,6 +157,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       domain,
       apiKey,
       config: initialConfig,
+      callback_url: callbackUrl,
       message: 'Site successfully paired with Turbopress Edge Engine',
     },
   });
@@ -189,7 +208,7 @@ authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
     .first();
 
   const subscription = await c.env.DB.prepare(
-    'SELECT * FROM subscriptions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+    'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
   )
     .bind(userId)
     .first();
@@ -208,13 +227,8 @@ authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
         email: userEmail,
         ...(user || {}),
       },
-      subscription: subscription || {
-        id: `sub_starter_${userId}`,
-        plan_id: 'plan_starter',
-        status: 'active',
-        max_sites: 5,
-        current_period_end: Math.floor(Date.now() / 1000) + 86400 * 365,
-      },
+      hasActivePlan: Boolean(subscription),
+      subscription: subscription || null,
       siteCount: countRow?.site_count || 0,
     },
   });

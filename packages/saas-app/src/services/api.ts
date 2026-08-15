@@ -93,9 +93,9 @@ export const api = {
    */
   async pairSite(
     token: string | null,
-    payload: { site_url: string; state_nonce: string; return_url: string }
-  ): Promise<{ siteId: string; domain: string; apiKey: string; callback_url?: string }> {
-    return request<{ siteId: string; domain: string; apiKey: string; callback_url?: string }>(
+    payload: { domain: string; state: string; return_url: string; wp_version?: string; plugin_version?: string }
+  ): Promise<{ siteId: string; domain: string; apiKey: string; callback_url?: string; message?: string }> {
+    return request<{ siteId: string; domain: string; apiKey: string; callback_url?: string; message?: string }>(
       '/api/v1/auth/pair',
       {
         method: 'POST',
@@ -204,13 +204,14 @@ export const api = {
    */
   async createCheckout(
     token: string | null,
-    productId: string
+    productId: string,
+    returnTo?: string
   ): Promise<{ checkoutUrl: string; checkoutId: string }> {
     return request<{ checkoutUrl: string; checkoutId: string }>(
       '/api/v1/billing/checkout',
       {
         method: 'POST',
-        body: JSON.stringify({ productId }),
+        body: JSON.stringify({ productId, returnTo }),
       },
       token
     );

@@ -139,6 +139,8 @@ export interface HandshakeResponse {
   siteId: string;
   domain: string;
   config: SiteConfig;
+  callback_url?: string;
+  message?: string;
 }
 
 export interface NonceRefreshRequest {

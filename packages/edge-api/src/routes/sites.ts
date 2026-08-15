@@ -114,8 +114,19 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
     .bind(userId)
     .first<{ id: string; max_sites: number }>();
 
-  const subscriptionId = subscription?.id || `sub_starter_${userId}`;
-  const maxSites = subscription?.max_sites || 5;
+  if (!subscription) {
+    return c.json(
+      {
+        success: false,
+        code: 'SUBSCRIPTION_REQUIRED',
+        error: 'Active subscription required. Please purchase a TurboPress plan to register a site.',
+      },
+      402
+    );
+  }
+
+  const subscriptionId = subscription.id;
+  const maxSites = subscription.max_sites || 5;
 
   const countRow = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM sites WHERE user_id = ? AND is_active = 1'
