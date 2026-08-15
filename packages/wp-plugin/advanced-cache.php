@@ -2,6 +2,12 @@
 /**
  * Turbopress Advanced Cache Drop-In Engine
  * Provides sub-15ms static page delivery bypassing WordPress core execution.
+ *
+ * SELF-CONTAINED BY DESIGN: this file is copied to wp-content/advanced-cache.php
+ * and executes before WordPress loads the plugin. It therefore must not
+ * depend on any plugin class, WP function, or database access. The cache key
+ * rules (host hashing, ignored query params, mobile UA sniff, page path)
+ * MUST stay byte-compatible with Turbopress\CacheManager.
  */
 
 if (!defined('ABSPATH')) {
@@ -41,20 +47,30 @@ if (
     return;
 }
 
-// 4. Strip Tracking Query Parameters to maximize cache hits
+// 4. Strip Tracking Query Parameters to maximize cache hits.
+// Supports "utm_*" style wildcard prefixes exactly like the plugin side.
 $parsed_url = parse_url($request_uri);
 $path = isset($parsed_url['path']) ? $parsed_url['path'] : '/';
 $query = isset($parsed_url['query']) ? $parsed_url['query'] : '';
 
+$turbopress_ignored_params = [
+    'utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid',
+    'msclkid', 'adgroupid', 'campaignid', 'vgo_ee',
+];
+
 $clean_query = '';
 if (!empty($query)) {
     parse_str($query, $params);
-    $ignored_params = [
-        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
-        'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid', 'msclkid', 'adgroupid', 'campaignid'
-    ];
-    foreach ($ignored_params as $ignored) {
-        unset($params[$ignored]);
+    foreach ($turbopress_ignored_params as $ignored) {
+        $ignored = rtrim($ignored, '*');
+        if ($ignored === '') {
+            continue;
+        }
+        foreach (array_keys($params) as $param_key) {
+            if (strpos($param_key, $ignored) === 0) {
+                unset($params[$param_key]);
+            }
+        }
     }
     if (!empty($params)) {
         ksort($params);
@@ -62,20 +78,15 @@ if (!empty($query)) {
     }
 }
 
-// Check Mobile Viewport Cache separation if enabled
+// Mobile / desktop cache separation (must match CacheManager::ua_is_mobile)
 $is_mobile = false;
 $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? strtolower($_SERVER['HTTP_USER_AGENT']) : '';
-if (
-    strpos($user_agent, 'mobile') !== false ||
-    strpos($user_agent, 'android') !== false ||
-    strpos($user_agent, 'iphone') !== false ||
-    strpos($user_agent, 'ipod') !== false
-) {
+if (preg_match('/mobile|android|iphone|ipod|windows phone/i', $user_agent)) {
     $is_mobile = true;
 }
 
-// 5. Construct Cache File Path
-$cache_dir = WP_CONTENT_DIR . '/cache/turbopress/' . md5($http_host);
+// 5. Construct Cache File Path (pages subtree only — CSS/fonts survive purges)
+$cache_dir = WP_CONTENT_DIR . '/cache/turbopress/pages/' . md5($http_host);
 $url_hash = md5($path . $clean_query . ($is_mobile ? '_mobile' : '_desktop'));
 $cache_file = $cache_dir . '/' . substr($url_hash, 0, 2) . '/' . $url_hash . '.html';
 

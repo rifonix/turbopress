@@ -11,6 +11,8 @@ class DomEngine {
     private CriticalCssTransformer $critical_css_transformer;
     private ScriptDelayer $script_delayer;
     private MediaOptimizer $media_optimizer;
+    private FontOptimizer $font_optimizer;
+    private ResourceHints $resource_hints;
     private SpeculationRules $speculation_rules;
 
     public function __construct(Config $config, ApiClient $api_client) {
@@ -19,6 +21,8 @@ class DomEngine {
         $this->critical_css_transformer = new CriticalCssTransformer($config, $api_client);
         $this->script_delayer = new ScriptDelayer($config);
         $this->media_optimizer = new MediaOptimizer($config);
+        $this->font_optimizer = new FontOptimizer($config);
+        $this->resource_hints = new ResourceHints($config);
         $this->speculation_rules = new SpeculationRules($config);
     }
 
@@ -29,32 +33,41 @@ class DomEngine {
         }
 
         try {
-            // 1. Optimize Media (LCP Preload, fetchpriority="high", CLS dimensions)
+            // 1. Font optimization FIRST: localizing Google Fonts rewrites
+            //    stylesheet hrefs before CSS combining ever sees them, and
+            //    vendor CSS pinning removes unpkg/code.jquery.com links.
+            $html = $this->font_optimizer->transform($html);
+
+            // 2. Optimize Media (LCP Preload, fetchpriority="high", CLS dimensions)
             if ($this->config->get('media.auto_fetchpriority_lcp', true)) {
                 $html = $this->media_optimizer->transform($html);
             }
 
-            // 2. Critical CSS Inlining & Asynchronous Stylesheets
+            // 3. Critical CSS Inlining + Combined/Async Stylesheets
             if ($this->config->get('critical_css.enabled', true)) {
                 $html = $this->critical_css_transformer->transform($html);
             }
 
-            // 3. 3-Tier Interaction-based JavaScript Delaying
+            // 4. JavaScript Deferral (all external scripts) / Interaction Delay
             if ($this->config->get('javascript.execution_mode', 'defer') !== 'none') {
                 $html = $this->script_delayer->transform($html);
             }
 
-            // 4. Inject W3C Speculation Rules Prerendering
+            // 5. Resource Hints AFTER rewrites: preconnect decisions must
+            //    reflect the final HTML (localized fonts, bundled vendor CSS).
+            $html = $this->resource_hints->transform($html);
+
+            // 6. Inject W3C Speculation Rules Prerendering
             if ($this->config->get('dynamic.speculation_rules_prerender', true)) {
                 $html = $this->speculation_rules->transform($html);
             }
 
-            // 5. Inject Dynamic Nonce Hydrator Script
+            // 7. Inject Dynamic Nonce Hydrator Script
             if ($this->config->get('dynamic.nonce_ajax_refresh', true)) {
                 $html = $this->inject_hydrator_scripts($html);
             }
 
-            // 6. Signature watermark (inside <body> so it never lands after </html>)
+            // 8. Signature watermark (inside <body> so it never lands after </html>)
             $signature = "\n<!-- Optimized with TurboPress v" . TURBOPRESS_VERSION . " -->";
             if (stripos($html, '</body>') !== false) {
                 $html = str_ireplace('</body>', $signature . '</body>', $html);

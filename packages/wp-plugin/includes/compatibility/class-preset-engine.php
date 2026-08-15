@@ -13,6 +13,14 @@ class PresetEngine {
     }
 
     public function apply_auto_presets(): void {
+        // v1.2.0: exclusions only gate interaction_delay mode. In defer mode
+        // every external script is deferred (order-safe), so blanket builder
+        // exclusions are no longer added — they previously made deferral a
+        // no-op on Elementor/Divi/Woo sites.
+        if ($this->config->get('javascript.execution_mode', 'defer') !== 'interaction_delay') {
+            return;
+        }
+
         $auto_exclusions = [];
 
         // 1. Elementor / Elementor Pro

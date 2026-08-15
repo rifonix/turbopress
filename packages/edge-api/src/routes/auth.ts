@@ -166,6 +166,11 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
 /**
  * Verify Site Token & Sync Settings
  * POST /api/v1/auth/verify
+ *
+ * Body: { callback_secret?: string, site_url?: string }
+ * The plugin shares its HMAC callback secret here so the queue consumer can
+ * sign optimization-callback pushes (instant critical CSS delivery instead
+ * of plugin-side cron polling).
  */
 authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
   const site = c.get('site')!;
@@ -173,14 +178,31 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
   const wpVersion = c.req.header('X-WP-Version');
   const pluginVersion = c.req.header('X-Turbopress-Version');
 
-  // Update ping metadata in background
-  if (wpVersion || pluginVersion) {
-    await c.env.DB.prepare(
-      'UPDATE sites SET wp_version = coalesce(?, wp_version), plugin_version = coalesce(?, plugin_version), last_ping_at = unixepoch() WHERE id = ?'
-    )
-      .bind(wpVersion || null, pluginVersion || null, site.id)
-      .run();
+  let callbackSecret: string | null = null;
+  let siteUrl: string | null = null;
+  try {
+    const body = (await c.req.json()) as { callback_secret?: string; site_url?: string };
+    if (typeof body?.callback_secret === 'string' && body.callback_secret.length >= 32) {
+      callbackSecret = body.callback_secret;
+    }
+    if (typeof body?.site_url === 'string' && /^https?:\/\//i.test(body.site_url)) {
+      siteUrl = body.site_url;
+    }
+  } catch {
+    // Empty/invalid body: header-only verify (legacy plugin versions).
   }
+
+  await c.env.DB.prepare(
+    `UPDATE sites SET
+       wp_version = coalesce(?, wp_version),
+       plugin_version = coalesce(?, plugin_version),
+       callback_secret = coalesce(?, callback_secret),
+       site_url = coalesce(?, site_url),
+       last_ping_at = unixepoch()
+     WHERE id = ?`
+  )
+    .bind(wpVersion || null, pluginVersion || null, callbackSecret, siteUrl, site.id)
+    .run();
 
   return c.json({
     success: true,
@@ -191,6 +213,36 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
       config,
     },
   });
+});
+
+/**
+ * Plugin Health Heartbeat
+ * POST /api/v1/auth/heartbeat
+ *
+ * Body: the plugin's health report ({ checked_at, checks: [...] }).
+ * Persisted to sites.health_json (capped) for the SaaS dashboard.
+ */
+authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
+  const site = c.get('site')!;
+
+  let healthJson: string | null = null;
+  try {
+    const body = await c.req.text();
+    if (body.length > 0 && body.length <= 16384) {
+      JSON.parse(body); // validate JSON before persisting
+      healthJson = body;
+    }
+  } catch {
+    return c.json({ success: false, error: 'Invalid JSON payload' }, 400);
+  }
+
+  await c.env.DB.prepare(
+    'UPDATE sites SET health_json = ?, last_ping_at = unixepoch(), updated_at = unixepoch() WHERE id = ?'
+  )
+    .bind(healthJson, site.id)
+    .run();
+
+  return c.json({ success: true });
 });
 
 /**

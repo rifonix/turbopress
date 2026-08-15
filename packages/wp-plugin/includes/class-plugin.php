@@ -15,6 +15,8 @@ class Plugin {
     public NonceRefresher $nonce_refresher;
     public CartFragment $cart_fragment;
     public PresetEngine $preset_engine;
+    public CacheIntegration $cache_integration;
+    public HealthCheck $health_check;
 
     public static function get_instance(): Plugin {
         if (self::$instance === null) {
@@ -32,14 +34,39 @@ class Plugin {
         $this->nonce_refresher = new NonceRefresher();
         $this->cart_fragment = new CartFragment($this->config);
         $this->preset_engine = new PresetEngine($this->config);
+        $this->cache_integration = new CacheIntegration();
+        $this->health_check = new HealthCheck($this->config, $this->api_client);
     }
 
     public function init(): void {
+        // Upgrade housekeeping: when the plugin version changes, purge the
+        // static page cache so HTML transformed by an older release (e.g.
+        // with the broken script-delaying logic) is never served stale.
+        $installed_version = get_option('turbopress_version', '');
+        if ($installed_version !== TURBOPRESS_VERSION) {
+            update_option('turbopress_version', TURBOPRESS_VERSION);
+            CacheManager::purge_all_static();
+            // Re-assert our drop-in on upgrades (source file may have changed).
+            CacheIntegration::install_dropin();
+        }
+
         // Initialize Cache Purger hooks
         $this->cache_purger->init();
 
+        // Drop-in conflict detection + foreign purge mirroring
+        $this->cache_integration->init();
+
         // Async optimization pipeline: dispatch to edge, poll, download critical CSS
         add_action('turbopress_async_optimize', [$this, 'run_async_optimize'], 10, 1);
+
+        // Daily health heartbeat to the SaaS control plane
+        add_action('turbopress_health_heartbeat', [$this, 'run_health_heartbeat']);
+        if (!wp_next_scheduled('turbopress_health_heartbeat')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'turbopress_health_heartbeat');
+        }
+
+        // Edge push callback (HMAC-verified REST route)
+        OptimizeCallback::register_routes();
 
         // Initialize Dynamic Nonce & Cart Micro-Hydration
         $this->nonce_refresher->init();
@@ -54,6 +81,7 @@ class Plugin {
         // Initialize Admin UI
         if (is_admin()) {
             \Turbopress\AdminPage::get_instance()->init($this->config, $this->api_client, $this->cache_manager);
+            $this->health_check->maybe_run();
         }
 
         // Initialize Frontend Output Buffering for Cache & DOM Transformation
@@ -125,6 +153,13 @@ class Plugin {
             $state = $status['data']['status'] ?? null;
 
             if ($state === 'completed') {
+                // Push-mode parity: record the edge-verified LCP image so the
+                // MediaOptimizer can preload CSS-background LCP candidates.
+                $lcp_url = $status['data']['lcpImageUrl'] ?? null;
+                if (!empty($lcp_url)) {
+                    MediaOptimizer::store_lcp_image($url, $job['viewport'], (string) $lcp_url);
+                }
+
                 $css = $this->api_client->download_critical_css($url, $job['viewport']);
                 if (!empty($css)) {
                     CriticalCssTransformer::write_cache_for_url($url, $job['viewport'], $css);
@@ -152,45 +187,36 @@ class Plugin {
         }
     }
 
+    /** Cron: run the health check and push results to the SaaS dashboard. */
+    public function run_health_heartbeat(): void {
+        $this->health_check->run();
+        $this->health_check->push_to_edge();
+    }
+
     public static function activate(): void {
-        // Create cache folder
-        if (!file_exists(TURBOPRESS_CACHE_DIR)) {
-            wp_mkdir_p(TURBOPRESS_CACHE_DIR);
+        // Create cache folders (pages separated from artifacts)
+        foreach ([TURBOPRESS_CACHE_DIR, TURBOPRESS_PAGES_DIR] as $dir) {
+            if (!file_exists($dir)) {
+                wp_mkdir_p($dir);
+            }
         }
 
-        // Install advanced-cache.php drop-in
-        $dropin_source = TURBOPRESS_PATH . 'advanced-cache.php';
-        $dropin_dest = WP_CONTENT_DIR . '/advanced-cache.php';
-
-        if (file_exists($dropin_source)) {
-            @copy($dropin_source, $dropin_dest);
-        }
-
-        // Add WP_CACHE define in wp-config.php if missing
-        self::ensure_wp_cache_constant();
+        // Install advanced-cache.php drop-in — only when the slot is free
+        // (never clobber LiteSpeed / WP Rocket / host-level drop-ins).
+        CacheIntegration::install_dropin();
     }
 
     public static function deactivate(): void {
-        // Remove advanced-cache.php drop-in
-        $dropin_dest = WP_CONTENT_DIR . '/advanced-cache.php';
-        if (file_exists($dropin_dest)) {
-            @unlink($dropin_dest);
-        }
+        // Remove OUR drop-in only; a foreign one is left untouched.
+        CacheIntegration::remove_dropin();
 
-        // Clear all cached files
+        // Clear all cached pages
         CacheManager::purge_all_static();
-    }
 
-    private static function ensure_wp_cache_constant(): void {
-        $wp_config = ABSPATH . 'wp-config.php';
-        if (!file_exists($wp_config) || !is_writable($wp_config)) {
-            return;
-        }
-
-        $content = file_get_contents($wp_config);
-        if ($content && strpos($content, 'WP_CACHE') === false) {
-            $content = preg_replace("/(<\?php)/i", "$1\ndefine('WP_CACHE', true); // Turbopress Drop-in", $content, 1);
-            @file_put_contents($wp_config, $content);
+        // Unschedule heartbeat
+        $timestamp = wp_next_scheduled('turbopress_health_heartbeat');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'turbopress_health_heartbeat');
         }
     }
 }

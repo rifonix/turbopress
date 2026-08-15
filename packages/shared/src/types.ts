@@ -27,12 +27,29 @@ export interface CriticalCssConfig {
   excluded_stylesheets: string[];
 }
 
+export interface CssConfig {
+  combine: boolean; // merge render-blocking stylesheets into one bundle
+  minify: boolean;
+  max_files: number;
+}
+
 export interface JavascriptConfig {
   execution_mode: 'none' | 'defer' | 'interaction_delay';
   delay_timeout_ms: number; // default 3500ms
   preserve_execution_order: boolean;
   exclusions: string[]; // scripts exempted from delay (executed immediately)
+  remove_jquery_migrate: boolean; // drop jquery-migrate entirely (defer mode)
   worker_offload: string[]; // 3rd party scripts to offload (GTM, FB Pixel, etc.)
+}
+
+export interface FontsConfig {
+  localize_google: boolean; // serve Google Fonts same-origin w/ display:swap
+  bundle_vendor_css: boolean; // pin leaflet / jquery-ui CSS to plugin bundles
+  preload_lcp_font: boolean;
+}
+
+export interface HintsConfig {
+  resource_hints: boolean; // auto preconnect/dns-prefetch for 3rd-party origins
 }
 
 export interface MediaConfig {
@@ -59,7 +76,10 @@ export interface SiteConfig {
   preset: PresetType;
   caching: CachingConfig;
   critical_css: CriticalCssConfig;
+  css?: CssConfig;
   javascript: JavascriptConfig;
+  fonts?: FontsConfig;
+  hints?: HintsConfig;
   media: MediaConfig;
   dynamic: DynamicConfig;
 }
@@ -91,6 +111,9 @@ export interface Site {
   site_api_key_hash: string; // SHA-256
   config_json: string; // JSON encoded SiteConfig
   is_active: number; // 0 or 1
+  site_url?: string | null; // canonical WP home URL (callback pushes)
+  callback_secret?: string | null; // HMAC secret for optimize-callback
+  health_json?: string | null; // latest plugin health report
   wp_version?: string | null;
   plugin_version?: string | null;
   last_ping_at?: number | null;

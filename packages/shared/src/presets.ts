@@ -33,24 +33,24 @@ export const DEFAULT_EXCLUDED_URLS = [
   '*.xsl'
 ];
 
+/**
+ * v1.2.0: exclusions apply ONLY to interaction_delay mode. Blanket builder
+ * keywords (elementor, jquery.js, …) were removed — they made defer mode a
+ * no-op. This list is scripts that must run before first interaction:
+ * consent banners, payments, bot checks, cart fragments.
+ */
 export const DEFAULT_SCRIPT_EXCLUSIONS = [
   'turbopress-loader',
   'turbopress-hydrator',
-  'jquery.min.js',
-  'jquery.js',
-  'wp-includes/js/jquery/jquery.min.js',
-  'elementor-frontend',
-  'elementor/assets/js/frontend',
-  'elementorProFrontendConfig',
-  'elementorFrontendConfig',
   'cookiebot',
   'complianz',
   'onetrust',
   'cookie-law-info',
+  'cookie-notice',
   'wp-consent-api',
+  'stripe',
   'recaptcha',
   'turnstile',
-  'stripe',
   'woocommerce-cart',
   'wc-cart-fragments',
   'wc-add-to-cart'
@@ -70,7 +70,7 @@ export const DEFAULT_EXCLUDED_PRERENDER_PATHS = [
 ];
 
 export const PRESET_SAFE: SiteConfig = {
-  version: '1.0.0',
+  version: '1.2.0',
   preset: 'safe',
   caching: {
     enabled: true,
@@ -90,12 +90,26 @@ export const PRESET_SAFE: SiteConfig = {
     viewports: ['mobile', 'desktop'],
     excluded_stylesheets: []
   },
+  css: {
+    combine: false,
+    minify: true,
+    max_files: 40
+  },
   javascript: {
     execution_mode: 'defer',
     delay_timeout_ms: 0,
     preserve_execution_order: true,
     exclusions: DEFAULT_SCRIPT_EXCLUSIONS,
+    remove_jquery_migrate: false,
     worker_offload: []
+  },
+  fonts: {
+    localize_google: false,
+    bundle_vendor_css: true,
+    preload_lcp_font: true
+  },
+  hints: {
+    resource_hints: true
   },
   media: {
     auto_fetchpriority_lcp: true,
@@ -117,7 +131,7 @@ export const PRESET_SAFE: SiteConfig = {
 };
 
 export const PRESET_AGGRESSIVE: SiteConfig = {
-  version: '1.0.0',
+  version: '1.2.0',
   preset: 'aggressive',
   caching: {
     enabled: true,
@@ -137,12 +151,26 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     viewports: ['mobile', 'desktop'],
     excluded_stylesheets: []
   },
+  css: {
+    combine: true,
+    minify: true,
+    max_files: 40
+  },
   javascript: {
     execution_mode: 'defer',
     delay_timeout_ms: 0,
     preserve_execution_order: true,
     exclusions: DEFAULT_SCRIPT_EXCLUSIONS,
+    remove_jquery_migrate: false,
     worker_offload: ['googletagmanager.com', 'connect.facebook.net']
+  },
+  fonts: {
+    localize_google: true,
+    bundle_vendor_css: true,
+    preload_lcp_font: true
+  },
+  hints: {
+    resource_hints: true
   },
   media: {
     auto_fetchpriority_lcp: true,
@@ -164,7 +192,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
 };
 
 export const PRESET_LUDICROUS: SiteConfig = {
-  version: '1.0.0',
+  version: '1.2.0',
   preset: 'ludicrous',
   caching: {
     enabled: true,
@@ -184,12 +212,26 @@ export const PRESET_LUDICROUS: SiteConfig = {
     viewports: ['mobile', 'desktop'],
     excluded_stylesheets: []
   },
+  css: {
+    combine: true,
+    minify: true,
+    max_files: 40
+  },
   javascript: {
     execution_mode: 'interaction_delay',
     delay_timeout_ms: 3500,
     preserve_execution_order: true,
     exclusions: DEFAULT_SCRIPT_EXCLUSIONS,
+    remove_jquery_migrate: false,
     worker_offload: ['googletagmanager.com', 'connect.facebook.net', 'google-analytics.com']
+  },
+  fonts: {
+    localize_google: true,
+    bundle_vendor_css: true,
+    preload_lcp_font: true
+  },
+  hints: {
+    resource_hints: true
   },
   media: {
     auto_fetchpriority_lcp: true,

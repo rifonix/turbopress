@@ -64,7 +64,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   const handleSaveGranularSettings = async () => {
     if (!onUpdateConfig) return;
     const baseConfig: SiteConfig = site.config || {
-      version: '1.0.0',
+      version: '1.2.0',
       preset: currentPreset,
       caching: {
         enabled: true,
@@ -84,12 +84,26 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         viewports: ['mobile', 'desktop'],
         excluded_stylesheets: [],
       },
+      css: {
+        combine: true,
+        minify: true,
+        max_files: 40,
+      },
       javascript: {
         execution_mode: 'defer',
         delay_timeout_ms: jsDelayTimeout,
         preserve_execution_order: true,
         exclusions: [],
+        remove_jquery_migrate: false,
         worker_offload: [],
+      },
+      fonts: {
+        localize_google: true,
+        bundle_vendor_css: true,
+        preload_lcp_font: true,
+      },
+      hints: {
+        resource_hints: true,
       },
       media: {
         auto_fetchpriority_lcp: true,

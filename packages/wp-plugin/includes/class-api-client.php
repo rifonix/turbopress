@@ -30,7 +30,11 @@ class ApiClient {
                 'X-WP-Version' => get_bloginfo('version'),
                 'Content-Type' => 'application/json',
             ],
-            'body' => json_encode([]),
+            'body' => json_encode([
+                // Shared once per verify so the edge can sign push callbacks.
+                'callback_secret' => Config::get_callback_secret_static(),
+                'site_url' => home_url('/'),
+            ]),
         ]);
 
         if (is_wp_error($response)) {
@@ -81,6 +85,42 @@ class ApiClient {
         $site_url = get_home_url();
         $parsed = parse_url($site_url);
         return $parsed['host'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
+    }
+
+    /**
+     * Push a health report to the SaaS control plane (daily heartbeat).
+     */
+    public function send_heartbeat(array $report): array {
+        $api_key = $this->config->get_api_key();
+        if (empty($api_key)) {
+            return ['success' => false, 'error' => 'API Key is missing'];
+        }
+
+        $api_url = rtrim($this->config->get_api_url(), '/') . '/api/v1/auth/heartbeat';
+
+        $response = wp_remote_post($api_url, [
+            'timeout' => 10,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-Domain' => $this->get_site_domain(),
+                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode($report),
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code === 200 && !empty($body['success'])) {
+            return ['success' => true];
+        }
+
+        return ['success' => false, 'error' => $body['error'] ?? 'Heartbeat failed with HTTP ' . $code];
     }
 
     /**

@@ -38,6 +38,7 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
       (SELECT lcp_ms FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_lcp,
       (SELECT cls_score FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_cls,
       (SELECT fcp_ms FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_fcp,
+      (SELECT ttfb_ms FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_ttfb,
       (SELECT status FROM optimization_jobs j WHERE j.site_id = s.id ORDER BY j.created_at DESC LIMIT 1) as latest_job_status,
       (SELECT created_at FROM optimization_jobs j WHERE j.site_id = s.id ORDER BY j.created_at DESC LIMIT 1) as latest_job_time
     FROM sites s
@@ -53,6 +54,7 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
         mobile_lcp: number | null;
         mobile_cls: number | null;
         mobile_fcp: number | null;
+        mobile_ttfb: number | null;
         latest_job_status: string | null;
         latest_job_time: number | null;
       }
@@ -90,7 +92,7 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
         desktopScore: s.desktop_score,
         lcp,
         cls: s.mobile_cls,
-        ttfbMs: null,
+        ttfbMs: s.mobile_ttfb != null ? Math.round(s.mobile_ttfb) : null,
         cacheHitRate: null,
         status,
         lastJobTime: s.latest_job_time ? formatRelativeTime(s.latest_job_time) : null,

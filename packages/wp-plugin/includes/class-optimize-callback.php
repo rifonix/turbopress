@@ -1,0 +1,78 @@
+<?php
+namespace Turbopress;
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/**
+ * HMAC-verified push endpoint for the edge pipeline.
+ *
+ * Replaces cron polling as the primary critical-CSS delivery path: when a
+ * Puppeteer job completes, the edge POSTs the CSS + measured LCP image here
+ * instantly. The signature (X-Turbopress-Signature: hex HMAC-SHA256 of the
+ * raw body, keyed by the per-site callback secret shared during
+ * verify_connection) makes the public endpoint unforgeable.
+ */
+class OptimizeCallback {
+    public static function register_routes(): void {
+        add_action('rest_api_init', static function (): void {
+            register_rest_route('turbopress/v1', '/optimize-callback', [
+                'methods' => 'POST',
+                'callback' => [self::class, 'handle_callback'],
+                'permission_callback' => '__return_true', // HMAC is the auth
+                'args' => [],
+            ]);
+        });
+    }
+
+    public static function handle_callback(\WP_REST_Request $request) {
+        $raw_body = (string) $request->get_body();
+        if ($raw_body === '') {
+            return new \WP_Error('turbopress_empty_body', 'Empty body', ['status' => 400]);
+        }
+
+        // Signature check: constant-time compare against HMAC of raw body.
+        $signature = (string) $request->get_header('X-Turbopress-Signature');
+        $secret = Config::get_callback_secret_static();
+        $expected = hash_hmac('sha256', $raw_body, $secret);
+
+        if ($signature === '' || !hash_equals($expected, strtolower($signature))) {
+            return new \WP_Error('turbopress_invalid_signature', 'Invalid signature', ['status' => 403]);
+        }
+
+        $payload = json_decode($raw_body, true);
+        if (!is_array($payload)) {
+            return new \WP_Error('turbopress_invalid_json', 'Invalid JSON', ['status' => 400]);
+        }
+
+        $url = isset($payload['url']) ? esc_url_raw((string) $payload['url']) : '';
+        $viewport = isset($payload['viewport']) ? (string) $payload['viewport'] : '';
+        $css = isset($payload['css']) ? (string) $payload['css'] : '';
+        $lcp_image_url = isset($payload['lcpImageUrl']) ? esc_url_raw((string) $payload['lcpImageUrl']) : '';
+
+        if ($url === '' || !in_array($viewport, ['mobile', 'desktop'], true)) {
+            return new \WP_Error('turbopress_invalid_payload', 'Invalid payload', ['status' => 400]);
+        }
+
+        // Only accept pushes for this site's own host.
+        $payload_host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $home_host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
+        if ($payload_host === '' || $home_host === '' || $payload_host !== $home_host) {
+            return new \WP_Error('turbopress_foreign_url', 'URL does not belong to this site', ['status' => 403]);
+        }
+
+        if ($css !== '') {
+            CriticalCssTransformer::write_cache_for_url($url, $viewport, $css);
+        }
+
+        if ($lcp_image_url !== '') {
+            MediaOptimizer::store_lcp_image($url, $viewport, $lcp_image_url);
+        }
+
+        // Fresh critical CSS → regenerate the cached page with it inlined.
+        CacheManager::purge_url($url);
+
+        return ['success' => true, 'viewport' => $viewport, 'css_bytes' => strlen($css)];
+    }
+}

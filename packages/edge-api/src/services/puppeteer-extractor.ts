@@ -17,6 +17,44 @@ export interface ExtractionResult {
   lcpImageUrl: string | null;
   r2Key: string;
   metrics: PageMetrics;
+  /** Same-origin page URLs discovered in the DOM (document order, deduped). */
+  internalLinks: string[];
+}
+
+/**
+ * Discover internal (same-origin) page links for multi-page optimization.
+ * Skips admin/login/API endpoints, cart/checkout flows and non-HTML assets.
+ * Runs as a string source for the same __name-isolation reason as the CSSOM
+ * extraction above.
+ */
+async function extractInternalLinks(page: any, limit = 15): Promise<string[]> {
+  const src = `
+    (() => {
+      const LIMIT = ${limit};
+      const skip = /\\/wp-(admin|login|json|cron|mail)|\\/(cart|checkout|my-account)(\\/|$)|\\/wp-(content|includes)\\/|\\.(php|xml|rss|zip|pdf|jpe?g|png|gif|webp|avif|svg|ico|mp4|webm|css|js|woff2?|ttf)(\\?|$)/i;
+      const seen = new Set();
+      const out = [];
+      for (const a of document.querySelectorAll('a[href]')) {
+        let href;
+        try { href = new URL(a.getAttribute('href') || '', location.href); } catch (e) { continue; }
+        if (href.origin !== location.origin) continue;
+        if (skip.test(href.pathname)) continue;
+        href.hash = '';
+        href.search = '';
+        let u = href.origin + (href.pathname === '/' ? '/' : href.pathname.replace(/\\/+$/, '') + '/');
+        if (u === location.origin + '/') continue;
+        if (!seen.has(u)) { seen.add(u); out.push(u); }
+        if (out.length >= LIMIT) break;
+      }
+      return out;
+    })()
+  `;
+  try {
+    const links = await page.evaluate(src);
+    return Array.isArray(links) ? links : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -94,112 +132,109 @@ export function computePerformanceScore(m: {
  *   property/declaration defaults needed to avoid FOUC.
  */
 async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOriginHrefs: string[] }> {
-  return page.evaluate(() => {
-    const MAX_RULES = 15000;
-    const MAX_OUTPUT_BYTES = 120 * 1024;
-    const out: string[] = [];
-    const crossOrigin: string[] = [];
-    let ruleCount = 0;
-    let outputBytes = 0;
+  // IMPORTANT: this code executes inside the remote browser via CDP.
+  // It MUST be passed as a string: esbuild (keepNames) rewrites function
+  // callbacks with a __name() wrapper that only exists in the worker bundle,
+  // so serialized function callbacks throw "ReferenceError: __name is not
+  // defined" in the page context. String sources are left untouched.
+  const src = `
+    (() => {
+      const MAX_RULES = 15000;
+      const MAX_OUTPUT_BYTES = 120 * 1024;
+      const out = [];
+      const crossOrigin = [];
+      let ruleCount = 0;
+      let outputBytes = 0;
 
-    const selectorMatches = (sel: string): boolean => {
-      try {
-        // Strip pseudo-elements/classes that don't match elements themselves.
-        const test = sel.replace(/::?(before|after|first-line|first-letter|selection|hover|focus|active|visited|marker|placeholder|backdrop|file-selector-button)\b/g, '');
-        if (!test.trim()) return true;
-        return document.querySelector(test) !== null;
-      } catch {
-        return true; // Old/unknown selector syntax: keep conservatively.
-      }
-    };
-
-    const push = (text: string) => {
-      outputBytes += text.length;
-      if (outputBytes <= MAX_OUTPUT_BYTES) out.push(text);
-    };    const collectRules = (rules: CSSRuleList): string => {
-      const parts: string[] = [];
-      for (let i = 0; i < rules.length; i++) {
-        if (ruleCount++ > MAX_RULES || outputBytes > MAX_OUTPUT_BYTES) return parts.join('\n');
-
-        const rule = rules[i];
-        switch (rule.constructor.name) {
-          case 'CSSMediaRule': {
-            const media = rule as CSSMediaRule;
-            const query = media.media.mediaText;
-            let matches: boolean;
-            try {
-              matches = window.matchMedia(query).matches;
-            } catch {
-              matches = false;
-            }
-            if (matches) {
-              const innerCss = collectRules(media.cssRules);
-              if (innerCss) parts.push(`@media ${query}{${innerCss}}`);
-            }
-            break;
-          }
-          case 'CSSSupportsRule': {
-            const supports = rule as CSSSupportsRule;
-            let ok = false;
-            try {
-              ok = CSS.supports(supports.conditionText);
-            } catch {
-              ok = true;
-            }
-            if (ok) {
-              const innerCss = collectRules(supports.cssRules);
-              if (innerCss) parts.push(`@supports ${supports.conditionText}{${innerCss}}`);
-            }
-            break;
-          }
-          case 'CSSStyleRule': {
-            const style = rule as CSSStyleRule;
-            // Always keep :root / html / body foundation rules.
-            const foundation = /(^|,)\s*(:root|html|body)\b/.test(style.selectorText);
-            if (foundation || style.selectorText.split(',').some(selectorMatches)) {
-              parts.push(style.cssText);
-            }
-            break;
-          }
-          case 'CSSFontFaceRule':
-          case 'CSSKeyframesRule':
-          case 'CSSLayerStatementRule':
-          case 'CSSLayerBlockRule':
-          case 'CSSPropertyRule':
-          case 'CSSCounterStyleRule':
-          case 'CSSFontFeatureValuesRule':
-            parts.push(rule.cssText);
-            break;
-          default:
-            // Unknown/at-rule: keep cssText conservatively (e.g. @container, @scope).
-            try {
-              if (rule.cssText && !/^@import/i.test(rule.cssText)) {
-                parts.push(rule.cssText);
-              }
-            } catch {
-              //
-            }
+      function selectorMatches(sel) {
+        try {
+          const test = sel.replace(/::?(before|after|first-line|first-letter|selection|hover|focus|active|visited|marker|placeholder|backdrop|file-selector-button)\\b/g, '');
+          if (!test.trim()) return true;
+          return document.querySelector(test) !== null;
+        } catch (e) {
+          return true; // Old/unknown selector syntax: keep conservatively.
         }
       }
-      return parts.join('\n');
-    };
 
-    for (let i = 0; i < document.styleSheets.length; i++) {
-      const sheet = document.styleSheets[i];
-      let rules: CSSRuleList | null = null;
-      try {
-        rules = sheet.cssRules;
-      } catch {
-        // Cross-origin without CORS — fall back to coverage for this sheet.
-        if (sheet.href) crossOrigin.push(sheet.href);
-        continue;
+      function push(text) {
+        outputBytes += text.length;
+        if (outputBytes <= MAX_OUTPUT_BYTES) out.push(text);
       }
-      if (!rules) continue;
-      push(collectRules(rules));
-    }
 
-    return { css: out.join('\n'), crossOriginHrefs: crossOrigin };
-  });
+      function collectRules(rules) {
+        const parts = [];
+        for (let i = 0; i < rules.length; i++) {
+          if (ruleCount++ > MAX_RULES || outputBytes > MAX_OUTPUT_BYTES) return parts.join('\\n');
+          const rule = rules[i];
+          switch (rule.constructor.name) {
+            case 'CSSMediaRule': {
+              const media = rule;
+              const query = media.media.mediaText;
+              let matches = false;
+              try { matches = window.matchMedia(query).matches; } catch (e) {}
+              if (matches) {
+                const innerCss = collectRules(media.cssRules);
+                if (innerCss) parts.push('@media ' + query + '{' + innerCss + '}');
+              }
+              break;
+            }
+            case 'CSSSupportsRule': {
+              const supports = rule;
+              let ok = false;
+              try { ok = CSS.supports(supports.conditionText); } catch (e) { ok = true; }
+              if (ok) {
+                const innerCss = collectRules(supports.cssRules);
+                if (innerCss) parts.push('@supports ' + supports.conditionText + '{' + innerCss + '}');
+              }
+              break;
+            }
+            case 'CSSStyleRule': {
+              const style = rule;
+              const foundation = /(^|,)\\s*(:root|html|body)\\b/.test(style.selectorText);
+              if (foundation || style.selectorText.split(',').some(selectorMatches)) {
+                parts.push(style.cssText);
+              }
+              break;
+            }
+            case 'CSSFontFaceRule':
+            case 'CSSKeyframesRule':
+            case 'CSSLayerStatementRule':
+            case 'CSSLayerBlockRule':
+            case 'CSSPropertyRule':
+            case 'CSSCounterStyleRule':
+            case 'CSSFontFeatureValuesRule':
+              parts.push(rule.cssText);
+              break;
+            default:
+              // Unknown/at-rule: keep cssText conservatively (e.g. @container, @scope).
+              try {
+                if (rule.cssText && !/^@import/i.test(rule.cssText)) {
+                  parts.push(rule.cssText);
+                }
+              } catch (e) {}
+          }
+        }
+        return parts.join('\\n');
+      }
+
+      for (let i = 0; i < document.styleSheets.length; i++) {
+        const sheet = document.styleSheets[i];
+        let rules = null;
+        try {
+          rules = sheet.cssRules;
+        } catch (e) {
+          // Cross-origin without CORS — fall back to coverage for this sheet.
+          if (sheet.href) crossOrigin.push(sheet.href);
+          continue;
+        }
+        if (!rules) continue;
+        push(collectRules(rules));
+      }
+
+      return { css: out.join('\\n'), crossOriginHrefs: crossOrigin };
+    })()
+  `;
+  return page.evaluate(src);
 }
 
 /**
@@ -246,8 +281,31 @@ export async function extractCriticalCssAndLcp(
       deviceScaleFactor: isMobile ? 3 : 1,
     });
 
-    // 1. Start CSS Coverage Profiler (fallback for cross-origin sheets)
-    await page.coverage.startCSSCoverage({ resetOnNavigation: false });
+    // 0. Mask the headless fingerprint: many origin firewalls (Wordfence,
+    // hosting WAFs) block "HeadlessChrome" UAs or challenge datacenter
+    // traffic. A realistic UA + Accept-Language avoids most naive checks.
+    await page.setUserAgent(
+      isMobile
+        ? 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+    );
+    try {
+      await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+    } catch {
+      // not fatal
+    }
+
+    // 1. Start CSS Coverage Profiler (fallback for cross-origin sheets).
+    // Not every Browser Rendering build exposes the coverage API — degrade
+    // gracefully to CSSOM-only extraction instead of failing the job.
+    let coverage: Array<{ url: string; text: string; ranges: Array<{ start: number; end: number }> }> = [];
+    try {
+      if (typeof (page as any).coverage?.startCSSCoverage === 'function') {
+        await (page as any).coverage.startCSSCoverage({ resetOnNavigation: false });
+      }
+    } catch (covErr) {
+      console.warn('[Extractor] CSS coverage unavailable:', covErr);
+    }
 
     // 2. Navigate to target URL with safety timeout
     await page.goto(url, {
@@ -258,8 +316,34 @@ export async function extractCriticalCssAndLcp(
     // 3. Let rendering settle so LCP/CLS observations stabilise.
     await new Promise((r) => setTimeout(r, 2500));
 
+    // 3b. Bot-challenge detection: some origin firewalls occasionally serve
+    // a CAPTCHA/interstitial page instead of the real site. Saving that as
+    // "critical CSS" would inject garbage into real visitor pages. Detect it
+    // and fail the job with a clear, retryable error instead.
+    const challengeProbeSrc = `
+      (() => {
+        const text = ((document.body && document.body.innerText) || '').slice(0, 400).toLowerCase();
+        // High-precision markers only: a bare-hostname title is normal on many
+        // real sites (dev/staging/unbranded), so it must NOT count as a challenge.
+        const markers = /checking your browser|verify (you are|that you're) human|one more step|are you a robot|human verification|challenge-platform|pardon our interruption|attention required|error code 1(02|023)/;
+        return { challenged: markers.test(text), sheets: document.styleSheets.length };
+      })()
+    `;
+    const probe = (await page.evaluate(challengeProbeSrc)) as { challenged: boolean; sheets: number };
+    if (probe.challenged) {
+      throw new Error(
+        'Origin served a bot-challenge page to the optimizer (WAF/CAPTCHA). Allow Cloudflare Browser Rendering traffic or retry.'
+      );
+    }
+
     // 4. Stop coverage (kept for cross-origin fallback)
-    const coverage = await page.coverage.stopCSSCoverage();
+    try {
+      if (typeof (page as any).coverage?.stopCSSCoverage === 'function') {
+        coverage = await (page as any).coverage.stopCSSCoverage();
+      }
+    } catch (covErr) {
+      console.warn('[Extractor] CSS coverage stop failed:', covErr);
+    }
 
     // 5. CSSOM-based extraction (same-origin) + coverage fallback (cross-origin)
     const cssomResult = await extractUsedCssViaCssom(page);
@@ -275,90 +359,86 @@ export async function extractCriticalCssAndLcp(
     fullCriticalCss = safeMinifyCss(fullCriticalCss);
     const criticalCssBytes = Buffer.byteLength(fullCriticalCss, 'utf8');
 
-    // 7. Detect LCP element + real Core-Web-Vitals-style metrics
-    const perfData = await page.evaluate(() => {
-      return new Promise<{
-        selector: string | null;
-        imageUrl: string | null;
-        ttfbMs: number | null;
-        fcpMs: number | null;
-        lcpMs: number | null;
-        clsScore: number | null;
-      }>((resolve) => {
-        let detectedSelector: string | null = null;
-        let detectedUrl: string | null = null;
-        let lcpMs: number | null = null;
-        let clsScore: number | null = null;
-        let ttfbMs: number | null = null;
-        let fcpMs: number | null = null;
+    // 6b. Sanity guard: a real page virtually always yields more than 1KB of
+    // used CSS with more than 2 stylesheets. Tiny output on a normal-looking
+    // page means we captured an interstitial/error shell — do not save it.
+    if (criticalCssBytes < 1024 && (probe.sheets ?? 99) <= 2) {
+      throw new Error(
+        'Extraction captured too little CSS (likely an error/interstitial page). Retrying is safe.'
+      );
+    }
+
+    // 7. Detect LCP element + real Core-Web-Vitals-style metrics.
+    // String source for the same __name-isolation reason as above.
+    const perfSrc = `
+      new Promise((resolve) => {
+        let detectedSelector = null;
+        let detectedUrl = null;
+        let lcpMs = null;
+        let clsScore = null;
+        let ttfbMs = null;
+        let fcpMs = null;
 
         try {
-          const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+          const navEntry = performance.getEntriesByType('navigation')[0];
           ttfbMs = navEntry ? navEntry.responseStart - navEntry.startTime : null;
-        } catch {
-          //
-        }
+        } catch (e) {}
 
         try {
           const fcpEntry = performance.getEntriesByName('first-contentful-paint')[0];
-          fcpMs = fcpEntry ? (fcpEntry as PerformanceEntry).startTime : null;
-        } catch {
-          //
-        }
+          fcpMs = fcpEntry ? fcpEntry.startTime : null;
+        } catch (e) {}
 
         let cls = 0;
         try {
-          const layoutObserver = new PerformanceObserver((entryList: any) => {
+          const layoutObserver = new PerformanceObserver((entryList) => {
             for (const entry of entryList.getEntries()) {
-              if (!entry.hadRecentInput) {
-                cls += entry.value || 0;
-              }
+              if (!entry.hadRecentInput) cls += entry.value || 0;
             }
           });
           layoutObserver.observe({ type: 'layout-shift', buffered: true });
-        } catch {
-          //
-        }
+        } catch (e) {}
 
         try {
-          const observer = new PerformanceObserver((entryList: any) => {
+          const observer = new PerformanceObserver((entryList) => {
             const entries = entryList.getEntries();
             if (entries.length > 0) {
-              const lastEntry = entries[entries.length - 1] as any;
+              const lastEntry = entries[entries.length - 1];
               lcpMs = lastEntry.startTime || null;
               if (lastEntry.element) {
-                const el = lastEntry.element as HTMLElement;
+                const el = lastEntry.element;
                 const tag = el.tagName.toLowerCase();
-                const id = el.id ? `#${el.id}` : '';
-                const className = el.className && typeof el.className === 'string' ? `.${el.className.trim().split(/\s+/).slice(0, 3).join('.')}` : '';
-                detectedSelector = `${tag}${id}${className}`;
+                const id = el.id ? '#' + el.id : '';
+                const cn = (el.className && typeof el.className === 'string')
+                  ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.')
+                  : '';
+                detectedSelector = tag + id + cn;
 
                 if (tag === 'img') {
-                  detectedUrl = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src;
+                  detectedUrl = el.currentSrc || el.src;
                 } else {
                   const bg = window.getComputedStyle(el).backgroundImage;
-                  if (bg && bg.startsWith('url(')) {
-                    detectedUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+                  if (bg && bg.indexOf('url(') === 0) {
+                    detectedUrl = bg.replace(/^url\\(['"]?/, '').replace(/['"]?\\)$/, '');
                   }
                 }
               }
-              if (lastEntry.url) {
-                detectedUrl = lastEntry.url;
-              }
+              if (lastEntry.url) detectedUrl = lastEntry.url;
             }
           });
-
           observer.observe({ type: 'largest-contentful-paint', buffered: true });
-        } catch {
-          //
-        }
+        } catch (e) {}
 
         setTimeout(() => {
           clsScore = Math.round(cls * 1000) / 1000;
           resolve({ selector: detectedSelector, imageUrl: detectedUrl, ttfbMs, fcpMs, lcpMs, clsScore });
         }, 500);
-      });
-    });
+      })
+    `;
+    const perfData = await (page as any).evaluate(perfSrc);
+
+    // 7b. Discover internal links for multi-page optimization.
+    const internalLinks = await extractInternalLinks(page);
 
     const metrics: PageMetrics = {
       ttfbMs: perfData.ttfbMs != null ? Math.round(perfData.ttfbMs) : null,
@@ -394,6 +474,7 @@ export async function extractCriticalCssAndLcp(
       lcpImageUrl: perfData.imageUrl,
       r2Key,
       metrics,
+      internalLinks,
     };
   } finally {
     await page.close();

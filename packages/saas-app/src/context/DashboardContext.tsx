@@ -11,7 +11,7 @@ import {
   POLAR_PRODUCT_IDS,
 } from '../types';
 import { api } from '../services/api';
-import { SiteConfig } from '@turbopress/shared';
+import { getPresetConfig, SiteConfig } from '@turbopress/shared';
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
 
@@ -299,52 +299,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const token = await getToken();
     const updatedConfig: SiteConfig = {
-      ...(targetSite.config || {
-        version: '1.0.0',
-        preset: 'ludicrous',
-        caching: {
-          enabled: true,
-          ttl: 604800,
-          mobile_cache: true,
-          purge_on_post_update: true,
-          purge_on_comment: true,
-          strip_query_params: [],
-          excluded_urls: [],
-          excluded_cookies: [],
-        },
-        critical_css: {
-          enabled: true,
-          inline: true,
-          async_load_full: true,
-          font_display_swap: true,
-          viewports: ['mobile', 'desktop'],
-          excluded_stylesheets: [],
-        },
-        javascript: {
-          execution_mode: 'interaction_delay',
-          delay_timeout_ms: 3500,
-          preserve_execution_order: true,
-          exclusions: [],
-          worker_offload: [],
-        },
-        media: {
-          auto_fetchpriority_lcp: true,
-          preload_lcp_image: true,
-          inject_missing_dimensions: true,
-          serve_nextgen_formats: true,
-          lazyload_images: true,
-          lazyload_iframes: true,
-          lazyload_offset_px: 300,
-          excluded_images: [],
-        },
-        dynamic: {
-          speculation_rules_prerender: true,
-          speculation_rules_eagerness: 'moderate',
-          nonce_ajax_refresh: true,
-          cart_micro_hydration: true,
-          excluded_prerender_paths: [],
-        },
-      }),
+      ...(targetSite.config || getPresetConfig('ludicrous')),
       preset,
     };
 

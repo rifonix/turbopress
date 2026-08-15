@@ -12,13 +12,48 @@ class MediaOptimizer {
         $this->config = $config;
     }
 
+    /**
+     * Persist the edge-verified LCP image URL for a page/viewport so
+     * transform() can preload CSS-background LCP candidates (the edge
+     * extractor reports computed backgroundImage — invisible to <img> scans).
+     */
+    public static function store_lcp_image(string $url, string $viewport, string $image_url): void {
+        $parsed = parse_url($url);
+        $path = $parsed['path'] ?? '/';
+        $key = md5($path . '_' . $viewport);
+
+        $map = get_option('turbopress_lcp_images', []);
+        if (!is_array($map)) {
+            $map = [];
+        }
+        if (($map[$key] ?? null) !== $image_url) {
+            $map[$key] = $image_url;
+            if (count($map) > 400) {
+                $map = array_slice($map, -400, null, true);
+            }
+            update_option('turbopress_lcp_images', $map);
+        }
+    }
+
+    public static function get_lcp_image(string $url, string $viewport): ?string {
+        $parsed = parse_url($url);
+        $path = $parsed['path'] ?? '/';
+        $key = md5($path . '_' . $viewport);
+        $map = get_option('turbopress_lcp_images', []);
+        return is_array($map) && !empty($map[$key]) ? (string) $map[$key] : null;
+    }
+
     public function transform(string $html): string {
         $lcp_image = null;
+
+        // Edge-verified LCP (covers CSS-background images the <img> scan
+        // below can never see).
+        $verified_lcp = self::get_lcp_image($this->get_current_url(), wp_is_mobile() ? 'mobile' : 'desktop');
 
         // Process <img> tags
         $html = preg_replace_callback(
             '/<img\s+([^>]+)>/i',
-            function ($matches) use (&$lcp_image) {
+            function ($matches) use (&$lcp_image, $verified_lcp) {
                 $full_tag = $matches[0];
                 $attributes = $matches[1];
 
@@ -37,9 +72,9 @@ class MediaOptimizer {
                 $is_tiny = $this->is_tiny_image($attributes);
 
                 // LCP candidate heuristic: first eager, non-tiny image in the document.
-                // Lazy images are almost always below the fold — never preload those.
+                // Skipped when the edge already verified a (possibly background) LCP.
                 if (
-                    $lcp_image === null && !$is_lazy && !$is_tiny &&
+                    $lcp_image === null && $verified_lcp === null && !$is_lazy && !$is_tiny &&
                     $this->config->get('media.auto_fetchpriority_lcp', true)
                 ) {
                     $lcp_image = $attributes;
@@ -66,10 +101,21 @@ class MediaOptimizer {
             $html
         );
 
-        // Preload LCP Image in <head> (with responsive hints when available)
-        if ($lcp_image !== null && $this->config->get('media.preload_lcp_image', true)) {
-            $preload = $this->build_lcp_preload($lcp_image);
-            if ($preload) {
+        // Preload LCP Image in <head> (with responsive hints when available).
+        // Edge-verified URL wins — it is the *measured* LCP element, which on
+        // builder sites is usually a CSS background image.
+        if ($this->config->get('media.preload_lcp_image', true)) {
+            $preload = null;
+            if ($verified_lcp !== null) {
+                $preload = sprintf(
+                    '<link rel="preload" as="image" href="%s" fetchpriority="high">',
+                    esc_url($verified_lcp)
+                );
+            } elseif ($lcp_image !== null) {
+                $preload = $this->build_lcp_preload($lcp_image);
+            }
+            // Avoid duplicate image preloads if the theme already has one.
+            if ($preload && stripos($html, 'rel="preload" as="image"') === false && stripos($html, "rel='preload' as='image'") === false) {
                 $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $preload, $html, 1);
             }
         }
@@ -105,6 +151,13 @@ class MediaOptimizer {
             }
         }
         return false;
+    }
+
+    private function get_current_url(): string {
+        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $uri = $_SERVER['REQUEST_URI'] ?? '/';
+        return $scheme . '://' . $host . $uri;
     }
 
     private function build_lcp_preload(string $attributes): ?string {

@@ -12,6 +12,55 @@ class CacheManager {
         $this->config = $config;
     }
 
+    /**
+     * Normalize a query string by removing ignored tracking params.
+     * Handles trailing-* wildcard prefixes (e.g. "utm_*" matches utm_source).
+     * MUST stay byte-compatible with the drop-in in advanced-cache.php,
+     * which reimplements the same rules without WP functions.
+     */
+    public static function normalize_query(string $query, array $ignored): string {
+        if ($query === '') {
+            return '';
+        }
+
+        parse_str($query, $params);
+        if (empty($params)) {
+            return '';
+        }
+
+        foreach ($ignored as $ign) {
+            $ign_key = rtrim((string) $ign, '*');
+            if ($ign_key === '') {
+                continue;
+            }
+            foreach (array_keys($params) as $param_key) {
+                if (str_starts_with($param_key, $ign_key)) {
+                    unset($params[$param_key]);
+                }
+            }
+        }
+
+        if (empty($params)) {
+            return '';
+        }
+
+        ksort($params);
+        return '?' . http_build_query($params);
+    }
+
+    /**
+     * Shared mobile detection. Mirrors the drop-in UA sniff exactly so
+     * cached files written by PHP are always found by advanced-cache.php.
+     */
+    public static function ua_is_mobile(string $user_agent): bool {
+        $ua = strtolower($user_agent);
+        return (bool) preg_match('/mobile|android|iphone|ipod|windows phone/i', $ua);
+    }
+
+    private function ignored_params(): array {
+        return (array) $this->config->get('caching.strip_query_params', []);
+    }
+
     public function write_cache(string $html): bool {
         if (empty($html) || strlen($html) < 250) {
             return false;
@@ -24,30 +73,14 @@ class CacheManager {
         $path = $parsed['path'] ?? '/';
         $query = $parsed['query'] ?? '';
 
-        $clean_query = '';
-        if (!empty($query)) {
-            parse_str($query, $params);
-            $ignored = (array) $this->config->get('caching.strip_query_params', []);
-            foreach ($ignored as $ign) {
-                $ign_key = rtrim($ign, '*');
-                foreach (array_keys($params) as $param_key) {
-                    if (str_starts_with($param_key, $ign_key)) {
-                        unset($params[$param_key]);
-                    }
-                }
-            }
-            if (!empty($params)) {
-                ksort($params);
-                $clean_query = '?' . http_build_query($params);
-            }
-        }
+        $clean_query = self::normalize_query($query, $this->ignored_params());
 
         $is_mobile = false;
         if ($this->config->get('caching.mobile_cache', true)) {
-            $is_mobile = wp_is_mobile();
+            $is_mobile = self::ua_is_mobile($_SERVER['HTTP_USER_AGENT'] ?? '');
         }
 
-        $cache_dir = TURBOPRESS_CACHE_DIR . '/' . md5($host);
+        $cache_dir = TURBOPRESS_PAGES_DIR . '/' . md5($host);
         $url_hash = md5($path . $clean_query . ($is_mobile ? '_mobile' : '_desktop'));
         $sub_dir = $cache_dir . '/' . substr($url_hash, 0, 2);
 
@@ -71,7 +104,7 @@ class CacheManager {
         // 3. Pre-compress Brotli if extension available
         if ($result && function_exists('brotli_compress')) {
             $br_data = brotli_compress($html, 11, BROTLI_GENERIC_MODE);
-            if ($br_data) {
+            if ($br_data !== false) {
                 @file_put_contents($file_path . '.br', $br_data);
             }
         }
@@ -79,39 +112,57 @@ class CacheManager {
         return (bool) $result;
     }
 
+    /**
+     * Purge a single URL from the static page cache. Query params are
+     * normalized with the exact same rules as write_cache() so a purge of
+     * "/?utm_source=x" also removes the file cached under the clean key.
+     */
     public static function purge_url(string $url): void {
         $parsed = parse_url($url);
-        $host = $parsed['host'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $host = strtolower($parsed['host'] ?? ($_SERVER['HTTP_HOST'] ?? 'localhost'));
         $path = $parsed['path'] ?? '/';
         $query = $parsed['query'] ?? '';
 
-        $clean_query = !empty($query) ? '?' . $query : '';
-        $cache_dir = TURBOPRESS_CACHE_DIR . '/' . md5($host);
+        $ignored = [];
+        $stored = get_option(Config::OPTION_KEY, []);
+        if (is_array($stored) && !empty($stored['caching']['strip_query_params'])) {
+            $ignored = (array) $stored['caching']['strip_query_params'];
+        }
 
-        // Check both desktop and mobile variants
+        // Try both the normalized and raw query variants — whichever keys
+        // exist on disk get removed.
+        $query_variants = array_unique([
+            self::normalize_query($query, $ignored),
+            !empty($query) ? '?' . $query : '',
+        ]);
+
+        $cache_dir = TURBOPRESS_PAGES_DIR . '/' . md5($host);
+
         foreach (['_desktop', '_mobile'] as $suffix) {
-            $url_hash = md5($path . $clean_query . $suffix);
-            $sub_dir = $cache_dir . '/' . substr($url_hash, 0, 2);
-            $base_file = $sub_dir . '/' . $url_hash . '.html';
+            foreach ($query_variants as $q) {
+                $url_hash = md5($path . $q . $suffix);
+                $sub_dir = $cache_dir . '/' . substr($url_hash, 0, 2);
+                $base_file = $sub_dir . '/' . $url_hash . '.html';
 
-            if (file_exists($base_file)) {
-                @unlink($base_file);
-            }
-            if (file_exists($base_file . '.gz')) {
-                @unlink($base_file . '.gz');
-            }
-            if (file_exists($base_file . '.br')) {
-                @unlink($base_file . '.br');
+                foreach (['', '.gz', '.br'] as $ext) {
+                    if (file_exists($base_file . $ext)) {
+                        @unlink($base_file . $ext);
+                    }
+                }
             }
         }
     }
 
+    /**
+     * Purge every static page cache entry. Only the /pages subtree is
+     * cleared — critical CSS, combined CSS and localized fonts survive.
+     */
     public static function purge_all_static(): void {
-        if (!file_exists(TURBOPRESS_CACHE_DIR)) {
+        if (!file_exists(TURBOPRESS_PAGES_DIR)) {
             return;
         }
 
-        self::delete_directory_contents(TURBOPRESS_CACHE_DIR);
+        self::delete_directory_contents(TURBOPRESS_PAGES_DIR);
     }
 
     private static function delete_directory_contents(string $dir): void {
