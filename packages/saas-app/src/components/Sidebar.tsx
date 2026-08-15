@@ -26,7 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onClose,
   onOpenAuthModal,
-  planName = 'Starter Plan',
+  planName = 'No active plan',
   onOpenPortal,
 }) => {
   const pathname = usePathname();

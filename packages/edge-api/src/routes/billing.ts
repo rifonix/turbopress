@@ -285,9 +285,21 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
       checkoutPayload.customerEmail = candidateEmail;
     }
 
-    const { result: session, server } = await withPolarServerRetry(c.env, (client) =>
-      client.checkouts.create(checkoutPayload)
-    );
+    // Polar sandbox orgs process card payments through a live-mode Stripe rail,
+    // so test cards (4242…) are always declined. When a 100%-off discount is
+    // configured for the sandbox org, apply it automatically so test checkouts
+    // can actually complete with a $0 total (no card required).
+    const sandboxDiscountId = (c.env.POLAR_SANDBOX_DISCOUNT_ID || '').trim();
+    let discountApplied = false;
+
+    const { result: session, server } = await withPolarServerRetry(c.env, (client, srv) => {
+      const payload: any = { ...checkoutPayload };
+      if (srv === 'sandbox' && sandboxDiscountId) {
+        payload.discountId = sandboxDiscountId;
+        discountApplied = true;
+      }
+      return client.checkouts.create(payload);
+    });
 
     return c.json({
       success: true,
@@ -296,6 +308,7 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
         checkoutId: session.id,
         // 'sandbox' = Polar test checkout, 'production' = live checkout
         server,
+        discountApplied,
       },
     });
   } catch (err: any) {

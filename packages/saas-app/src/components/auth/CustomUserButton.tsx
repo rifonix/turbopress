@@ -13,8 +13,8 @@ interface CustomUserButtonProps {
 }
 
 export const CustomUserButton: React.FC<CustomUserButtonProps> = ({
-  planName = 'Starter Plan',
-  siteCount = 1,
+  planName = 'No active plan',
+  siteCount = 0,
   onOpenPortal,
   compact = false,
 }) => {

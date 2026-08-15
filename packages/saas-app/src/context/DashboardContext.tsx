@@ -169,7 +169,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (res?.checkoutUrl) {
         addToast(
           res.server === 'sandbox'
-            ? 'Opening Polar sandbox — test checkout (no real charge)…'
+            ? res.discountApplied
+              ? 'Opening Polar test checkout — 100% discount applied, no card needed…'
+              : 'Opening Polar test checkout. Note: sandbox cards are declined unless a 100% discount is applied.'
             : 'Redirecting to secure Polar checkout…',
           'info'
         );

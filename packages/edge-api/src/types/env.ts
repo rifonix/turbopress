@@ -22,6 +22,7 @@ export interface Env {
   POLAR_WEBHOOK_SECRET: string;
   POLAR_SERVER?: string;
   POLAR_ENVIRONMENT?: string;
+  POLAR_SANDBOX_DISCOUNT_ID?: string;
   CLERK_SECRET_KEY?: string;
   CLERK_WEBHOOK_SIGNING_SECRET?: string;
 }

@@ -217,8 +217,13 @@ export const api = {
     productId: string,
     returnTo?: string,
     userEmail?: string | null
-  ): Promise<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production' }> {
-    return request<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production' }>(
+  ): Promise<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production'; discountApplied?: boolean }> {
+    return request<{
+      checkoutUrl: string;
+      checkoutId: string;
+      server?: 'sandbox' | 'production';
+      discountApplied?: boolean;
+    }>(
       '/api/v1/billing/checkout',
       {
         method: 'POST',
