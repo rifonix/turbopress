@@ -216,7 +216,9 @@ export const api = {
     token: string | null,
     productId: string,
     returnTo?: string,
-    userEmail?: string | null
+    userEmail?: string | null,
+    planId?: string,
+    interval?: 'monthly' | 'annual'
   ): Promise<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production'; discountApplied?: boolean }> {
     return request<{
       checkoutUrl: string;
@@ -227,7 +229,7 @@ export const api = {
       '/api/v1/billing/checkout',
       {
         method: 'POST',
-        body: JSON.stringify({ productId, returnTo, customerEmail: userEmail }),
+        body: JSON.stringify({ productId, returnTo, customerEmail: userEmail, planId, interval }),
       },
       token,
       userEmail

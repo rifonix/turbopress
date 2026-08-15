@@ -121,10 +121,31 @@ async function withPolarServerRetry<T>(
       console.log(`[Polar] Auto-detected ${flipped} environment for this access token`);
       return { result, server: flipped };
     } catch (retryErr: any) {
-      // Neither environment accepted the token — surface the original error
-      throw retryErr && isPolarAuthError(retryErr) ? retryErr : err;
+      // Neither environment accepted the token — surface what each attempt said
+      const first = describePolarError(preferred, err);
+      const second = describePolarError(flipped, retryErr);
+      const combined = new Error(
+        `Access token rejected by both Polar environments — ${first} | ${second}`
+      ) as any;
+      throw combined;
     }
   }
+}
+
+function describePolarError(server: PolarServer, err: any): string {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status ?? 'n/a';
+  const body = err?.error || err?.body || err?.response?.body;
+  let detail = String(err?.message || err || 'unknown error');
+  if (body) {
+    try {
+      const parsed = typeof body === 'string' ? JSON.parse(body) : body;
+      const polarDetail = parsed?.detail;
+      if (polarDetail) detail = typeof polarDetail === 'string' ? polarDetail : JSON.stringify(polarDetail);
+    } catch {
+      /* keep message */
+    }
+  }
+  return `${server} (HTTP ${status}): ${detail}`;
 }
 
 const PLAN_LIMITS: Record<string, { maxSites: number; maxRuns: number; priceMonthly: number; label: string }> = {
@@ -135,9 +156,39 @@ const PLAN_LIMITS: Record<string, { maxSites: number; maxRuns: number; priceMont
 };
 
 const STARTER_PRODUCT_IDS = new Set([
+  // production org
   'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
   '3907e862-b1e1-4006-9289-040cabe18c2d',
+  // sandbox org
+  'a91892b0-d6c5-4baa-bf54-4449240e2103',
+  'cefada27-549e-4212-81dd-8dfbee7da0d1',
 ]);
+
+/**
+ * Plan product IDs per Polar environment — sandbox and production orgs have
+ * completely separate catalogs. When planId is provided, the checkout endpoint
+ * picks the product matching the environment it lands on, so the same frontend
+ * payload works against either org.
+ */
+const POLAR_PRODUCTS: Record<PolarServer, Record<string, Record<string, string>>> = {
+  sandbox: {
+    starter: {
+      monthly: 'a91892b0-d6c5-4baa-bf54-4449240e2103',
+      annual: 'cefada27-549e-4212-81dd-8dfbee7da0d1',
+    },
+  },
+  production: {
+    starter: {
+      monthly: 'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
+      annual: '3907e862-b1e1-4006-9289-040cabe18c2d',
+    },
+  },
+};
+
+function productForServer(server: PolarServer, planId: string, interval: string): string | null {
+  const normalizedInterval = ['annual', 'yearly', 'year'].includes(interval) ? 'annual' : 'monthly';
+  return POLAR_PRODUCTS[server]?.[planId]?.[normalizedInterval] || null;
+}
 
 function resolvePlan(planId: string, productName = ''): { maxSites: number; maxRuns: number; priceMonthly: number; label: string } {
   const id = (planId || '').toLowerCase();
@@ -147,6 +198,46 @@ function resolvePlan(planId: string, productName = ''): { maxSites: number; maxR
   if (id.includes('pro') || name.includes('pro')) return PLAN_LIMITS.pro;
   if (id.includes('starter') || name.includes('starter') || STARTER_PRODUCT_IDS.has(planId)) return PLAN_LIMITS.starter;
   return PLAN_LIMITS.starter;
+}
+
+function isProductNotFoundError(err: any): boolean {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+  const msg = String(err?.message || '').toLowerCase();
+  if (status === 404) return true;
+  return /product.*(not found|not exist|invalid)|not found.*product/.test(msg);
+}
+
+/**
+ * Look up a plan product in the org's live Polar catalog by plan name and
+ * billing interval. Used to auto-resolve sandbox products, since sandbox and
+ * production organizations have completely separate catalogs.
+ */
+async function resolveProductFromCatalog(
+  client: Polar,
+  planId: string,
+  interval: string
+): Promise<string | null> {
+  const list: any = await client.products.list({ limit: 100, isArchived: false });
+  const products: any[] = list?.result || list || [];
+  if (products.length === 0) return null;
+
+  const wantsYearly = interval === 'annual' || interval === 'yearly' || interval === 'year';
+
+  let candidates = planId ? products.filter((p) => String(p.name || '').toLowerCase().includes(planId)) : [];
+  if (candidates.length === 0) {
+    // Fall back to any product with a recurring (subscription) price
+    candidates = products.filter((p) => (p.prices || []).some((pr: any) => pr.type === 'recurring'));
+  }
+  if (candidates.length === 0) return null;
+
+  const byInterval = candidates.find((p) => {
+    const name = String(p.name || '').toLowerCase();
+    const hasYear = name.includes('annual') || name.includes('yearly') || name.includes('year');
+    return wantsYearly ? hasYear : !hasYear;
+  });
+
+  const chosen = byInterval || candidates[0];
+  return chosen?.id || null;
 }
 
 /**
@@ -248,6 +339,8 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const authUserEmail = c.get('userEmail') || '';
   const body = await c.req.json().catch(() => ({}));
   const productId = body.productId || body.product_id;
+  const planId = String(body.planId || '').toLowerCase();
+  const interval = String(body.interval || 'monthly').toLowerCase();
   const returnTo = body.returnTo || body.return_to;
   const bodyEmail = body.customerEmail || body.customer_email || body.email;
 
@@ -291,40 +384,73 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
     // can actually complete with a $0 total (no card required).
     const sandboxDiscountId = (c.env.POLAR_SANDBOX_DISCOUNT_ID || '').trim();
     let discountApplied = false;
+    let effectiveProductId = productId;
 
-    const { result: session, server } = await withPolarServerRetry(c.env, (client, srv) => {
-      const payload: any = { ...checkoutPayload };
+    const createSession = (client: Polar, srv: PolarServer) => {
+      // Prefer the environment-specific catalog ID when we know the plan
+      const mapped = planId ? productForServer(srv, planId, interval) : null;
+      if (mapped) effectiveProductId = mapped;
+      const payload: any = { ...checkoutPayload, products: [effectiveProductId] };
       if (srv === 'sandbox' && sandboxDiscountId) {
         payload.discountId = sandboxDiscountId;
         discountApplied = true;
       }
       return client.checkouts.create(payload);
-    });
+    };
+
+    let result: any;
+    let server: PolarServer;
+    try {
+      ({ result, server } = await withPolarServerRetry(c.env, createSession));
+    } catch (createErr: any) {
+      // Sandbox and production orgs have separate product catalogs. If the
+      // configured productId belongs to the other environment (e.g. prod UUID
+      // used with a sandbox token), try to auto-resolve the right product from
+      // the live org's catalog by plan name + billing interval.
+      const isProductError = isProductNotFoundError(createErr);
+      if (!isProductError) throw createErr;
+
+      const resolved = await withPolarServerRetry(c.env, async (client, srv) => {
+        const found = await resolveProductFromCatalog(client, planId, interval);
+        if (!found) return null;
+        effectiveProductId = found;
+        return createSession(client, srv);
+      });
+      if (!resolved || !resolved.result) {
+        throw createErr;
+      }
+      ({ result, server } = resolved as { result: any; server: PolarServer });
+      console.log(`[Polar] Resolved ${planId || '(unnamed)'} product in catalog: ${effectiveProductId}`);
+    }
 
     return c.json({
       success: true,
       data: {
-        checkoutUrl: session.url,
-        checkoutId: session.id,
+        checkoutUrl: result.url,
+        checkoutId: result.id,
         // 'sandbox' = Polar test checkout, 'production' = live checkout
         server,
         discountApplied,
+        productId: effectiveProductId,
       },
     });
   } catch (err: any) {
     console.error('[Polar Checkout Error]', err);
     const msg = String(err?.message || '');
-    if (msg.includes('invalid_token') || msg.includes('Unauthorized') || msg.includes('token')) {
+    if (isProductNotFoundError(err)) {
       return c.json(
         {
           success: false,
-          error:
-            'Polar rejected the configured access token. Verify POLAR_ACCESS_TOKEN matches the environment (sandbox tokens only work in sandbox).',
+          code: 'PRODUCT_NOT_FOUND',
+          error: `Product "${productId}" was not found in this Polar organization. Sandbox and production have separate catalogs — create the plan product in the matching Polar dashboard and pass its product ID.`,
         },
         500
       );
     }
-    return c.json({ success: false, error: err?.message || 'Failed to create checkout' }, 500);
+    if (msg.includes('rejected by both Polar environments')) {
+      return c.json({ success: false, code: 'POLAR_TOKEN_REJECTED', error: msg }, 500);
+    }
+    return c.json({ success: false, error: msg || 'Failed to create checkout' }, 500);
   }
 });
 

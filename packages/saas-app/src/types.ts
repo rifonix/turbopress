@@ -25,15 +25,15 @@ export interface ExtendedSite extends Partial<Site> {
   created_at: number;
   updated_at: number;
   subTitle?: string;
-  score: number;
-  mobileScore?: number;
-  desktopScore?: number;
-  lcp: number;
-  cls?: number;
-  ttfbMs?: number;
-  cacheHitRate: number;
-  lastJobTime: string;
-  status: 'optimized' | 'optimizing' | 'attention' | 'disconnected';
+  score: number | null;
+  mobileScore?: number | null;
+  desktopScore?: number | null;
+  lcp: number | null;
+  cls?: number | null;
+  ttfbMs?: number | null;
+  cacheHitRate?: number | null;
+  lastJobTime: string | null;
+  status: 'connected' | 'optimized' | 'optimizing' | 'attention' | 'disconnected';
   config?: SiteConfig;
 }
 
@@ -45,9 +45,9 @@ export interface OptimizationJobItem {
   url: string;
   viewport: 'mobile' | 'desktop';
   status: 'completed' | 'processing' | 'queued' | 'failed';
-  criticalCssSizeKb: number;
+  criticalCssSizeKb: number | null;
   lcpSelector: string | null;
-  durationMs: number;
+  durationMs: number | null;
   createdAt: string;
   errorMessage?: string | null;
 }

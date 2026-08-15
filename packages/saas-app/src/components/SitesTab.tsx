@@ -146,7 +146,7 @@ export const SitesTab: React.FC<SitesTabProps> = ({
                       <h3 className="font-mono font-semibold text-[13.5px] text-[#171717] truncate group-hover:text-[#f03e2f] transition-colors">
                         {site.domain}
                       </h3>
-                      <p className="text-[11.5px] text-[#71717a] truncate">{site.subTitle || 'WordPress 6.7 · SpeedForge'}</p>
+                      <p className="text-[11.5px] text-[#71717a] truncate">{site.subTitle || (site.is_active ? 'Connected · TurboPress' : 'Not connected')}</p>
                     </div>
                   </div>
 
@@ -158,11 +158,13 @@ export const SitesTab: React.FC<SitesTabProps> = ({
                         ? 'chip-warn'
                         : site.status === 'attention'
                         ? 'chip-danger'
+                        : site.status === 'connected'
+                        ? 'chip-neutral'
                         : 'chip-neutral'
                     }`}
                   >
                     {site.status !== 'disconnected' && <span className="chip-dot" />}
-                    {site.status === 'optimized' ? `${site.score} Score` : site.status}
+                    {site.status === 'optimized' && site.score != null ? `${site.score} Score` : site.status}
                   </span>
                 </div>
 
@@ -170,22 +172,22 @@ export const SitesTab: React.FC<SitesTabProps> = ({
                 <div className="grid grid-cols-3 gap-2 py-3 my-2 border-y border-[#f1f1f2] text-center font-mono">
                   <div>
                     <span className="text-[10.5px] text-[#71717a] block">Score</span>
-                    <span className="text-sm font-bold text-[#171717]">{site.score || 95}</span>
+                    <span className="text-sm font-bold text-[#171717]">{site.score != null ? site.score : '—'}</span>
                   </div>
                   <div>
                     <span className="text-[10.5px] text-[#71717a] block">LCP</span>
-                    <span className="text-sm font-medium text-[#171717]">{(site.lcp || 1.4).toFixed(1)}s</span>
+                    <span className="text-sm font-medium text-[#171717]">{site.lcp != null ? `${site.lcp.toFixed(1)}s` : '—'}</span>
                   </div>
                   <div>
                     <span className="text-[10.5px] text-[#71717a] block">Cache</span>
-                    <span className="text-sm font-medium text-[#171717]">{site.cacheHitRate || 94}%</span>
+                    <span className="text-sm font-medium text-[#171717]">{site.cacheHitRate != null ? `${site.cacheHitRate}%` : '—'}</span>
                   </div>
                 </div>
               </div>
 
               {/* Card Footer Actions */}
               <div className="pt-3 flex items-center justify-between">
-                <span className="meta text-[11px] truncate">{site.lastJobTime || 'synced'}</span>
+                <span className="meta text-[11px] truncate">{site.lastJobTime || 'never run'}</span>
 
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                   <button

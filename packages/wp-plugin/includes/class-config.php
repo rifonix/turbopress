@@ -122,7 +122,9 @@ class Config {
                 'excluded_stylesheets' => []
             ],
             'javascript' => [
-                'execution_mode' => $preset === 'ludicrous' ? 'interaction_delay' : ($preset === 'aggressive' ? 'defer' : 'none'),
+                // Safe default: defer everything non-blocking. 'interaction_delay'
+                // is available as an opt-in for maximum scores on simple sites.
+                'execution_mode' => $preset === 'safe' ? 'none' : 'defer',
                 'delay_timeout_ms' => 3500,
                 'preserve_execution_order' => true,
                 'exclusions' => $safe_exclusions,
@@ -140,7 +142,9 @@ class Config {
             ],
             'dynamic' => [
                 'speculation_rules_prerender' => true,
-                'speculation_rules_eagerness' => $preset === 'ludicrous' ? 'eager' : 'moderate',
+                // 'moderate' hovers the link before prerendering — 'eager' wastes
+                // bandwidth prerendering every link on the page.
+                'speculation_rules_eagerness' => 'moderate',
                 'nonce_ajax_refresh' => true,
                 'cart_micro_hydration' => true,
                 'excluded_prerender_paths' => ['/wp-admin/**', '/cart/**', '/checkout/**', '/my-account/**']

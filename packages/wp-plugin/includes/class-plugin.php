@@ -38,6 +38,9 @@ class Plugin {
         // Initialize Cache Purger hooks
         $this->cache_purger->init();
 
+        // Async optimization pipeline: dispatch to edge, poll, download critical CSS
+        add_action('turbopress_async_optimize', [$this, 'run_async_optimize'], 10, 1);
+
         // Initialize Dynamic Nonce & Cart Micro-Hydration
         $this->nonce_refresher->init();
         $this->cart_fragment->init();
@@ -82,6 +85,71 @@ class Plugin {
         }
 
         return $transformed;
+    }
+
+    /**
+     * Cron handler for 'turbopress_async_optimize'.
+     * Lifecycle: dispatch job(s) -> poll every 60s -> download CSS per viewport
+     * -> write local cache -> purge page cache. Reschedules itself until done.
+     */
+    public function run_async_optimize(array $args = []): void {
+        $url = $args['url'] ?? '';
+        $attempt = (int) ($args['attempt'] ?? 0);
+
+        if (empty($url) || !$this->config->is_connected()) {
+            return;
+        }
+
+        $transient_key = 'tp_jobs_' . md5($url);
+        $jobs = get_transient($transient_key);
+
+        // Phase 1: dispatch the extraction job(s).
+        if (empty($jobs)) {
+            $dispatch = $this->api_client->dispatch_optimization($url);
+            $created = $dispatch['data']['jobs'] ?? null;
+
+            if (empty($created)) {
+                // Let the 10-minute throttle transient retry later.
+                return;
+            }
+
+            $jobs = array_map(static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']], $created);
+            set_transient($transient_key, $jobs, 30 * MINUTE_IN_SECONDS);
+            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', ['url' => $url, 'attempt' => 1]);
+            return;
+        }
+
+        // Phase 2: poll each job; download CSS as jobs complete.
+        foreach ($jobs as $i => $job) {
+            $status = $this->api_client->get_job_status($job['id']);
+            $state = $status['data']['status'] ?? null;
+
+            if ($state === 'completed') {
+                $css = $this->api_client->download_critical_css($url, $job['viewport']);
+                if (!empty($css)) {
+                    CriticalCssTransformer::write_cache_for_url($url, $job['viewport'], $css);
+                }
+                unset($jobs[$i]);
+            } elseif ($state === 'failed') {
+                unset($jobs[$i]);
+            }
+        }
+
+        if (empty($jobs)) {
+            delete_transient($transient_key);
+            // Fresh HTML with inlined critical CSS on next request.
+            CacheManager::purge_url($url);
+            return;
+        }
+
+        set_transient($transient_key, array_values($jobs), 30 * MINUTE_IN_SECONDS);
+
+        // Keep polling (cap ~30 attempts / 30 min).
+        if ($attempt < 30) {
+            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', ['url' => $url, 'attempt' => $attempt + 1]);
+        } else {
+            delete_transient($transient_key);
+        }
     }
 
     public static function activate(): void {

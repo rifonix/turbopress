@@ -33,8 +33,11 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
   const { results: sites } = await c.env.DB.prepare(`
     SELECT s.*, 
       (SELECT COUNT(*) FROM optimization_jobs j WHERE j.site_id = s.id) as total_jobs,
-      (SELECT performance_score FROM performance_audits a WHERE a.site_id = s.id ORDER BY a.created_at DESC LIMIT 1) as latest_score,
-      (SELECT lcp_ms FROM performance_audits a WHERE a.site_id = s.id ORDER BY a.created_at DESC LIMIT 1) as latest_lcp,
+      (SELECT performance_score FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_score,
+      (SELECT performance_score FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'desktop' ORDER BY a.created_at DESC LIMIT 1) as desktop_score,
+      (SELECT lcp_ms FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_lcp,
+      (SELECT cls_score FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_cls,
+      (SELECT fcp_ms FROM performance_audits a WHERE a.site_id = s.id AND a.device = 'mobile' ORDER BY a.created_at DESC LIMIT 1) as mobile_fcp,
       (SELECT status FROM optimization_jobs j WHERE j.site_id = s.id ORDER BY j.created_at DESC LIMIT 1) as latest_job_status,
       (SELECT created_at FROM optimization_jobs j WHERE j.site_id = s.id ORDER BY j.created_at DESC LIMIT 1) as latest_job_time
     FROM sites s
@@ -45,8 +48,11 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
     .all<
       Site & {
         total_jobs: number;
-        latest_score: number | null;
-        latest_lcp: number | null;
+        mobile_score: number | null;
+        desktop_score: number | null;
+        mobile_lcp: number | null;
+        mobile_cls: number | null;
+        mobile_fcp: number | null;
         latest_job_status: string | null;
         latest_job_time: number | null;
       }
@@ -62,31 +68,37 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
         parsedConfig = PRESET_LUDICROUS;
       }
 
-      const score = s.latest_score || 95;
-      const lcp = s.latest_lcp ? Number((s.latest_lcp / 1000).toFixed(1)) : 1.4;
+      const score = s.mobile_score != null ? s.mobile_score : s.desktop_score;
+      const lcp = s.mobile_lcp != null ? Number((s.mobile_lcp / 1000).toFixed(1)) : null;
 
-      let status: 'optimized' | 'optimizing' | 'attention' | 'disconnected' = 'optimized';
+      let status: 'connected' | 'optimized' | 'optimizing' | 'attention' | 'disconnected' = 'connected';
       if (!s.is_active) {
         status = 'disconnected';
       } else if (s.latest_job_status === 'processing' || s.latest_job_status === 'queued') {
         status = 'optimizing';
-      } else if (s.latest_job_status === 'failed' || score < 60) {
+      } else if (s.latest_job_status === 'failed' || (score != null && score < 60)) {
         status = 'attention';
+      } else if (s.latest_job_status === 'completed' || score != null) {
+        status = 'optimized';
       }
 
       return {
         ...s,
         config: parsedConfig,
         score,
-        mobileScore: score,
-        desktopScore: Math.min(100, score + 4),
+        mobileScore: s.mobile_score,
+        desktopScore: s.desktop_score,
         lcp,
-        cls: 0.01,
-        ttfbMs: 14,
-        cacheHitRate: s.is_active ? 94 : 0,
+        cls: s.mobile_cls,
+        ttfbMs: null,
+        cacheHitRate: null,
         status,
-        lastJobTime: s.latest_job_time ? formatRelativeTime(s.latest_job_time) : 'recently',
-        subTitle: s.wp_version ? `WordPress ${s.wp_version} · SpeedForge` : 'WordPress 6.7 · SpeedForge Active',
+        lastJobTime: s.latest_job_time ? formatRelativeTime(s.latest_job_time) : null,
+        subTitle: s.wp_version
+          ? `WordPress ${s.wp_version} · TurboPress`
+          : s.is_active
+            ? 'Connected · TurboPress'
+            : 'Not connected',
       };
     }),
   });
@@ -152,7 +164,7 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
 
   await c.env.DB.prepare(`
     INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, '6.7', '1.0.0', unixepoch(), unixepoch(), unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, 1, NULL, NULL, NULL, unixepoch(), unixepoch())
     ON CONFLICT(domain) DO UPDATE SET
       site_api_key_hash = excluded.site_api_key_hash,
       is_active = 1,

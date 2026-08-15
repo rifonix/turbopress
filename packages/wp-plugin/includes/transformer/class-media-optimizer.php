@@ -13,13 +13,12 @@ class MediaOptimizer {
     }
 
     public function transform(string $html): string {
-        $is_first_image = true;
-        $lcp_image_url = null;
+        $lcp_image = null;
 
         // Process <img> tags
         $html = preg_replace_callback(
             '/<img\s+([^>]+)>/i',
-            function ($matches) use (&$is_first_image, &$lcp_image_url) {
+            function ($matches) use (&$lcp_image) {
                 $full_tag = $matches[0];
                 $attributes = $matches[1];
 
@@ -34,9 +33,16 @@ class MediaOptimizer {
                     return $full_tag;
                 }
 
-                if ($is_first_image && $this->config->get('media.auto_fetchpriority_lcp', true)) {
-                    $is_first_image = false;
-                    $lcp_image_url = $src;
+                $is_lazy = (bool) preg_match('/loading\s*=\s*[\'"]lazy[\'"]/i', $attributes);
+                $is_tiny = $this->is_tiny_image($attributes);
+
+                // LCP candidate heuristic: first eager, non-tiny image in the document.
+                // Lazy images are almost always below the fold — never preload those.
+                if (
+                    $lcp_image === null && !$is_lazy && !$is_tiny &&
+                    $this->config->get('media.auto_fetchpriority_lcp', true)
+                ) {
+                    $lcp_image = $attributes;
 
                     // Remove lazyload and add fetchpriority="high"
                     $clean_attrs = preg_replace('/loading=[\'"]lazy[\'"]/i', '', $attributes);
@@ -60,13 +66,12 @@ class MediaOptimizer {
             $html
         );
 
-        // Preload LCP Image in <head>
-        if (!empty($lcp_image_url) && $this->config->get('media.preload_lcp_image', true)) {
-            $preload_tag = sprintf(
-                '<link rel="preload" as="image" href="%s" fetchpriority="high">',
-                esc_url($lcp_image_url)
-            );
-            $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $preload_tag, $html, 1);
+        // Preload LCP Image in <head> (with responsive hints when available)
+        if ($lcp_image !== null && $this->config->get('media.preload_lcp_image', true)) {
+            $preload = $this->build_lcp_preload($lcp_image);
+            if ($preload) {
+                $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $preload, $html, 1);
+            }
         }
 
         // Lazyload Iframes (YouTube, Google Maps, etc.)
@@ -85,5 +90,42 @@ class MediaOptimizer {
         }
 
         return $html;
+    }
+
+    private function is_tiny_image(string $attributes): bool {
+        // Explicit small width/height => icons, spacers, avatars, tracking pixels.
+        if (preg_match('/width=[\'"]?(\d+)[\'"]?/i', $attributes, $w)) {
+            if ((int) $w[1] <= 100) {
+                return true;
+            }
+        }
+        if (preg_match('/height=[\'"]?(\d+)[\'"]?/i', $attributes, $h)) {
+            if ((int) $h[1] <= 100) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function build_lcp_preload(string $attributes): ?string {
+        if (!preg_match('/src=[\'"]([^\'"]+)[\'"]/i', $attributes, $src_match)) {
+            return null;
+        }
+        $src = $src_match[1];
+
+        $extra = '';
+        // Responsive images: preload the exact candidate set the browser would pick.
+        if (preg_match('/srcset=[\'"]([^\'"]+)[\'"]/i', $attributes, $ss)) {
+            $extra .= ' imagesrcset="' . esc_attr($ss[1]) . '"';
+            if (preg_match('/sizes=[\'"]([^\'"]+)[\'"]/i', $attributes, $sz)) {
+                $extra .= ' imagesizes="' . esc_attr($sz[1]) . '"';
+            }
+        }
+
+        return sprintf(
+            '<link rel="preload" as="image" href="%s" fetchpriority="high"%s>',
+            esc_url($src),
+            $extra
+        );
     }
 }

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
-import { OptimizationDispatchSchema, generateJobId, ViewportMode, normalizeDomain } from '@turbopress/shared';
+import { OptimizationDispatchSchema, generateJobId, ViewportMode, normalizeDomain, sha256 } from '@turbopress/shared';
 import { saasUserAuthMiddleware } from '../middleware/auth.js';
 
 export const optimizeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -36,6 +36,7 @@ optimizeRoutes.get('/jobs', saasUserAuthMiddleware, async (c) => {
       viewport: ViewportMode;
       status: string;
       critical_css_r2_key?: string | null;
+      critical_css_bytes?: number | null;
       lcp_selector?: string | null;
       lcp_image_url?: string | null;
       error_message?: string | null;
@@ -53,9 +54,12 @@ optimizeRoutes.get('/jobs', saasUserAuthMiddleware, async (c) => {
       url: job.url,
       viewport: job.viewport,
       status: job.status,
-      criticalCssSizeKb: job.status === 'completed' ? 14.2 : 0,
-      lcpSelector: job.lcp_selector || (job.status === 'completed' ? '.hero-cover img' : null),
-      durationMs: job.completed_at ? Math.max(1200, (job.completed_at - job.created_at) * 1000) : 0,
+      criticalCssSizeKb:
+        job.critical_css_bytes != null
+          ? Math.round((job.critical_css_bytes / 1024) * 10) / 10
+          : null,
+      lcpSelector: job.lcp_selector || null,
+      durationMs: job.completed_at ? Math.max(0, (job.completed_at - job.created_at) * 1000) : 0,
       createdAt: formatRelativeTime(job.created_at),
       errorMessage: job.error_message || null,
     })),
@@ -77,11 +81,16 @@ optimizeRoutes.post('/dispatch', async (c) => {
   let targetDomain = '';
 
   if (rawDomain && authHeader.startsWith('Bearer sk_live_')) {
-    // Site-authenticated request
+    // Site-authenticated request: verify the API key against the stored hash.
     targetDomain = normalizeDomain(rawDomain);
-    const site = await c.env.DB.prepare('SELECT id FROM sites WHERE domain = ?').bind(targetDomain).first<{ id: string }>();
+    const apiKeyHash = await sha256(authHeader.replace('Bearer ', '').trim());
+    const site = await c.env.DB.prepare(
+      'SELECT id FROM sites WHERE domain = ? AND site_api_key_hash = ?'
+    )
+      .bind(targetDomain, apiKeyHash)
+      .first<{ id: string }>();
     if (!site) {
-      return c.json({ success: false, error: 'Site not found' }, 404);
+      return c.json({ success: false, error: 'Invalid site credentials' }, 403);
     }
     siteId = site.id;
   } else {
@@ -277,6 +286,68 @@ optimizeRoutes.get('/status/:job_id', async (c) => {
   return c.json({
     success: true,
     data: job,
+  });
+});
+
+/**
+ * Fetch the latest completed Critical CSS for a URL/viewport.
+ * GET /api/v1/optimize/css?url=...&viewport=mobile|desktop
+ * Auth: site API key (Authorization: Bearer sk_live_... + X-Site-Domain header).
+ * Used by the WordPress plugin to download generated critical CSS.
+ */
+optimizeRoutes.get('/css', async (c) => {
+  const authHeader = c.req.header('Authorization') || '';
+  const rawDomain = c.req.header('X-Site-Domain') || '';
+  const url = (c.req.query('url') || '').trim();
+  const viewport = c.req.query('viewport') === 'desktop' ? 'desktop' : 'mobile';
+
+  if (!authHeader.startsWith('Bearer sk_live_')) {
+    return c.json({ success: false, error: 'Site API key required' }, 401);
+  }
+  if (!rawDomain || !url) {
+    return c.json({ success: false, error: 'X-Site-Domain and url query param are required' }, 400);
+  }
+
+  const domain = normalizeDomain(rawDomain);
+  const apiKeyHash = await sha256(authHeader.replace('Bearer ', '').trim());
+
+  const site = await c.env.DB.prepare(
+    'SELECT id FROM sites WHERE domain = ? AND site_api_key_hash = ?'
+  )
+    .bind(domain, apiKeyHash)
+    .first<{ id: string }>();
+
+  if (!site) {
+    return c.json({ success: false, error: 'Invalid site credentials' }, 403);
+  }
+
+  // Match the job URL case-insensitively with/without trailing slash.
+  const normalized = url.replace(/\/+$/, '');
+  const candidates = [normalized, normalized + '/'];
+
+  const job = await c.env.DB.prepare(
+    `SELECT critical_css_r2_key FROM optimization_jobs
+     WHERE site_id = ? AND viewport = ? AND status = 'completed'
+       AND critical_css_r2_key IS NOT NULL
+       AND (lower(url) = lower(?) OR lower(url) = lower(?) OR lower(rtrim(url, '/')) = lower(?))
+     ORDER BY created_at DESC LIMIT 1`
+  )
+    .bind(site.id, viewport, candidates[0], candidates[1], normalized)
+    .first<{ critical_css_r2_key: string }>();
+
+  if (!job) {
+    return c.json({ success: false, error: 'No completed critical CSS for this URL yet' }, 404);
+  }
+
+  const object = await c.env.ASSETS_BUCKET.get(job.critical_css_r2_key);
+  if (!object) {
+    return c.json({ success: false, error: 'Critical CSS artifact not found' }, 404);
+  }
+
+  return c.body(await object.text(), 200, {
+    'Content-Type': 'text/css; charset=utf-8',
+    'Cache-Control': 'public, max-age=300',
+    'X-Turbopress-Css-Key': job.critical_css_r2_key,
   });
 });
 

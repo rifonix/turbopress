@@ -56,6 +56,43 @@ class CriticalCssTransformer {
         return null;
     }
 
+    /**
+     * Persist critical CSS for a URL/viewport under every host variant the
+     * site may be requested with (request host + home_url host + www variants).
+     */
+    public static function write_cache_for_url(string $url, string $viewport, string $css): void {
+        if (empty($css)) {
+            return;
+        }
+
+        $parsed = parse_url($url);
+        $path = $parsed['path'] ?? '/';
+        $url_hash = md5($path . '_' . $viewport);
+
+        $hosts = [];
+        $url_host = isset($parsed['host']) ? strtolower($parsed['host']) : '';
+        if ($url_host) {
+            $hosts[] = $url_host;
+        }
+        $home_host = parse_url(get_home_url(), PHP_URL_HOST);
+        if ($home_host) {
+            $hosts[] = strtolower($home_host);
+        }
+        // Cover www <-> non-www mismatches between request host and siteurl.
+        foreach (array_unique(array_filter($hosts)) as $h) {
+            $hosts[] = str_starts_with($h, 'www.') ? substr($h, 4) : 'www.' . $h;
+        }
+        $hosts = array_unique(array_filter($hosts));
+
+        foreach ($hosts as $host) {
+            $dir = TURBOPRESS_CACHE_DIR . '/' . md5($host) . '/css';
+            if (!file_exists($dir)) {
+                wp_mkdir_p($dir);
+            }
+            @file_put_contents($dir . '/' . $url_hash . '.css', $css);
+        }
+    }
+
     private function defer_full_stylesheets(string $html): string {
         $excluded = (array) $this->config->get('critical_css.excluded_stylesheets', []);
 
@@ -75,7 +112,9 @@ class CriticalCssTransformer {
                 // Extract href
                 if (preg_match('/href=[\'"]([^\'"]+)[\'"]/i', $attributes, $href_match)) {
                     $href = $href_match[1];
-                    $clean_attrs = preg_replace('/rel=[\'"]stylesheet[\'"]/i', '', $attributes);
+                    // Strip original href + rel from retained attrs (avoid duplicate href attribute)
+                    $clean_attrs = preg_replace('/href=[\'"][^\'"]*[\'"]/i', '', $attributes);
+                    $clean_attrs = preg_replace('/rel=[\'"]stylesheet[\'"]/i', '', $clean_attrs);
 
                     return sprintf(
                         '<link rel="preload" href="%s" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" %s>' .

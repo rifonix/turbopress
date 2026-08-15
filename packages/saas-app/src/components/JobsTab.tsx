@@ -19,7 +19,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
 }) => {
   const [filter, setFilter] = useState<'all' | 'completed' | 'processing' | 'failed'>('all');
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
-  const [dispatchUrl, setDispatchUrl] = useState('https://grandemarehotel.com');
+  const [dispatchUrl, setDispatchUrl] = useState('');
   const [dispatchViewport, setDispatchViewport] = useState<'mobile' | 'desktop'>('mobile');
 
   const filteredJobs = jobs.filter((j) => {
@@ -214,7 +214,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
                         : 'border-[#e4e4e7] bg-white text-[#3f3f46]'
                     }`}
                   >
-                    Mobile (375x812)
+                    Mobile (393x852)
                   </button>
                   <button
                     type="button"
@@ -225,7 +225,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
                         : 'border-[#e4e4e7] bg-white text-[#3f3f46]'
                     }`}
                   >
-                    Desktop (1440x900)
+                    Desktop (1920x1080)
                   </button>
                 </div>
               </div>

@@ -13,7 +13,7 @@ class ScriptDelayer {
     }
 
     public function transform(string $html): string {
-        $mode = $this->config->get('javascript.execution_mode', 'interaction_delay');
+        $mode = $this->config->get('javascript.execution_mode', 'defer');
         if ($mode === 'none') {
             return $html;
         }
@@ -30,14 +30,25 @@ class ScriptDelayer {
                 $attributes = $matches[1] ?? '';
                 $content = $matches[2] ?? '';
 
-                // Skip JSON-LD, Speculation Rules, Application JSON
+                // Skip JSON-LD, Speculation Rules, Application JSON (any quoting style)
                 if (
-                    strpos($attributes, 'type="application/ld+json"') !== false ||
-                    strpos($attributes, 'type="application/json"') !== false ||
-                    strpos($attributes, 'type="speculationrules"') !== false ||
-                    strpos($attributes, 'turbopress-loader') !== false ||
-                    strpos($attributes, 'turbopress-hydrator') !== false
+                    stripos($attributes, 'ld+json') !== false ||
+                    stripos($attributes, 'application/json') !== false ||
+                    stripos($attributes, 'speculationrules') !== false ||
+                    stripos($attributes, 'turbopress-loader') !== false ||
+                    stripos($attributes, 'turbopress-hydrator') !== false
                 ) {
+                    return $full_tag;
+                }
+
+                // ES modules handle their own loading; converting them to
+                // inline type swaps breaks import semantics.
+                if (preg_match('/type\s*=\s*[\'"]module[\'"]/i', $attributes)) {
+                    return $full_tag;
+                }
+
+                // Already non-blocking: leave untouched.
+                if (preg_match('/[\s\'"](?:async|defer)(?:[\s\'"]|$)/i', $attributes)) {
                     return $full_tag;
                 }
 
@@ -54,13 +65,13 @@ class ScriptDelayer {
                 $script_order++;
 
                 if ($mode === 'defer') {
-                    if (preg_match('/src=[\'"]([^\'"]+)[\'"]/i', $attributes) && strpos($attributes, 'defer') === false) {
+                    if (preg_match('/src=[\'"]([^\'"]+)[\'"]/i', $attributes)) {
                         return '<script' . $attributes . ' defer>' . $content . '</script>';
                     }
                     return $full_tag;
                 }
 
-                // Interaction Delay (Tier 2)
+                // Interaction Delay (opt-in "ludicrous" behaviour)
                 if (preg_match('/src=[\'"]([^\'"]+)[\'"]/i', $attributes, $src_match)) {
                     $src = $src_match[1];
                     $clean_attrs = preg_replace('/src=[\'"][^\'"]+[\'"]/i', '', $attributes);
@@ -72,37 +83,36 @@ class ScriptDelayer {
                         $script_order,
                         trim($clean_attrs)
                     );
-                } else {
-                    // Inline Script
-                    $clean_attrs = preg_replace('/type=[\'"][^\'"]+[\'"]/i', '', $attributes);
-                    return sprintf(
-                        '<script type="text/turbopress" data-tp-order="%d" %s>%s</script>',
-                        $script_order,
-                        trim($clean_attrs),
-                        $content
-                    );
                 }
+
+                // Inline Script
+                $clean_attrs = preg_replace('/type=[\'"][^\'"]+[\'"]/i', '', $attributes);
+                return sprintf(
+                    '<script type="text/turbopress" data-tp-order="%d" %s>%s</script>',
+                    $script_order,
+                    trim($clean_attrs),
+                    $content
+                );
             },
             $html
         );
 
-        // Inject Standalone jQuery Stub and Micro-Loader in <head>
+        // Inject Micro-Loader in <head> (deferred: never render-blocking)
         if ($mode === 'interaction_delay') {
             $loader_url = TURBOPRESS_URL . 'assets/js/turbopress-loader.min.js';
             $loader_tag = sprintf(
                 '<script id="turbopress-loader-config">' .
                 'window._tpLoaderConfig = { timeout: %d };' .
                 'window._tpJQueue = window._tpJQueue || [];' .
-                'if (typeof window.$ === "undefined") {' .
-                '  window.$ = window.jQuery = function(selector) {' .
-                '    if (typeof selector === "function") {' .
-                '      window._tpJQueue.push(selector); return window.$; ' .
-                '    }' .
-                '    return { ready: function(fn) { window._tpJQueue.push(fn); } };' .
+                'if (typeof window.jQuery === "undefined") {' .
+                '  window._tpJStub = function(selector) {' .
+                '    if (typeof selector === "function") { window._tpJQueue.push(selector); return window._tpJStub; }' .
+                '    return { ready: function(fn) { window._tpJQueue.push(fn); return window._tpJStub; } };' .
                 '  };' .
+                '  window.$ = window.jQuery = window._tpJStub;' .
                 '}' .
                 '</script>' .
-                '<script src="%s" id="turbopress-loader-core"></script>',
+                '<script src="%s" id="turbopress-loader-core" defer></script>',
                 $delay_timeout,
                 esc_url($loader_url)
             );

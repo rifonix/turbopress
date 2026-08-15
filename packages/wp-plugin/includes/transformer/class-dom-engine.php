@@ -40,7 +40,7 @@ class DomEngine {
             }
 
             // 3. 3-Tier Interaction-based JavaScript Delaying
-            if ($this->config->get('javascript.execution_mode', 'interaction_delay') !== 'none') {
+            if ($this->config->get('javascript.execution_mode', 'defer') !== 'none') {
                 $html = $this->script_delayer->transform($html);
             }
 
@@ -54,8 +54,11 @@ class DomEngine {
                 $html = $this->inject_hydrator_scripts($html);
             }
 
-            // 6. Signature watermark
-            $html .= "\n<!-- Optimized with Turbopress SpeedForge Engine v" . TURBOPRESS_VERSION . " at " . gmdate('Y-m-d H:i:s') . " GMT -->";
+            // 6. Signature watermark (inside <body> so it never lands after </html>)
+            $signature = "\n<!-- Optimized with TurboPress v" . TURBOPRESS_VERSION . " -->";
+            if (stripos($html, '</body>') !== false) {
+                $html = str_ireplace('</body>', $signature . '</body>', $html);
+            }
 
             return $html;
         } catch (\Throwable $e) {

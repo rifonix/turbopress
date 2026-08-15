@@ -36,6 +36,7 @@ export default function SiteDetailPage() {
   return (
     <SiteDetailView
       site={site}
+      jobs={ctx.jobs}
       onBack={() => router.push('/sites')}
       onUpdatePreset={ctx.handleUpdatePreset}
       onUpdateConfig={ctx.handleUpdateConfig}

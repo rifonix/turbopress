@@ -30,22 +30,25 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const [sortKey, setSortKey] = useState<'domain' | 'score' | 'lcp' | 'cacheHitRate'>('score');
   const [sortDir, setSortDir] = useState<1 | -1>(-1); // Default descending score
 
-  // Calculate live aggregate KPI metrics
-  const avgScore = sites.length > 0
-    ? Math.round(sites.reduce((acc, s) => acc + (s.score || 90), 0) / sites.length)
-    : 0;
+  // Calculate live aggregate KPI metrics (only from sites with real measurements)
+  const scoredSites = sites.filter((s) => s.score != null);
+  const avgScore = scoredSites.length > 0
+    ? Math.round(scoredSites.reduce((acc, s) => acc + (s.score || 0), 0) / scoredSites.length)
+    : null;
 
-  const medianLcp = sites.length > 0
-    ? (sites.reduce((acc, s) => acc + (s.lcp || 1.5), 0) / sites.length).toFixed(1)
-    : '0.0';
+  const lcpSites = sites.filter((s) => s.lcp != null);
+  const medianLcp = lcpSites.length > 0
+    ? (lcpSites.reduce((acc, s) => acc + (s.lcp || 0), 0) / lcpSites.length).toFixed(1)
+    : null;
 
-  const avgCacheHit = sites.length > 0
-    ? Math.round(sites.reduce((acc, s) => acc + (s.cacheHitRate || 90), 0) / sites.length)
-    : 0;
+  const cacheSites = sites.filter((s) => s.cacheHitRate != null);
+  const avgCacheHit = cacheSites.length > 0
+    ? Math.round(cacheSites.reduce((acc, s) => acc + (s.cacheHitRate || 0), 0) / cacheSites.length)
+    : null;
 
   // Build live attention queue from real sites
   const dynamicAttentionItems: AttentionItem[] = sites
-    .filter((s) => s.status === 'attention' || s.status === 'disconnected' || (s.score && s.score < 75))
+    .filter((s) => s.status === 'attention' || s.status === 'disconnected' || (s.score != null && s.score < 75))
     .map((s) => {
       if (s.status === 'disconnected') {
         return {
@@ -61,7 +64,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         id: `att-${s.id}`,
         type: 'danger' as const,
         title: `${s.domain} — needs optimization pass`,
-        description: `Current PageSpeed score is ${s.score}. Run Critical CSS & LCP extractor to reach 95+.`,
+        description: `Measured performance score is ${s.score ?? 'not yet measured'}. Run Critical CSS & LCP extractor to improve it.`,
         domain: s.domain,
         actionLabel: 'Optimize now',
         jobId: `job_${s.id.slice(-5)}`,
@@ -92,7 +95,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return '#dc2626';
   };
 
-  const renderScoreRing = (score: number) => {
+  const renderScoreRing = (score: number | null) => {
+    if (score == null) {
+      return <span className="font-mono text-[13px] text-[#a1a1aa]">—</span>;
+    }
     const r = 15.5;
     const c = 2 * Math.PI * r;
     const offset = c * (1 - score / 100);
@@ -222,19 +228,20 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Avg mobile score
             </span>
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-semibold text-[#171717] num">{avgScore}</span>
+              <span className="text-3xl font-semibold text-[#171717] num">{avgScore ?? '—'}</span>
               <span className="font-mono text-[11.5px] text-[#16a34a] font-medium flex items-center gap-1">
-                ▲ {avgScore >= 90 ? '90+ Target' : 'Needs boost'}
+                {avgScore == null ? 'No audits yet' : avgScore >= 90 ? '90+ Target' : 'Needs boost'}
               </span>
             </div>
           </div>
-          {/* Sparkline */}
-          <div className="h-8 mt-3">
-            <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="w-full h-full">
-              <path fill="rgba(22, 163, 74, 0.08)" d="M0,40 L0,28 L22,25 L44,30 L66,22 L88,18 L110,20 L132,15 L154,16 L176,12 L200,8 L200,40 Z" />
-              <polyline fill="none" stroke="#16a34a" strokeWidth="2" points="0,28 22,25 44,30 66,22 88,18 110,20 132,15 154,16 176,12 200,8" />
-            </svg>
-          </div>
+          {avgScore != null && (
+            <div className="h-1.5 mt-3 rounded-full bg-[#f1f1f2] overflow-hidden">
+              <div
+                className="h-full bg-[#16a34a] rounded-full transition-all duration-700"
+                style={{ width: `${avgScore}%` }}
+              />
+            </div>
+          )}
         </div>
 
         {/* KPI 2: Median LCP */}
@@ -245,20 +252,21 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </span>
             <div className="flex items-baseline justify-between">
               <span className="text-3xl font-semibold text-[#171717] num">
-                {medianLcp}<span className="text-base font-normal text-[#71717a] ml-1">s</span>
+                {medianLcp ?? '—'}{medianLcp != null && <span className="text-base font-normal text-[#71717a] ml-1">s</span>}
               </span>
               <span className="font-mono text-[11.5px] text-[#16a34a] font-medium flex items-center gap-1">
-                ⚡ Sub-2.5s
+                {medianLcp == null ? 'No audits yet' : Number(medianLcp) <= 2.5 ? '⚡ Good' : 'Needs work'}
               </span>
             </div>
           </div>
-          {/* Sparkline */}
-          <div className="h-8 mt-3">
-            <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="w-full h-full">
-              <path fill="rgba(22, 163, 74, 0.08)" d="M0,40 L0,8 L22,10 L44,12 L66,15 L88,18 L110,20 L132,23 L154,26 L176,30 L200,32 L200,40 Z" />
-              <polyline fill="none" stroke="#16a34a" strokeWidth="2" points="0,8 22,10 44,12 66,15 88,18 110,20 132,23 154,26 176,30 200,32" />
-            </svg>
-          </div>
+          {medianLcp != null && (
+            <div className="h-1.5 mt-3 rounded-full bg-[#f1f1f2] overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${Number(medianLcp) <= 2.5 ? 'bg-[#16a34a]' : 'bg-[#f59e0b]'}`}
+                style={{ width: `${Math.min(100, Math.round((Number(medianLcp) / 4) * 100))}%` }}
+              />
+            </div>
+          )}
         </div>
 
         {/* KPI 3: Edge Cache Hit Rate */}
@@ -269,20 +277,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </span>
             <div className="flex items-baseline justify-between">
               <span className="text-3xl font-semibold text-[#171717] num">
-                {avgCacheHit}<span className="text-base font-normal text-[#71717a] ml-1">%</span>
+                {avgCacheHit != null && <>{avgCacheHit}<span className="text-base font-normal text-[#71717a] ml-1">%</span></>}
+                {avgCacheHit == null && '—'}
               </span>
               <span className="font-mono text-[11.5px] text-[#16a34a] font-medium flex items-center gap-1">
-                ▲ Active
+                {avgCacheHit == null ? 'Not reported' : '▲ Active'}
               </span>
             </div>
           </div>
-          {/* Sparkline */}
-          <div className="h-8 mt-3">
-            <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="w-full h-full">
-              <path fill="rgba(22, 163, 74, 0.08)" d="M0,40 L0,22 L22,20 L44,18 L66,20 L88,15 L110,14 L132,13 L154,11 L176,11 L200,8 L200,40 Z" />
-              <polyline fill="none" stroke="#16a34a" strokeWidth="2" points="0,22 22,20 44,18 66,20 88,15 110,14 132,13 154,11 176,11 200,8" />
-            </svg>
-          </div>
+          <p className="text-[11px] text-[#a1a1aa] mt-3 leading-snug">
+            Reported by the TurboPress plugin once page cache telemetry is enabled.
+          </p>
         </div>
 
         {/* KPI 4: Connected Sites */}
@@ -298,12 +303,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               </span>
             </div>
           </div>
-          {/* Sparkline */}
-          <div className="h-8 mt-3">
-            <svg viewBox="0 0 200 40" preserveAspectRatio="none" className="w-full h-full">
-              <path fill="rgba(22, 163, 74, 0.08)" d="M0,40 L0,32 L22,20 L44,28 L66,16 L88,30 L110,24 L132,34 L154,28 L176,32 L200,38 L200,40 Z" />
-              <polyline fill="none" stroke="#16a34a" strokeWidth="2" points="0,32 22,20 44,28 66,16 88,30 110,24 132,34 154,28 176,32 200,38" />
-            </svg>
+          <div className="h-1.5 mt-3 rounded-full bg-[#f1f1f2] overflow-hidden">
+            <div className="h-full bg-[#171717] rounded-full" style={{ width: sites.length > 0 ? '100%' : '0%' }} />
           </div>
         </div>
       </section>
@@ -433,7 +434,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                             {site.domain}
                           </span>
                           <span className="text-[11.5px] text-[#71717a]">
-                            {site.subTitle || 'WordPress 6.7 · SpeedForge'}
+                            {site.subTitle || (site.is_active ? 'Connected · TurboPress' : 'Not connected')}
                           </span>
                         </div>
                       </div>
@@ -459,24 +460,26 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                           ? 'Optimizing'
                           : site.status === 'attention'
                           ? 'Needs attention'
+                          : site.status === 'connected'
+                          ? 'Connected'
                           : 'Disconnected'}
                       </span>
                     </td>
 
                     {/* Score Ring */}
-                    <td>{renderScoreRing(site.score || 95)}</td>
+                    <td>{renderScoreRing(site.score)}</td>
 
                     {/* LCP */}
-                    <td className="text-right font-mono text-[13px]">{(site.lcp || 1.4).toFixed(1)}s</td>
+                    <td className="text-right font-mono text-[13px]">{site.lcp != null ? `${site.lcp.toFixed(1)}s` : '—'}</td>
 
                     {/* Cache Hit */}
                     <td className="text-right font-mono text-[13px]">
-                      {site.cacheHitRate ? `${site.cacheHitRate}%` : '—'}
+                      {site.cacheHitRate != null ? `${site.cacheHitRate}%` : '—'}
                     </td>
 
                     {/* Last Job */}
                     <td>
-                      <span className="meta">{site.lastJobTime || 'recently'}</span>
+                      <span className="meta">{site.lastJobTime || 'never run'}</span>
                     </td>
 
                     {/* Actions on hover */}

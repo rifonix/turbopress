@@ -165,7 +165,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             : POLAR_PRODUCT_IDS.starterMonthly
           : `prod_${planId}_${interval}`;
 
-      const res = await api.createCheckout(token, targetProductId, returnTo, userEmail);
+      const res = await api.createCheckout(token, targetProductId, returnTo, userEmail, planId, interval);
       if (res?.checkoutUrl) {
         addToast(
           res.server === 'sandbox'

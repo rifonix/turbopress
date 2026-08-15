@@ -7,19 +7,17 @@ import {
   Play,
   ExternalLink,
   Zap,
-  Eye,
-  EyeOff,
-  Copy,
   Sliders,
   Code,
   KeyRound,
   Check,
 } from 'lucide-react';
-import { ExtendedSite, SitePreset } from '../types';
+import { ExtendedSite, SitePreset, OptimizationJobItem } from '../types';
 import { SiteConfig } from '@turbopress/shared';
 
 interface SiteDetailPageProps {
   site: ExtendedSite;
+  jobs?: OptimizationJobItem[];
   onBack: () => void;
   onUpdatePreset: (siteId: string, preset: SitePreset) => Promise<void>;
   onUpdateConfig?: (siteId: string, config: SiteConfig) => Promise<void>;
@@ -30,6 +28,7 @@ interface SiteDetailPageProps {
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   site,
+  jobs = [],
   onBack,
   onUpdatePreset,
   onUpdateConfig,
@@ -41,7 +40,6 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   const [currentPreset, setCurrentPreset] = useState<SitePreset>(site.config?.preset || 'ludicrous');
   const [isPurging, setIsPurging] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [isKeyRevealed, setIsKeyRevealed] = useState(false);
 
   // Granular settings local state
   const [jsDelayTimeout, setJsDelayTimeout] = useState(site.config?.javascript?.delay_timeout_ms || 3500);
@@ -49,7 +47,9 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   const [enableDynamicNonces, setEnableDynamicNonces] = useState(site.config?.dynamic?.nonce_ajax_refresh ?? true);
   const [enableSpeculation, setEnableSpeculation] = useState(site.config?.dynamic?.speculation_rules_prerender ?? true);
 
-  const apiKey = site.site_api_key_hash || 'sk_live_9f2kd74xm8wqc41a';
+  // Real heartbeat derived from plugin pings
+  const lastPing = site.last_ping_at ? new Date(site.last_ping_at * 1000) : null;
+  const heartbeatFresh = lastPing != null && Date.now() - site.last_ping_at! * 1000 < 24 * 3600 * 1000;
 
   const handleApplyPreset = async (preset: SitePreset) => {
     setCurrentPreset(preset);
@@ -85,7 +85,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         excluded_stylesheets: [],
       },
       javascript: {
-        execution_mode: 'interaction_delay',
+        execution_mode: 'defer',
         delay_timeout_ms: jsDelayTimeout,
         preserve_execution_order: true,
         exclusions: [],
@@ -146,7 +146,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
     setIsRunning(true);
     try {
       await onRunOptimization(site.domain);
-      onToast(`Puppeteer AST Critical CSS run dispatched for ${site.domain}`);
+      onToast(`Critical CSS extraction dispatched for ${site.domain}`);
     } catch {
       onToast('Optimization dispatch failed');
     } finally {
@@ -154,11 +154,11 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
     }
   };
 
-  const renderScoreGauge = (score: number, label: string) => {
+  const renderScoreGauge = (score: number | null, label: string) => {
     const r = 24;
     const c = 2 * Math.PI * r;
-    const offset = c * (1 - score / 100);
-    const color = score >= 90 ? '#16a34a' : score >= 50 ? '#f59e0b' : '#dc2626';
+    const offset = score != null ? c * (1 - score / 100) : c;
+    const color = score == null ? '#a1a1aa' : score >= 90 ? '#16a34a' : score >= 50 ? '#f59e0b' : '#dc2626';
 
     return (
       <div className="flex items-center gap-3 p-3.5 bg-white border border-[#e4e4e7] rounded-xl shadow-sm">
@@ -179,16 +179,24 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             />
           </svg>
           <span className="absolute inset-0 grid place-items-center font-mono font-bold text-sm text-[#171717]">
-            {score}
+            {score ?? '—'}
           </span>
         </div>
         <div>
           <span className="font-mono text-xs text-[#71717a] uppercase tracking-wider block">{label}</span>
-          <span className="text-xs font-semibold text-[#16a34a]">Good (90+ CWV)</span>
+          <span className={`text-xs font-semibold ${score == null ? 'text-[#a1a1aa]' : score >= 90 ? 'text-[#16a34a]' : score >= 50 ? 'text-[#b45309]' : 'text-[#dc2626]'}`}>
+            {score == null ? 'Run an optimization to measure' : score >= 90 ? 'Good' : score >= 50 ? 'Needs improvement' : 'Poor'}
+          </span>
         </div>
       </div>
     );
   };
+
+  // Latest completed CSS job per viewport (real data only)
+  const latestCssJobs = (['mobile', 'desktop'] as const).map((viewport) => ({
+    viewport,
+    job: jobs.find((j) => j.siteDomain === site.domain && j.viewport === viewport && j.status === 'completed'),
+  }));
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -218,11 +226,11 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               }`}
             >
               <span className="chip-dot" />
-              {site.status === 'optimized' ? 'Active · 90+ Score' : site.status}
+              {site.status === 'optimized' && site.score != null ? `Optimized · ${site.score}` : site.status}
             </span>
           </div>
           <p className="text-xs text-[#71717a] mt-1 font-mono">
-            Site ID: <code>{site.id}</code> · Synced {site.lastJobTime}
+            Site ID: <code>{site.id}</code> · Last job {site.lastJobTime || 'never'}
           </p>
         </div>
 
@@ -258,27 +266,39 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         </div>
       </div>
 
-      {/* CWV Performance High-Level Scorecard */}
+      {/* CWV Performance Scorecard (measured values only) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {renderScoreGauge(site.score || 96, 'Mobile PageSpeed')}
-        {renderScoreGauge(site.desktopScore || 99, 'Desktop Score')}
+        {renderScoreGauge(site.mobileScore ?? site.score, 'Mobile Score')}
+        {renderScoreGauge(site.desktopScore ?? null, 'Desktop Score')}
 
         <div className="p-4 bg-white border border-[#e4e4e7] rounded-xl shadow-sm flex flex-col justify-between">
           <span className="text-xs font-mono text-[#71717a] uppercase tracking-wider">Largest Contentful Paint</span>
           <div className="flex items-baseline justify-between mt-1">
-            <span className="font-mono text-2xl font-bold text-[#171717]">{(site.lcp || 1.4).toFixed(1)}s</span>
-            <span className="font-mono text-xs text-[#16a34a] font-medium">⚡ Sub-2.5s</span>
+            <span className="font-mono text-2xl font-bold text-[#171717]">
+              {site.lcp != null ? `${site.lcp.toFixed(1)}s` : '—'}
+            </span>
+            {site.lcp != null && (
+              <span className={`font-mono text-xs font-medium ${site.lcp <= 2.5 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>
+                {site.lcp <= 2.5 ? '⚡ Good' : 'Needs work'}
+              </span>
+            )}
           </div>
-          <p className="text-[11px] text-[#71717a] mt-1">Priority preload active</p>
+          <p className="text-[11px] text-[#71717a] mt-1">Measured by the edge browser audit</p>
         </div>
 
         <div className="p-4 bg-white border border-[#e4e4e7] rounded-xl shadow-sm flex flex-col justify-between">
-          <span className="text-xs font-mono text-[#71717a] uppercase tracking-wider">Edge Cache TTFB</span>
+          <span className="text-xs font-mono text-[#71717a] uppercase tracking-wider">Cumulative Layout Shift</span>
           <div className="flex items-baseline justify-between mt-1">
-            <span className="font-mono text-2xl font-bold text-[#171717]">14ms</span>
-            <span className="font-mono text-xs text-[#16a34a] font-medium">{site.cacheHitRate || 94}% hit rate</span>
+            <span className="font-mono text-2xl font-bold text-[#171717]">
+              {site.cls != null ? site.cls.toFixed(3) : '—'}
+            </span>
+            {site.cls != null && (
+              <span className={`font-mono text-xs font-medium ${site.cls <= 0.1 ? 'text-[#16a34a]' : site.cls <= 0.25 ? 'text-[#b45309]' : 'text-[#dc2626]'}`}>
+                {site.cls <= 0.1 ? 'Good' : site.cls <= 0.25 ? 'Needs improvement' : 'Poor'}
+              </span>
+            )}
           </div>
-          <p className="text-[11px] text-[#71717a] mt-1">advanced-cache.php drop-in</p>
+          <p className="text-[11px] text-[#71717a] mt-1">Measured by the edge browser audit</p>
         </div>
       </div>
 
@@ -317,7 +337,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
           }`}
         >
           <KeyRound className="w-3.5 h-3.5" />
-          <span>Connection & API Key</span>
+          <span>Connection</span>
         </button>
       </div>
 
@@ -339,10 +359,10 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-sm text-[#171717]">Safe Mode</span>
-                  <span className="font-mono text-xs text-[#71717a]">80–88 CWV</span>
+                  <span className="font-mono text-xs text-[#71717a]">100% compat</span>
                 </div>
                 <p className="text-xs text-[#71717a] leading-relaxed">
-                  Drop-in page caching, standard deferral. Guaranteed 100% theme compatibility.
+                  Drop-in page caching, no script transformation. Guaranteed theme compatibility.
                 </p>
               </div>
 
@@ -357,10 +377,10 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-sm text-[#171717]">Aggressive</span>
-                  <span className="font-mono text-xs text-[#16a34a] font-medium">90–94 CWV</span>
+                  <span className="font-mono text-xs text-[#16a34a] font-medium">Balanced</span>
                 </div>
                 <p className="text-xs text-[#71717a] leading-relaxed">
-                  Critical CSS inlining in head, W3C Speculation Rules hover pre-rendering, WebP/AVIF.
+                  Critical CSS inlining in head, deferred scripts, W3C Speculation Rules hover prerendering.
                 </p>
               </div>
 
@@ -381,7 +401,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
                   <span className="font-semibold text-sm text-[#171717]">Ludicrous Speed</span>
                 </div>
                 <p className="text-xs text-[#71717a] leading-relaxed pr-16">
-                  AST Critical CSS, 3-tier user interaction script delay with jQuery stubbing, and dynamic nonces.
+                  Critical CSS, optional interaction-based script delay and dynamic nonces for maximum scores.
                 </p>
               </div>
             </div>
@@ -407,7 +427,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               <div className="flex items-center justify-between p-3.5 border border-[#e4e4e7] rounded-xl">
                 <div>
                   <h4 className="text-xs font-semibold text-[#171717]">Edge Critical CSS Inlining</h4>
-                  <p className="text-[11.5px] text-[#71717a]">Injects above-the-fold CSS AST and defers full stylesheets.</p>
+                  <p className="text-[11.5px] text-[#71717a]">Injects above-the-fold CSS and defers full stylesheets.</p>
                 </div>
                 <input
                   type="checkbox"
@@ -420,7 +440,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               <div className="flex items-center justify-between p-3.5 border border-[#e4e4e7] rounded-xl">
                 <div>
                   <h4 className="text-xs font-semibold text-[#171717]">Dynamic Nonces & Cart Micro-Hydrator</h4>
-                  <p className="text-[11.5px] text-[#71717a]">Refreshes cached WordPress form tokens and WooCommerce carts in &lt;30ms.</p>
+                  <p className="text-[11.5px] text-[#71717a]">Refreshes cached WordPress form tokens and WooCommerce carts after load.</p>
                 </div>
                 <input
                   type="checkbox"
@@ -433,7 +453,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               <div className="flex items-center justify-between p-3.5 border border-[#e4e4e7] rounded-xl">
                 <div>
                   <h4 className="text-xs font-semibold text-[#171717]">W3C Speculation Rules Prerendering</h4>
-                  <p className="text-[11.5px] text-[#71717a]">Instantaneous &lt;50ms link navigation on user link hover.</p>
+                  <p className="text-[11.5px] text-[#71717a]">Prerenders links on hover for near-instant navigation.</p>
                 </div>
                 <input
                   type="checkbox"
@@ -469,73 +489,60 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-base font-semibold text-[#171717]">R2 Critical CSS Storage</h3>
-              <p className="text-xs text-[#71717a]">Stored in Cloudflare R2 (`turbopress-assets`) with zero egress fees</p>
+              <p className="text-xs text-[#71717a]">Generated CSS is stored in Cloudflare R2 and streamed to your WordPress plugin</p>
             </div>
-            <span className="chip chip-success">
-              <span className="chip-dot" /> Extracted & Synced
+            <span className={`chip ${latestCssJobs.some(({ job }) => job) ? 'chip-success' : 'chip-neutral'}`}>
+              <span className="chip-dot" />
+              {latestCssJobs.some(({ job }) => job) ? 'Extracted & Synced' : 'Not extracted yet'}
             </span>
           </div>
 
-          <div className="p-4 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl font-mono text-xs space-y-2">
-            <div className="flex justify-between">
-              <span className="text-[#71717a]">R2 Object Key:</span>
-              <span className="text-[#171717]">critical-css/{site.id}/mobile.css</span>
+          {latestCssJobs.map(({ viewport, job }) => (
+            <div key={viewport} className="p-4 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl font-mono text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-[#71717a]">Viewport:</span>
+                <span className="text-[#171717] capitalize">{viewport}</span>
+              </div>
+              {job ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717a]">Source URL:</span>
+                    <span className="text-[#171717] truncate max-w-[60%]" title={job.url}>{job.url}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717a]">Critical CSS Size:</span>
+                    <span className="text-[#171717]">{job.criticalCssSizeKb != null ? `${job.criticalCssSizeKb} KB` : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717a]">LCP Candidate Element:</span>
+                    <span className="text-[#16a34a] truncate max-w-[60%]" title={job.lcpSelector || undefined}>
+                      {job.lcpSelector || '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717a]">Extracted:</span>
+                    <span className="text-[#171717]">{job.createdAt}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[#71717a]">
+                  No completed extraction for this viewport yet — run an optimization to generate critical CSS.
+                </p>
+              )}
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#71717a]">Compressed Size:</span>
-              <span className="text-[#171717]">14.2 KB (reduced from 384 KB)</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[#71717a]">LCP Candidate Element:</span>
-              <span className="text-[#16a34a]">.hero-cover img (Fetchpriority High)</span>
-            </div>
-          </div>
-
-          <div>
-            <h4 className="text-xs font-semibold text-[#171717] mb-2">CSS AST Rules Preview</h4>
-            <pre className="p-4 bg-[#171717] text-white rounded-xl text-xs font-mono overflow-x-auto max-h-60">
-              {`/* TurboPress SpeedForge AST Inlined CSS */
-:root { --tp-hero-h: 420px; --primary: #f03e2f; }
-.hero-cover { position: relative; min-height: var(--tp-hero-h); display: flex; }
-.hero-cover img { width: 100%; height: 100%; object-fit: cover; fetchpriority: high; }
-@media (max-width: 768px) {
-  .hero-cover { min-height: 280px; }
-}`}
-            </pre>
-          </div>
+          ))}
         </div>
       )}
 
-      {/* TAB 3: CONNECTION & API KEY */}
+      {/* TAB 3: CONNECTION */}
       {activeTab === 'connection' && (
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm space-y-6">
           <div>
-            <h3 className="text-base font-semibold text-[#171717]">API License Key</h3>
+            <h3 className="text-base font-semibold text-[#171717]">Site Connection</h3>
             <p className="text-xs text-[#71717a] mt-0.5">
-              Paste this key in your WordPress site settings under <strong>TurboPress → Settings</strong>.
+              Your API key was shown once when the site was connected. It is stored (hashed) on the edge and
+              in your WordPress admin under <strong>TurboPress → Settings</strong>.
             </p>
-          </div>
-
-          <div className="flex items-center gap-3 p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl flex-wrap">
-            <span className="font-mono text-xs text-[#171717] flex-1 truncate">
-              {isKeyRevealed ? apiKey : `sk_live_••••••••${apiKey.slice(-4)}`}
-            </span>
-            <button
-              onClick={() => setIsKeyRevealed(!isKeyRevealed)}
-              className="btn btn-ghost text-xs py-1 px-2.5"
-            >
-              {isKeyRevealed ? <EyeOff className="w-3.5 h-3.5 mr-1" /> : <Eye className="w-3.5 h-3.5 mr-1" />}
-              {isKeyRevealed ? 'Hide' : 'Reveal'}
-            </button>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(apiKey);
-                onToast('API Key copied to clipboard');
-              }}
-              className="btn btn-secondary text-xs py-1 px-2.5"
-            >
-              <Copy className="w-3.5 h-3.5 mr-1" /> Copy
-            </button>
           </div>
 
           <div className="p-4 border border-[#e4e4e7] rounded-xl space-y-2 text-xs">
@@ -548,8 +555,22 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
               <code className="text-[#171717]">https://turbopress.webaccessibility.workers.dev</code>
             </div>
             <div className="flex justify-between">
+              <span className="text-[#71717a]">WordPress Version:</span>
+              <span className="text-[#171717] font-mono">{site.wp_version || 'Not reported yet'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[#71717a]">Plugin Version:</span>
+              <span className="text-[#171717] font-mono">{site.plugin_version || 'Not reported yet'}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-[#71717a]">Heartbeat Status:</span>
-              <span className="text-[#16a34a] font-medium">● Connected & Verified</span>
+              <span className={heartbeatFresh ? 'text-[#16a34a] font-medium' : 'text-[#b45309] font-medium'}>
+                {heartbeatFresh
+                  ? `● Plugin verified ${lastPing!.toLocaleDateString()} ${lastPing!.toLocaleTimeString()}`
+                  : lastPing
+                    ? `● Last plugin ping ${lastPing.toLocaleDateString()} — reconnect the plugin`
+                    : '● Awaiting first plugin sync'}
+              </span>
             </div>
           </div>
         </div>
