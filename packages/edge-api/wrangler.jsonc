@@ -21,6 +21,12 @@
       "head_sampling_rate": 1
     }
   },
+  "assets": {
+    "directory": "../saas-app/dist",
+    "binding": "ASSETS",
+    "html_handling": "single-page-application",
+    "not_found_handling": "single-page-application"
+  },
   "d1_databases": [
     {
       "binding": "DB",

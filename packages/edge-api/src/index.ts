@@ -43,13 +43,22 @@ app.get('/api/v1/trace', (c) => {
   });
 });
 
-// Mount Routes
+// Mount API Routes
 app.route('/api/v1/auth', authRoutes);
 app.route('/api/v1/auth', clerkWebhookRoutes);
 app.route('/api/v1/sites', siteRoutes);
 app.route('/api/v1/optimize', optimizeRoutes);
 app.route('/api/v1/billing', billingRoutes);
 app.route('/api/v1/assets', assetRoutes);
+
+// Fallback to SPA Frontend Static Assets
+app.notFound(async (c) => {
+  if (c.env.ASSETS) {
+    const res = await c.env.ASSETS.fetch(c.req.raw as any);
+    return res as unknown as Response;
+  }
+  return c.text('Not found', 404);
+});
 
 // Export Cloudflare Worker Handlers
 export default {

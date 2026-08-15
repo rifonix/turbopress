@@ -15,6 +15,7 @@ export interface Env {
   ASSETS_BUCKET: R2Bucket;
   OPTIMIZATION_QUEUE: Queue<OptimizationQueueMessage>;
   BROWSER: Fetcher;
+  ASSETS?: Fetcher;
   ENVIRONMENT: string;
   SAAS_APP_URL: string;
   POLAR_ACCESS_TOKEN?: string;
