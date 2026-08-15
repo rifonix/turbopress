@@ -72,6 +72,7 @@ class OptimizeCallback {
 
         // Fresh critical CSS → regenerate the cached page with it inlined.
         CacheManager::purge_url($url);
+        CacheIntegration::purge_foreign_caches('url', $url);
 
         return ['success' => true, 'viewport' => $viewport, 'css_bytes' => strlen($css)];
     }

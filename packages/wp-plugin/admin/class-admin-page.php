@@ -471,6 +471,7 @@ class AdminPage {
 
         $this->config->save($config_data);
         CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
 
         wp_send_json_success();
     }
@@ -497,6 +498,7 @@ class AdminPage {
         }
 
         CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
         wp_send_json_success();
     }
 
@@ -510,6 +512,7 @@ class AdminPage {
         $this->config->set_api_key('');
         $this->config->set_site_id('');
         CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
 
         wp_send_json_success();
     }

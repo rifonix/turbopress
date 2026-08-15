@@ -70,7 +70,7 @@ export const DEFAULT_EXCLUDED_PRERENDER_PATHS = [
 ];
 
 export const PRESET_SAFE: SiteConfig = {
-  version: '1.2.0',
+  version: '1.3.0',
   preset: 'safe',
   caching: {
     enabled: true,
@@ -96,7 +96,7 @@ export const PRESET_SAFE: SiteConfig = {
     max_files: 40
   },
   javascript: {
-    execution_mode: 'defer',
+    execution_mode: 'none', // v1.3.0 risk ladder: safe = no JS changes at all
     delay_timeout_ms: 0,
     preserve_execution_order: true,
     exclusions: DEFAULT_SCRIPT_EXCLUSIONS,
@@ -131,7 +131,7 @@ export const PRESET_SAFE: SiteConfig = {
 };
 
 export const PRESET_AGGRESSIVE: SiteConfig = {
-  version: '1.2.0',
+  version: '1.3.0',
   preset: 'aggressive',
   caching: {
     enabled: true,
@@ -192,7 +192,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
 };
 
 export const PRESET_LUDICROUS: SiteConfig = {
-  version: '1.2.0',
+  version: '1.3.0',
   preset: 'ludicrous',
   caching: {
     enabled: true,

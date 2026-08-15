@@ -29,12 +29,14 @@ class CachePurger {
         $permalink = get_permalink($post_id);
         if ($permalink) {
             CacheManager::purge_url($permalink);
+            CacheIntegration::purge_foreign_caches('url', $permalink);
         }
 
         // Purge Homepage
         $home_url = get_home_url();
         CacheManager::purge_url($home_url);
         CacheManager::purge_url($home_url . '/');
+        CacheIntegration::purge_foreign_caches('url', $home_url);
 
         // Purge Blog Archive if set
         $page_for_posts = get_option('page_for_posts');
@@ -42,6 +44,7 @@ class CachePurger {
             $blog_url = get_permalink($page_for_posts);
             if ($blog_url) {
                 CacheManager::purge_url($blog_url);
+                CacheIntegration::purge_foreign_caches('url', $blog_url);
             }
         }
     }
@@ -50,16 +53,20 @@ class CachePurger {
         $permalink = get_permalink($post_id);
         if ($permalink) {
             CacheManager::purge_url($permalink);
+            CacheIntegration::purge_foreign_caches('url', $permalink);
         }
         CacheManager::purge_url(get_home_url());
+        CacheIntegration::purge_foreign_caches('url', get_home_url());
     }
 
     public function on_edit_terms(): void {
         CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
     }
 
     public function on_menu_update(): void {
         CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
     }
 
     public function on_comment_post(int $comment_id, int|string $approved): void {
@@ -69,6 +76,7 @@ class CachePurger {
                 $url = get_permalink($comment->comment_post_ID);
                 if ($url) {
                     CacheManager::purge_url($url);
+                    CacheIntegration::purge_foreign_caches('url', $url);
                 }
             }
         }

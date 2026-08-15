@@ -18,6 +18,10 @@ if (!defined('ABSPATH')) {
 class CacheIntegration {
     public const CONFLICT_OPTION = 'turbopress_dropin_conflict';
 
+    /** Re-entrancy guard: our own purge_foreign_caches() fires foreign purge
+     *  actions, which our mirror handlers must not echo back. */
+    private static bool $purging_foreign = false;
+
     /** Known page-cache solutions that may own advanced-cache.php. */
     private const FOREIGN_OWNERS = [
         'litespeed'    => ['markers' => ['LiteSpeed'],                 'label' => 'LiteSpeed Cache'],
@@ -195,13 +199,109 @@ class CacheIntegration {
         ];
     }
 
+    /**
+     * Push a purge into every known foreign page cache (LiteSpeed, WP Rocket,
+     * W3TC, WP Super Cache, SG Optimizer, …) plus — when no LiteSpeed plugin
+     * claims the job — the server-level LiteSpeed cache via response header.
+     *
+     * This is the piece that kept stale transformed HTML alive on the client
+     * site: our own purge removed Turbopress files, but the host's LiteSpeed
+     * layer kept serving its copy of pre-1.2.1 HTML indefinitely.
+     *
+     * @param string $scope 'all' | 'url'
+     * @param string $url   Absolute URL when $scope is 'url'.
+     */
+    public static function purge_foreign_caches(string $scope = 'all', string $url = ''): void {
+        if (self::$purging_foreign) {
+            return;
+        }
+        self::$purging_foreign = true;
+
+        try {
+            $url = $url !== '' ? esc_url_raw($url) : '';
+
+            // LiteSpeed Cache plugin (picks up the action and emits the
+            // server purge headers itself).
+            if (defined('LSCWP_V') || class_exists('\LiteSpeed_Cache')) {
+                if ($scope === 'url' && $url !== '') {
+                    do_action('litespeed_purge_url', $url);
+                } else {
+                    do_action('litespeed_purge_all');
+                }
+            } elseif (!headers_sent()) {
+                // No LiteSpeed plugin: purge the server-level cache directly
+                // (works on Hostinger etc. where LiteSpeed serves but the
+                // plugin isn't managing headers).
+                header($scope === 'url' && $url !== ''
+                    ? 'X-LiteSpeed-Purge: url,' . $url
+                    : 'X-LiteSpeed-Purge: *');
+            }
+
+            // WP Rocket
+            if (function_exists('rocket_clean_domain')) {
+                $scope === 'url' && $url !== '' && function_exists('rocket_clean_files')
+                    ? rocket_clean_files([$url])
+                    : rocket_clean_domain();
+            }
+
+            // W3 Total Cache
+            if (function_exists('w3tc_flush_all')) {
+                $scope === 'url' && $url !== '' && function_exists('w3tc_flush_url')
+                    ? w3tc_flush_url($url)
+                    : w3tc_flush_all();
+            }
+
+            // WP Super Cache
+            if (function_exists('wp_cache_clear_cache')) {
+                $scope === 'url' && $url !== '' && function_exists('wpsc_delete_url_cache')
+                    ? wpsc_delete_url_cache($url)
+                    : wp_cache_clear_cache();
+            }
+
+            // SiteGround Optimizer
+            if (function_exists('sg_cachepress_purge_cache')) {
+                sg_cachepress_purge_cache();
+            } elseif (!defined('LSCWP_V')) {
+                do_action('sgo_purge_cache'); // no-op when nothing hooks it
+            }
+
+            // WP Fastest Cache
+            if ($scope !== 'url' && function_exists('wpfc_clear_all_cache')) {
+                wpfc_clear_all_cache(true);
+            }
+
+            // Cache Enabler
+            if ($scope !== 'url' && function_exists('cache_enabler_clear_complete_cache')) {
+                cache_enabler_clear_complete_cache();
+            }
+
+            // FlyingPress
+            if (defined('FLYING_PRESS_VERSION')) {
+                do_action($scope === 'url' && $url !== ''
+                    ? 'flying_press_purge_url'
+                    : 'flying_press_purge_everything', $url);
+            }
+        } catch (\Throwable $e) {
+            // Best-effort by design: a foreign purge failure must never
+            // abort the caller's own purge path.
+        } finally {
+            self::$purging_foreign = false;
+        }
+    }
+
     /** Full foreign purge → full pages purge. */
     public function mirror_foreign_purge(): void {
+        if (self::$purging_foreign) {
+            return;
+        }
         CacheManager::purge_all_static();
     }
 
     /** Foreign single-URL purge → our URL purge. */
     private function mirror_foreign_purge_url(string $url): void {
+        if (self::$purging_foreign) {
+            return;
+        }
         if (!empty($url)) {
             CacheManager::purge_url($url);
             return;
@@ -211,6 +311,9 @@ class CacheIntegration {
 
     /** Foreign post purge → our permalink + home purge. */
     private function mirror_foreign_post_purge(int $post_id): void {
+        if (self::$purging_foreign) {
+            return;
+        }
         if ($post_id > 0) {
             $permalink = get_permalink($post_id);
             if ($permalink) {

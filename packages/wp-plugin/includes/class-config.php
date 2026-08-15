@@ -16,7 +16,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.2.1';
+    public const CONFIG_VERSION = '1.3.0';
 
     private array $data = [];
 
@@ -76,6 +76,18 @@ class Config {
                     (string) $ex
                 )
             ));
+        }
+
+        if (version_compare($stored_version, '1.3.0', '<')) {
+            // interaction_delay is only defensible as an explicit, top-tier
+            // choice. Sites that inherited it from old defaults (or picked a
+            // lower preset later) step down to order-safe defer.
+            if (
+                ($this->data['javascript']['execution_mode'] ?? '') === 'interaction_delay'
+                && $preset !== 'ludicrous'
+            ) {
+                $this->data['javascript']['execution_mode'] = 'defer';
+            }
         }
 
         update_option(self::OPTION_KEY, $this->data);
@@ -223,10 +235,11 @@ class Config {
                 'max_files' => 40
             ],
             'javascript' => [
-                // defer: every external script gets defer (order-safe).
-                // interaction_delay: hold scripts until first interaction,
-                // exclusions above still execute immediately.
-                'execution_mode' => $preset === 'safe' ? 'none' : 'defer',
+                // Risk ladder: safe = no JS changes, aggressive = defer
+                // (order-safe, spec-guaranteed), ludicrous = defer everything
+                // until first interaction + safety timer. Exclusions only
+                // affect interaction_delay (see list above).
+                'execution_mode' => $preset === 'safe' ? 'none' : ($preset === 'ludicrous' ? 'interaction_delay' : 'defer'),
                 'delay_timeout_ms' => 3500,
                 'preserve_execution_order' => true,
                 'exclusions' => $interaction_exclusions,

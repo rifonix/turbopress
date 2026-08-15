@@ -31,11 +31,20 @@ class ResourceHints {
         $own_host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
         $candidates = []; // host => weight (higher = more important)
 
-        $collect = function (string $html, string $tag_regex, string $attr, int $weight) use (&$candidates, $own_host): void {
+        $collect = function (string $html, string $tag_regex, string $attr, int $weight, array $skip_rels = []) use (&$candidates, $own_host): void {
             if (!preg_match_all($tag_regex, $html, $matches)) {
                 return;
             }
             foreach ($matches[1] as $attrs) {
+                // Ignore non-resource links (rel=profile/pingback/alternate/…
+                // produce useless preconnects like gmpg.org).
+                if ($skip_rels !== [] && preg_match('/rel=[\'"]([^\'"]+)[\'"]/i', $attrs, $rm)) {
+                    foreach (preg_split('/\s+/', strtolower($rm[1])) as $rel) {
+                        if (in_array($rel, $skip_rels, true)) {
+                            continue 2;
+                        }
+                    }
+                }
                 if (!preg_match('/' . $attr . '=[\'"]([^\'"]+)[\'"]/i', $attrs, $m)) {
                     continue;
                 }
@@ -56,7 +65,10 @@ class ResourceHints {
         };
 
         // Stylesheets & preloads: high priority origins.
-        $collect($html, '/<link\s+([^>]+)>/i', 'href', 5);
+        $collect($html, '/<link\s+([^>]+)>/i', 'href', 5, [
+            'profile', 'pingback', 'alternate', 'author', 'shortlink',
+            'wlwmanifest', 'edituri', 'rss', 'manifest', 'license', 'search',
+        ]);
         // Scripts.
         $collect($html, '/<script\s+([^>]+)>/i', 'src', 4);
         // Fonts referenced by inline critical CSS (url(...) to woff2).
@@ -78,13 +90,20 @@ class ResourceHints {
             return $html;
         }
 
-        // Already-hinted origins (theme hardcodes some).
+        // Already-hinted origins (theme hardcodes some). Attribute order
+        // varies (href before/after rel), so parse rel and href separately.
         $already = [];
-        if (preg_match_all('/<link\s+[^>]*rel=[\'"](?:preconnect|dns-prefetch)[\'"][^>]*href=[\'"]([^\'"]+)[\'"][^>]*>/i', $html, $pm)) {
-            foreach ($pm[1] as $u) {
-                $h = strtolower((string) parse_url($u, PHP_URL_HOST));
-                if ($h !== '') {
-                    $already[$h] = true;
+        if (preg_match_all('/<link\s+([^>]+)>/i', $html, $pm)) {
+            foreach ($pm[1] as $attrs) {
+                if (
+                    preg_match('/rel=[\'"]([^\'"]+)[\'"]/i', $attrs, $rm)
+                    && preg_match('/\b(?:preconnect|dns-prefetch)\b/i', $rm[1])
+                    && preg_match('/href=[\'"]([^\'"]+)[\'"]/i', $attrs, $hm)
+                ) {
+                    $h = strtolower((string) parse_url($hm[1], PHP_URL_HOST));
+                    if ($h !== '') {
+                        $already[$h] = true;
+                    }
                 }
             }
         }

@@ -46,6 +46,9 @@ class Plugin {
         if ($installed_version !== TURBOPRESS_VERSION) {
             update_option('turbopress_version', TURBOPRESS_VERSION);
             CacheManager::purge_all_static();
+            // Propagate to host/foreign caches (LiteSpeed etc.): without this,
+            // HTML transformed by the OLD release stays served indefinitely.
+            CacheIntegration::purge_foreign_caches('all');
             // Re-assert our drop-in on upgrades (source file may have changed).
             CacheIntegration::install_dropin();
         }
@@ -99,8 +102,14 @@ class Plugin {
     }
 
     public function process_output_buffer(string $buffer): string {
-        // If response is empty or not HTML, return untouched
-        if (empty($buffer) || stripos($buffer, '<html') === false) {
+        // Airlift-style response gate: only ever transform successful,
+        // non-trivial HTML documents. Error pages/redirects/fragments pass
+        // through untouched.
+        if (
+            strlen($buffer) <= 255 ||
+            http_response_code() !== 200 ||
+            stripos($buffer, '<html') === false
+        ) {
             return $buffer;
         }
 
@@ -174,6 +183,7 @@ class Plugin {
             delete_transient($transient_key);
             // Fresh HTML with inlined critical CSS on next request.
             CacheManager::purge_url($url);
+            CacheIntegration::purge_foreign_caches('url', $url);
             return;
         }
 
@@ -204,6 +214,9 @@ class Plugin {
         // Install advanced-cache.php drop-in — only when the slot is free
         // (never clobber LiteSpeed / WP Rocket / host-level drop-ins).
         CacheIntegration::install_dropin();
+
+        // Stale host-cache entries from before activation must not survive.
+        CacheIntegration::purge_foreign_caches('all');
     }
 
     public static function deactivate(): void {
@@ -212,6 +225,10 @@ class Plugin {
 
         // Clear all cached pages
         CacheManager::purge_all_static();
+
+        // Host caches may still hold OUR transformed HTML (localized font
+        // links, combined bundles) — force a fresh unoptimized render.
+        CacheIntegration::purge_foreign_caches('all');
 
         // Unschedule heartbeat
         $timestamp = wp_next_scheduled('turbopress_health_heartbeat');
