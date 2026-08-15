@@ -60,18 +60,48 @@ app.route('/api/v1/assets', assetRoutes);
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const pathname = url.pathname;
 
-    // Route API endpoints and health checks to Hono
-    if (url.pathname.startsWith('/api/') || url.pathname === '/health') {
+    // 1. Route API endpoints and health checks to Hono
+    if (pathname.startsWith('/api/') || pathname === '/health') {
       return app.fetch(request, env, ctx);
     }
 
-    // Delegate all multi-page Next.js application routes & assets to OpenNext
-    if (openNextHandler && typeof openNextHandler.fetch === 'function') {
-      return (await openNextHandler.fetch(request as any, env as any, ctx as any)) as unknown as Response;
+    // 2. Serve static assets directly from Workers ASSETS binding
+    // Next.js chunks, CSS, images, robots.txt, etc. are located in .open-next/assets
+    if (
+      pathname.startsWith('/_next/static/') ||
+      pathname === '/favicon.ico' ||
+      pathname === '/robots.txt' ||
+      pathname.startsWith('/static/') ||
+      pathname.startsWith('/images/') ||
+      pathname.startsWith('/fonts/')
+    ) {
+      if (env.ASSETS) {
+        const assetResponse = await env.ASSETS.fetch(request as any);
+        if (assetResponse.status !== 404) {
+          return assetResponse as unknown as Response;
+        }
+      }
     }
 
-    // Fallback to static assets
+    // 3. Delegate all multi-page Next.js application routes, SSR & dynamic pages to OpenNext
+    if (openNextHandler && typeof openNextHandler.fetch === 'function') {
+      const openNextRes = (await openNextHandler.fetch(request as any, env as any, ctx as any)) as unknown as Response;
+      if (openNextRes && openNextRes.status !== 404) {
+        return openNextRes;
+      }
+      // If OpenNext returned 404, check ASSETS as final fallback
+      if (env.ASSETS) {
+        const fallbackRes = (await env.ASSETS.fetch(request as any)) as unknown as Response;
+        if (fallbackRes.status !== 404) {
+          return fallbackRes;
+        }
+      }
+      return openNextRes;
+    }
+
+    // 4. Fallback to static assets
     if (env.ASSETS) {
       return (await env.ASSETS.fetch(request as any)) as unknown as Response;
     }
