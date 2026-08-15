@@ -17,7 +17,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
   onRerunJob,
   onToast,
 }) => {
-  const [filter, setFilter] = useState<'all' | 'completed' | 'processing' | 'failed'>('all');
+  const [filter, setFilter] = useState<'all' | 'completed' | 'processing' | 'failed' | 'needs_attention'>('all');
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [dispatchUrl, setDispatchUrl] = useState('');
   const [dispatchViewport, setDispatchViewport] = useState<'mobile' | 'desktop'>('mobile');
@@ -27,6 +27,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
     if (filter === 'completed') return j.status === 'completed';
     if (filter === 'processing') return j.status === 'processing' || j.status === 'queued';
     if (filter === 'failed') return j.status === 'failed';
+    if (filter === 'needs_attention') return j.status === 'needs_attention';
     return true;
   });
 
@@ -62,7 +63,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
 
       {/* Filter Tabs */}
       <div className="flex gap-2 border-b border-[#e4e4e7] pb-1">
-        {(['all', 'completed', 'processing', 'failed'] as const).map((tab) => (
+        {(['all', 'completed', 'processing', 'failed', 'needs_attention'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setFilter(tab)}
@@ -120,6 +121,8 @@ export const JobsTab: React.FC<JobsTabProps> = ({
                             ? 'chip-success'
                             : job.status === 'processing' || job.status === 'queued'
                             ? 'chip-warn'
+                            : job.status === 'needs_attention'
+                            ? 'chip-warn'
                             : 'chip-danger'
                         }`}
                       >
@@ -130,6 +133,8 @@ export const JobsTab: React.FC<JobsTabProps> = ({
                           ? 'Extracting'
                           : job.status === 'queued'
                           ? 'Queued'
+                          : job.status === 'needs_attention'
+                          ? 'Needs Attention'
                           : 'Failed'}
                       </span>
                     </td>

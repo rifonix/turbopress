@@ -1,7 +1,7 @@
 import { MessageBatch } from '@cloudflare/workers-types';
 import puppeteer, { Browser } from '@cloudflare/puppeteer';
 import { Env, OptimizationQueueMessage } from '../types/env.js';
-import { extractCriticalCssAndLcp } from './puppeteer-extractor.js';
+import { extractCriticalCssAndLcp, OriginChallengeError } from './puppeteer-extractor.js';
 import { generateJobId, hmacSha256Hex, ViewportMode } from '@turbopress/shared';
 
 /** How many additional internal pages to optimize after the homepage. */
@@ -189,10 +189,21 @@ export async function processOptimizationQueue(
           .bind(jobId)
           .run();
 
-        // Run Critical CSS, LCP & real-metrics extractor
-        const result = await extractCriticalCssAndLcp(browser, env, jobId, siteId, url, viewport);
+        // Run Critical CSS, LCP & real-metrics extractor (UA rotates per
+        // delivery attempt so WAF catches don't repeat identically).
+        const result = await extractCriticalCssAndLcp(
+          browser,
+          env,
+          jobId,
+          siteId,
+          url,
+          viewport,
+          Math.max(1, msg.attempts || 1)
+        );
 
-        // Update D1 database with successful output
+        // Update D1 database with successful output. error_message is
+        // cleared explicitly: a retry that succeeds must not keep showing
+        // the previous attempt's failure in the dashboard.
         await env.DB.prepare(`
           UPDATE optimization_jobs
           SET status = 'completed',
@@ -200,6 +211,7 @@ export async function processOptimizationQueue(
               critical_css_bytes = ?,
               lcp_selector = ?,
               lcp_image_url = ?,
+              error_message = NULL,
               completed_at = unixepoch()
           WHERE id = ?
         `)
@@ -261,30 +273,52 @@ export async function processOptimizationQueue(
       } catch (err: any) {
         console.error(`[Queue Error] Job ${jobId} failed:`, err);
 
+        const isChallenge = err instanceof OriginChallengeError || err?.name === 'OriginChallengeError';
         const errorMessage = err?.message || 'Optimization extraction error';
-        await env.DB.prepare(`
-          UPDATE optimization_jobs
-          SET status = 'failed',
-              error_message = ?,
-              completed_at = unixepoch()
-          WHERE id = ?
-        `)
-          .bind(errorMessage, jobId)
-          .run();
-
-        await env.KV.put(
-          `job:${jobId}`,
-          JSON.stringify({
-            status: 'failed',
-            error: errorMessage,
-          }),
-          { expirationTtl: 3600 }
-        );
 
         if (msg.attempts < 3) {
+          // Retryable: keep the job queued (with the last error visible for
+          // diagnostics) — never flip to 'failed' while a retry is inbound.
+          await env.DB.prepare(
+            "UPDATE optimization_jobs SET status = 'queued', error_message = ? WHERE id = ?"
+          )
+            .bind(errorMessage, jobId)
+            .run();
+          await env.KV.put(
+            `job:${jobId}`,
+            JSON.stringify({ status: 'queued', url, error: errorMessage }),
+            { expirationTtl: 3600 }
+          );
           msg.retry();
         } else {
-          msg.ack(); // let DLQ or failed state handle it
+          // Terminal. Bot challenges need the site owner to allowlist the
+          // optimizer at their firewall — surface as needs_attention with
+          // actionable copy instead of a dead 'failed'.
+          const finalStatus = isChallenge ? 'needs_attention' : 'failed';
+          const finalError = isChallenge
+            ? 'The origin firewall repeatedly served a bot-challenge page (WAF/CAPTCHA) to the optimizer. Action needed: allow Cloudflare Browser Rendering egress IPs in the origin firewall (Hostinger: hPanel → Security → Firewall), then re-run this job.'
+            : errorMessage;
+
+          await env.DB.prepare(`
+            UPDATE optimization_jobs
+            SET status = ?,
+                error_message = ?,
+                completed_at = unixepoch()
+            WHERE id = ?
+          `)
+            .bind(finalStatus, finalError, jobId)
+            .run();
+
+          await env.KV.put(
+            `job:${jobId}`,
+            JSON.stringify({
+              status: finalStatus,
+              error: finalError,
+            }),
+            { expirationTtl: 3600 }
+          );
+
+          msg.ack();
         }
       }
     }

@@ -44,7 +44,7 @@ export interface OptimizationJobItem {
   siteDomain: string;
   url: string;
   viewport: 'mobile' | 'desktop';
-  status: 'completed' | 'processing' | 'queued' | 'failed';
+  status: 'completed' | 'processing' | 'queued' | 'failed' | 'needs_attention';
   criticalCssSizeKb: number | null;
   lcpSelector: string | null;
   durationMs: number | null;

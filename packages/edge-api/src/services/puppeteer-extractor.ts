@@ -257,6 +257,37 @@ function coverageSlicesForUrls(
 }
 
 /**
+ * Thrown when the origin serves a bot-challenge/interstitial page to the
+ * optimizer. Retryable with a rotated UA; terminal cases become
+ * `needs_attention` with actionable guidance for the site owner.
+ */
+export class OriginChallengeError extends Error {
+  constructor(message = 'Origin served a bot-challenge page to the optimizer (WAF/CAPTCHA).') {
+    super(message);
+    this.name = 'OriginChallengeError';
+  }
+}
+
+/**
+ * Realistic UA pool per form factor. Retries rotate through the pool so a
+ * firewall rule that caught one fingerprint doesn't fail every attempt.
+ * Kept Chromium-coherent (platform variety only) to avoid client-hint
+ * mismatches that themselves trigger challenges.
+ */
+const MOBILE_USER_AGENTS = [
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+];
+const DESKTOP_USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+];
+
+/**
  * AST-Enriched Critical CSS & Real Metrics Extraction Engine
  * Uses Cloudflare Browser Rendering (Puppeteer)
  */
@@ -266,7 +297,8 @@ export async function extractCriticalCssAndLcp(
   jobId: string,
   siteId: string,
   url: string,
-  viewport: ViewportMode
+  viewport: ViewportMode,
+  attempt = 1
 ): Promise<ExtractionResult> {
   const isMobile = viewport === 'mobile';
   const browser = browserInstance || (await puppeteer.launch(env.BROWSER as any));
@@ -283,12 +315,10 @@ export async function extractCriticalCssAndLcp(
 
     // 0. Mask the headless fingerprint: many origin firewalls (Wordfence,
     // hosting WAFs) block "HeadlessChrome" UAs or challenge datacenter
-    // traffic. A realistic UA + Accept-Language avoids most naive checks.
-    await page.setUserAgent(
-      isMobile
-        ? 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
-        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-    );
+    // traffic. A realistic UA + Accept-Language avoids most naive checks;
+    // retries rotate through the pool.
+    const uaPool = isMobile ? MOBILE_USER_AGENTS : DESKTOP_USER_AGENTS;
+    await page.setUserAgent(uaPool[Math.max(0, attempt - 1) % uaPool.length]);
     try {
       await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
     } catch {
@@ -331,9 +361,7 @@ export async function extractCriticalCssAndLcp(
     `;
     const probe = (await page.evaluate(challengeProbeSrc)) as { challenged: boolean; sheets: number };
     if (probe.challenged) {
-      throw new Error(
-        'Origin served a bot-challenge page to the optimizer (WAF/CAPTCHA). Allow Cloudflare Browser Rendering traffic or retry.'
-      );
+      throw new OriginChallengeError();
     }
 
     // 4. Stop coverage (kept for cross-origin fallback)
