@@ -20,6 +20,8 @@ export interface Env {
   SAAS_APP_URL: string;
   POLAR_ACCESS_TOKEN?: string;
   POLAR_WEBHOOK_SECRET: string;
+  POLAR_SERVER?: string;
+  POLAR_ENVIRONMENT?: string;
   CLERK_SECRET_KEY?: string;
   CLERK_WEBHOOK_SIGNING_SECRET?: string;
 }

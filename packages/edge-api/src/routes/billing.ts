@@ -7,12 +7,70 @@ import { saasUserAuthMiddleware } from '../middleware/auth.js';
 export const billingRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 /**
+ * Determine whether to run Polar in 'sandbox' (test) or 'production' (live) mode
+ */
+export function getPolarServer(env: Env): 'sandbox' | 'production' {
+  // 1. Explicit override via POLAR_SERVER or POLAR_ENVIRONMENT takes top priority
+  const explicit = (env.POLAR_SERVER || env.POLAR_ENVIRONMENT || '').toLowerCase();
+  if (explicit === 'sandbox' || explicit === 'test' || explicit === 'development') {
+    return 'sandbox';
+  }
+  if (explicit === 'production' || explicit === 'live') {
+    return 'production';
+  }
+
+  // 2. Inspect Polar access token prefix
+  const polarToken = (env.POLAR_ACCESS_TOKEN || '').trim();
+  if (
+    polarToken.startsWith('polar_s_') ||
+    polarToken.startsWith('polar_test_') ||
+    polarToken.startsWith('polar_sandbox_') ||
+    polarToken.startsWith('sand_') ||
+    !polarToken ||
+    polarToken === 'polar_test_token'
+  ) {
+    return 'sandbox';
+  }
+
+  // 3. Inspect Clerk API keys: If using Clerk dev/test keys (pk_test_ / sk_test_), default to sandbox
+  const clerkPubKey = (
+    (env as any).NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+    (env as any).CLERK_PUBLISHABLE_KEY ||
+    ''
+  ).trim();
+  const clerkSecKey = (env.CLERK_SECRET_KEY || '').trim();
+  if (clerkPubKey.startsWith('pk_test_') || clerkSecKey.startsWith('sk_test_')) {
+    return 'sandbox';
+  }
+
+  // 4. Inspect global environment flag
+  const appEnv = (env.ENVIRONMENT || '').toLowerCase();
+  if (appEnv === 'development' || appEnv === 'dev' || appEnv === 'test') {
+    return 'sandbox';
+  }
+
+  // 5. If live tokens / live keys are active and no test keys detected
+  if (
+    polarToken.startsWith('polar_o_') ||
+    polarToken.startsWith('polar_live_') ||
+    polarToken.startsWith('live_')
+  ) {
+    return 'production';
+  }
+
+  return env.ENVIRONMENT === 'production' ? 'production' : 'sandbox';
+}
+
+/**
  * Initialize Polar SDK client
  */
-function getPolarClient(env: Env): Polar {
+export function getPolarClient(env: Env): Polar {
+  const server = getPolarServer(env);
+  const token = env.POLAR_ACCESS_TOKEN || 'polar_test_token';
+
   return new Polar({
-    accessToken: env.POLAR_ACCESS_TOKEN || 'polar_test_token',
-    server: env.ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+    accessToken: token,
+    server,
   });
 }
 
