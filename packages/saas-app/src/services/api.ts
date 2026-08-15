@@ -210,14 +210,15 @@ export const api = {
 
   /**
    * Create Polar Checkout Session URL
+   * `server` reflects the Polar environment used: 'sandbox' = test checkout, 'production' = live
    */
   async createCheckout(
     token: string | null,
     productId: string,
     returnTo?: string,
     userEmail?: string | null
-  ): Promise<{ checkoutUrl: string; checkoutId: string }> {
-    return request<{ checkoutUrl: string; checkoutId: string }>(
+  ): Promise<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production' }> {
+    return request<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production' }>(
       '/api/v1/billing/checkout',
       {
         method: 'POST',
@@ -231,8 +232,10 @@ export const api = {
   /**
    * Create Polar Customer Portal Session URL
    */
-  async createCustomerPortal(token: string | null): Promise<{ portalUrl: string }> {
-    return request<{ portalUrl: string }>(
+  async createCustomerPortal(
+    token: string | null
+  ): Promise<{ portalUrl: string; server?: 'sandbox' | 'production' }> {
+    return request<{ portalUrl: string; server?: 'sandbox' | 'production' }>(
       '/api/v1/billing/portal',
       { method: 'POST' },
       token

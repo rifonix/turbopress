@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -27,7 +27,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [jobs, setJobs] = useState<OptimizationJobItem[]>([]);
   const [billingData, setBillingData] = useState<BillingStatusData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isVerifyingPurchase, setIsVerifyingPurchase] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const checkoutVerifyStarted = useRef(false);
 
   // Toast Helper
   const addToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'success') => {
@@ -91,6 +93,65 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => clearInterval(interval);
   }, [isSignedIn, jobs, pathname, refreshFleetData]);
 
+  // Purchase verification: when returning from Polar checkout (?checkout_success=1),
+  // the webhook that activates the subscription can lag by a few seconds. Poll billing
+  // status until the plan flips active (or we time out) instead of bouncing the user
+  // back into the purchase gate.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || checkoutVerifyStarted.current) return;
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const fromCheckout =
+      params.get('checkout_success') === '1' || params.get('success') === '1';
+    if (!fromCheckout) return;
+
+    checkoutVerifyStarted.current = true;
+    setIsVerifyingPurchase(true);
+    let attempts = 0;
+
+    const cleanCheckoutParams = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('checkout_success');
+      url.searchParams.delete('success');
+      url.searchParams.delete('checkoutId');
+      window.history.replaceState(null, '', url.toString());
+    };
+
+    const timer = setInterval(async () => {
+      attempts += 1;
+      try {
+        const token = await getToken();
+        const billing = await api.getBillingStatus(token);
+        if (billing?.hasActivePlan) {
+          clearInterval(timer);
+          setBillingData(billing);
+          setIsVerifyingPurchase(false);
+          cleanCheckoutParams();
+          addToast('Plan activated — TurboPress Edge is unlocked!', 'success');
+          return;
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+
+      if (attempts >= 20) {
+        clearInterval(timer);
+        setIsVerifyingPurchase(false);
+        addToast(
+          'Still confirming your purchase with Polar. It can take up to a minute — refresh if your plan is not active yet.',
+          'info'
+        );
+      }
+    }, 3000);
+
+    // Kick off an immediate check + full data refresh
+    refreshFleetData();
+
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn]);
+
   // Actions
   const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => {
     try {
@@ -106,6 +167,12 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const res = await api.createCheckout(token, targetProductId, returnTo, userEmail);
       if (res?.checkoutUrl) {
+        addToast(
+          res.server === 'sandbox'
+            ? 'Opening Polar sandbox — test checkout (no real charge)…'
+            : 'Redirecting to secure Polar checkout…',
+          'info'
+        );
         window.location.href = res.checkoutUrl;
       } else {
         addToast('Unable to initialize Polar checkout session', 'error');
@@ -154,11 +221,17 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return res.callback_url || returnUrl;
   };
 
-  const handleCreateSite = async (domain: string) => {
-    const token = await getToken();
-    await api.createSite(token, domain);
-    addToast(`Site ${domain} created on TurboPress Edge`, 'success');
-    await refreshFleetData();
+  const handleCreateSite = async (domain: string): Promise<{ apiKey?: string; siteId?: string } | void> => {
+    try {
+      const token = await getToken();
+      const data = await api.createSite(token, domain);
+      addToast(`Site ${domain} connected to TurboPress Edge`, 'success');
+      await refreshFleetData();
+      return data;
+    } catch (err: any) {
+      addToast(err?.message || `Failed to connect ${domain}`, 'error');
+      return void 0;
+    }
   };
 
   const handlePurgeSite = async (domain: string) => {
@@ -304,6 +377,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     jobs,
     billingData,
     isLoading,
+    isVerifyingPurchase,
     refreshFleetData,
     addToast,
     handlePurgeSite,

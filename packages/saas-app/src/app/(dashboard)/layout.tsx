@@ -20,6 +20,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     jobs,
     billingData,
     isLoading,
+    isVerifyingPurchase,
     addToast,
     handleRunOptimization,
     handleOpenPortal,
@@ -47,11 +48,12 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Plan Gating: If signed in and data is loaded, redirect unsubscribed users to /pricing
+  // Plan Gating: unsubscribed users land on /onboarding (which walks them through
+  // purchase → connect). They may also visit /pricing & /billing freely.
   useEffect(() => {
     if (!isLoading && isSignedIn && billingData && !billingData.hasActivePlan) {
-      if (pathname !== '/pricing' && pathname !== '/billing') {
-        router.replace('/pricing?required=1');
+      if (pathname !== '/onboarding' && pathname !== '/pricing' && pathname !== '/billing') {
+        router.replace('/onboarding');
       }
     }
   }, [isLoading, isSignedIn, billingData, pathname, router]);
@@ -63,6 +65,27 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-[#e4e4e7] shadow-sm">
           <div className="w-4 h-4 rounded-full border-2 border-[#171717] border-t-transparent animate-spin" />
           <span className="text-xs font-mono text-[#71717a]">Loading TurboPress Engine…</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Purchase Verification Overlay: returning from Polar checkout, waiting for webhook
+  if (isVerifyingPurchase) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f7] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white px-8 py-10 rounded-3xl border border-[#e4e4e7] shadow-sm text-center">
+          <div className="w-12 h-12 rounded-2xl bg-[#171717] flex items-center justify-center mx-auto mb-5">
+            <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+          </div>
+          <h2 className="text-lg font-semibold text-[#171717] mb-2">Confirming your purchase…</h2>
+          <p className="text-sm text-[#71717a] leading-relaxed mb-6">
+            We received your payment and are activating your TurboPress plan. This usually takes
+            just a few seconds.
+          </p>
+          <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+            <div className="h-full w-1/3 bg-[#171717] rounded-full animate-[loadingbar_1.4s_ease-in-out_infinite]" />
+          </div>
         </div>
       </div>
     );
@@ -91,7 +114,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        planName={billingData?.plan?.name || 'Starter Plan'}
+        planName={billingData?.hasActivePlan ? billingData?.plan?.name || 'Active Plan' : 'No active plan'}
         onOpenPortal={handleOpenPortal}
       />
 

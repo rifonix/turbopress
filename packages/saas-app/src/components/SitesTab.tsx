@@ -11,7 +11,7 @@ interface SitesTabProps {
   onPurgeSite: (domain: string) => void;
   onRunOptimization: (domain: string) => void;
   onDeleteSite?: (siteId: string, domain: string) => void;
-  onCreateSite?: (domain: string) => Promise<void>;
+  onCreateSite?: (domain: string) => Promise<{ apiKey?: string; siteId?: string } | void>;
   onToast: (msg: string) => void;
 }
 

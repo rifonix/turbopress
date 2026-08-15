@@ -4,9 +4,16 @@ import React, { Suspense } from 'react';
 import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { SignUp } from '@clerk/nextjs';
+import { useSearchParams } from 'next/navigation';
 import { turbopressClerkAppearance } from '@/components/auth/ClerkTheme';
 
 function SignUpContent() {
+  const searchParams = useSearchParams();
+  // New accounts land in onboarding (plan purchase -> site connect) unless a
+  // deep-link destination was provided (e.g. the /connect handshake).
+  const redirectUrl = searchParams?.get('redirect_url') || '/onboarding';
+  const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/onboarding';
+
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
       {/* Top Navbar */}
@@ -104,7 +111,11 @@ function SignUpContent() {
 
                 <div className="flex gap-1 bg-[#f4f4f5] p-0.5 rounded-lg text-xs font-medium">
                   <Link
-                    href="/sign-in"
+                    href={
+                      redirectUrl && redirectUrl !== '/onboarding'
+                        ? `/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`
+                        : '/sign-in'
+                    }
                     className="px-2.5 py-1 rounded-md text-[#71717a] hover:text-[#171717] transition-colors"
                   >
                     Sign In
@@ -121,7 +132,7 @@ function SignUpContent() {
                   routing="path"
                   path="/sign-up"
                   signInUrl="/sign-in"
-                  fallbackRedirectUrl="/"
+                  forceRedirectUrl={safeRedirect}
                 />
               </div>
             </div>

@@ -6,10 +6,24 @@ import { saasUserAuthMiddleware } from '../middleware/auth.js';
 
 export const billingRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
+type PolarServer = 'sandbox' | 'production';
+
 /**
- * Determine whether to run Polar in 'sandbox' (test) or 'production' (live) mode
+ * Determine which Polar environment ('sandbox' = test checkout, 'production' = live checkout)
+ * should be attempted first for the configured access token.
+ *
+ * Order of precedence:
+ *  1. Explicit POLAR_SERVER / POLAR_ENVIRONMENT override
+ *  2. Known token-prefix heuristics (polar_s_ / polar_test_ / ... -> sandbox)
+ *  3. Previously probed value cached in KV (see withPolarServerRetry)
+ *  4. Default: production when a token is present, sandbox otherwise
+ *
+ * NOTE: Polar access tokens from sandbox.polar.sh and polar.sh frequently share the
+ * same `polar_pat_` prefix, so prefix sniffing alone is not reliable. The runtime
+ * probe in `withPolarServerRetry` guarantees a test key always lands on the test
+ * checkout and caches the result so subsequent calls are instant.
  */
-export function getPolarServer(env: Env): 'sandbox' | 'production' {
+export async function getPreferredPolarServer(env: Env): Promise<PolarServer> {
   // 1. Explicit override via POLAR_SERVER or POLAR_ENVIRONMENT takes top priority
   const explicit = (env.POLAR_SERVER || env.POLAR_ENVIRONMENT || '').toLowerCase();
   if (explicit === 'sandbox' || explicit === 'test') {
@@ -31,7 +45,6 @@ export function getPolarServer(env: Env): 'sandbox' | 'production' {
     return 'sandbox';
   }
 
-  // 3. Polar production tokens (polar_o_..., polar_at_..., polar_live_...) or standard live tokens
   if (
     polarToken.startsWith('polar_o_') ||
     polarToken.startsWith('polar_at_') ||
@@ -41,21 +54,99 @@ export function getPolarServer(env: Env): 'sandbox' | 'production' {
     return 'production';
   }
 
+  // 3. Consult the KV probe cache (keyed by token fingerprint)
+  const cached = await getPolarServerFromCache(env);
+  if (cached) {
+    return cached;
+  }
+
   // 4. Fallback to production if access token is provided, otherwise sandbox
   return polarToken ? 'production' : 'sandbox';
 }
 
+function polarServerCacheKey(env: Env): string {
+  const token = (env.POLAR_ACCESS_TOKEN || '').trim();
+  const fingerprint = token.length >= 8 ? token.slice(-8) : token || 'empty';
+  return `polar:server:${fingerprint}`;
+}
+
+async function getPolarServerFromCache(env: Env): Promise<PolarServer | null> {
+  try {
+    const value = await env.KV.get(polarServerCacheKey(env));
+    return value === 'sandbox' || value === 'production' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cachePolarServer(env: Env, server: PolarServer): Promise<void> {
+  try {
+    await env.KV.put(polarServerCacheKey(env), server, { expirationTtl: 86400 });
+  } catch {
+    // KV unavailable — probe again next time
+  }
+}
+
+function isPolarAuthError(err: any): boolean {
+  const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+  if (status === 401 || status === 403) return true;
+  const msg = String(err?.message || '').toLowerCase();
+  return msg.includes('invalid_token') || msg.includes('unauthorized') || msg.includes('token is invalid');
+}
+
 /**
- * Initialize Polar SDK client
+ * Run a Polar SDK operation against the preferred server. If the token is rejected
+ * (401 invalid_token etc. — which happens when a sandbox test key is used against
+ * production or vice versa), transparently retry against the other environment and
+ * cache the winning server in KV. This guarantees test API keys always produce a
+ * Polar *test* checkout URL (sandbox.polar.sh) instead of the live checkout.
  */
-export function getPolarClient(env: Env): Polar {
-  const server = getPolarServer(env);
+async function withPolarServerRetry<T>(
+  env: Env,
+  fn: (client: Polar, server: PolarServer) => Promise<T>
+): Promise<{ result: T; server: PolarServer }> {
+  const preferred = await getPreferredPolarServer(env);
   const token = env.POLAR_ACCESS_TOKEN || 'polar_test_token';
 
-  return new Polar({
-    accessToken: token,
-    server,
-  });
+  try {
+    const result = await fn(new Polar({ accessToken: token, server: preferred }), preferred);
+    return { result, server: preferred };
+  } catch (err: any) {
+    if (!isPolarAuthError(err)) throw err;
+
+    const flipped: PolarServer = preferred === 'sandbox' ? 'production' : 'sandbox';
+    try {
+      const result = await fn(new Polar({ accessToken: token, server: flipped }), flipped);
+      await cachePolarServer(env, flipped);
+      console.log(`[Polar] Auto-detected ${flipped} environment for this access token`);
+      return { result, server: flipped };
+    } catch (retryErr: any) {
+      // Neither environment accepted the token — surface the original error
+      throw retryErr && isPolarAuthError(retryErr) ? retryErr : err;
+    }
+  }
+}
+
+const PLAN_LIMITS: Record<string, { maxSites: number; maxRuns: number; priceMonthly: number; label: string }> = {
+  starter: { maxSites: 1, maxRuns: 200, priceMonthly: 19, label: 'Starter Plan' },
+  pro: { maxSites: 5, maxRuns: 1000, priceMonthly: 49, label: 'Pro Plan' },
+  agency: { maxSites: 10, maxRuns: 2000, priceMonthly: 79, label: 'Agency Plan' },
+  enterprise: { maxSites: 100, maxRuns: 10000, priceMonthly: 299, label: 'Enterprise Plan' },
+};
+
+const STARTER_PRODUCT_IDS = new Set([
+  'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
+  '3907e862-b1e1-4006-9289-040cabe18c2d',
+]);
+
+function resolvePlan(planId: string, productName = ''): { maxSites: number; maxRuns: number; priceMonthly: number; label: string } {
+  const id = (planId || '').toLowerCase();
+  const name = productName.toLowerCase();
+  if (id.includes('enterprise') || name.includes('enterprise')) return PLAN_LIMITS.enterprise;
+  if (id.includes('agency') || name.includes('agency')) return PLAN_LIMITS.agency;
+  if (id.includes('pro') || name.includes('pro')) return PLAN_LIMITS.pro;
+  if (id.includes('starter') || name.includes('starter') || STARTER_PRODUCT_IDS.has(planId)) return PLAN_LIMITS.starter;
+  return PLAN_LIMITS.starter;
 }
 
 /**
@@ -122,25 +213,7 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
   }
 
   const planId = subscription.plan_id;
-  const isStarter =
-    planId === 'ca0c63de-5a98-4829-8b0f-8e81f579b58a' ||
-    planId === '3907e862-b1e1-4006-9289-040cabe18c2d' ||
-    planId.includes('starter');
-  const isAgency = planId.includes('agency');
-  const isEnterprise = planId.includes('enterprise');
-  const isPro = planId.includes('pro');
-
-  const planName = isEnterprise
-    ? 'Enterprise Plan'
-    : isAgency
-    ? 'Agency Plan'
-    : isPro
-    ? 'Pro Plan'
-    : 'Starter Plan';
-
-  const maxSites = subscription.max_sites || (isAgency ? 25 : isEnterprise ? 100 : isPro ? 10 : 5);
-  const maxRuns = isAgency ? 2000 : isEnterprise ? 10000 : isPro ? 1000 : 500;
-  const priceMonthly = isAgency ? 79 : isEnterprise ? 299 : isPro ? 49 : 19;
+  const plan = resolvePlan(planId);
 
   return c.json({
     success: true,
@@ -149,12 +222,12 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
       subscription,
       plan: {
         id: planId,
-        name: planName,
-        priceMonthly,
+        name: plan.label,
+        priceMonthly: plan.priceMonthly,
         status: subscription.status,
-        maxSites,
+        maxSites: subscription.max_sites || plan.maxSites,
         usedSites: activeSites,
-        maxRuns,
+        maxRuns: plan.maxRuns,
         usedRuns: monthlyRuns,
         currentPeriodEnd: subscription.current_period_end,
       },
@@ -190,13 +263,12 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
     !candidateEmail.endsWith('@user.local') &&
     !candidateEmail.includes('turbopress.internal');
 
-  const polar = getPolarClient(c.env);
   const saasUrl = c.env.SAAS_APP_URL || 'https://turbopress.webaccessibility.workers.dev';
   const successUrl = returnTo
     ? `${saasUrl}${returnTo.startsWith('/') ? returnTo : `/${returnTo}`}${
         returnTo.includes('?') ? '&' : '?'
       }checkout_success=1&checkoutId={CHECKOUT_ID}`
-    : `${saasUrl}/billing?success=1&checkoutId={CHECKOUT_ID}`;
+    : `${saasUrl}/billing?checkout_success=1&checkoutId={CHECKOUT_ID}`;
 
   try {
     const checkoutPayload: any = {
@@ -213,17 +285,32 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
       checkoutPayload.customerEmail = candidateEmail;
     }
 
-    const session = await polar.checkouts.create(checkoutPayload);
+    const { result: session, server } = await withPolarServerRetry(c.env, (client) =>
+      client.checkouts.create(checkoutPayload)
+    );
 
     return c.json({
       success: true,
       data: {
         checkoutUrl: session.url,
         checkoutId: session.id,
+        // 'sandbox' = Polar test checkout, 'production' = live checkout
+        server,
       },
     });
   } catch (err: any) {
     console.error('[Polar Checkout Error]', err);
+    const msg = String(err?.message || '');
+    if (msg.includes('invalid_token') || msg.includes('Unauthorized') || msg.includes('token')) {
+      return c.json(
+        {
+          success: false,
+          error:
+            'Polar rejected the configured access token. Verify POLAR_ACCESS_TOKEN matches the environment (sandbox tokens only work in sandbox).',
+        },
+        500
+      );
+    }
     return c.json({ success: false, error: err?.message || 'Failed to create checkout' }, 500);
   }
 });
@@ -234,7 +321,6 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
  */
 billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
-  const polar = getPolarClient(c.env);
 
   // Check if user has an active subscription in D1
   const subscription = await c.env.DB.prepare(
@@ -255,14 +341,17 @@ billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
   }
 
   try {
-    const session = await polar.customerSessions.create({
-      customerExternalId: userId,
-    });
+    const { result: session, server } = await withPolarServerRetry(c.env, (client) =>
+      client.customerSessions.create({
+        customerExternalId: userId,
+      })
+    );
 
     return c.json({
       success: true,
       data: {
         portalUrl: session.customerPortalUrl,
+        server,
       },
     });
   } catch (err: any) {
@@ -352,15 +441,8 @@ billingRoutes.post('/polar-webhook', async (c) => {
           : Math.floor(Date.now() / 1000) + 86400 * 30;
 
         // Determine max site slots based on product ID / name
-        let maxSites = 5;
-        const productName = (data.product?.name || '').toLowerCase();
-        if (productName.includes('agency') || planId.includes('agency')) {
-          maxSites = 25;
-        } else if (productName.includes('enterprise') || planId.includes('enterprise')) {
-          maxSites = 100;
-        } else if (productName.includes('pro') || planId.includes('pro')) {
-          maxSites = 10;
-        }
+        const productName = data.product?.name || '';
+        const plan = resolvePlan(planId, productName);
 
         // Find or create user
         let userId = externalCustomerId;
@@ -399,7 +481,7 @@ billingRoutes.post('/polar-webhook', async (c) => {
             current_period_end = excluded.current_period_end,
             updated_at = unixepoch()
         `)
-          .bind(subId, userId, planId, status, maxSites, currentPeriodEnd)
+          .bind(subId, userId, planId, status, plan.maxSites, currentPeriodEnd)
           .run();
 
         break;

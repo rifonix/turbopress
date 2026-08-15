@@ -23,14 +23,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 }) => {
   const [isDowngradeModalOpen, setIsDowngradeModalOpen] = useState(false);
 
-  const planName = billingData?.plan?.name || 'Starter Plan';
-  const priceMonthly = billingData?.plan?.priceMonthly || 19;
-  const maxSites = billingData?.plan?.maxSites || 5;
-  const usedSites = sites.length;
-  const usedRuns = billingData?.plan?.usedRuns || 124;
-  const maxRuns = billingData?.plan?.maxRuns || 2000;
-  const customerEmail = billingData?.customer?.email || 'customer@turbopress.io';
-  const subId = billingData?.subscription?.id || 'sub_active_prod';
+  const hasActivePlan = Boolean(billingData?.hasActivePlan);
+  const planName = hasActivePlan ? billingData?.plan?.name || 'Active Plan' : 'No Active Plan';
+  const priceMonthly = billingData?.plan?.priceMonthly ?? 19;
+  const maxSites = billingData?.plan?.maxSites ?? 1;
+  const usedSites = billingData?.plan?.usedSites ?? sites.length;
+  const usedRuns = billingData?.plan?.usedRuns ?? 0;
+  const maxRuns = billingData?.plan?.maxRuns ?? 200;
+  const customerEmail = billingData?.customer?.email || 'your account email';
+  const subId = billingData?.subscription?.id || '—';
 
   const renewalDate = billingData?.plan?.currentPeriodEnd
     ? new Date(billingData.plan.currentPeriodEnd * 1000).toLocaleDateString('en-US', {
@@ -38,16 +39,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         day: 'numeric',
         year: 'numeric',
       })
-    : 'Sep 1, 2026';
+    : '—';
 
-  const months = [
-    { m: 'Mar', v: 420 },
-    { m: 'Apr', v: 610 },
-    { m: 'May', v: 840 },
-    { m: 'Jun', v: 1050 },
-    { m: 'Jul', v: 1180 },
-    { m: 'Aug', v: usedRuns },
-  ];
+  // Usage history: only the current cycle is tracked today; earlier months render as 0
+  const monthLabels = (() => {
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      return d.toLocaleDateString('en-US', { month: 'short' });
+    });
+  })();
+  const chartMax = Math.max(maxRuns, usedRuns, 1);
+  const months = monthLabels.map((m, i) => ({ m, v: i === 5 ? usedRuns : 0 }));
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -69,31 +72,31 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">
-                  {billingData?.hasActivePlan ? planName : 'No Active Plan'}
+                  {planName}
                 </h2>
                 <p className="font-mono text-base text-[#3f3f46] mt-1">
-                  ${billingData?.hasActivePlan ? priceMonthly : 0}
+                  ${hasActivePlan ? priceMonthly : 0}
                   <span className="text-xs text-[#71717a]">/mo</span>
                 </p>
               </div>
-              <span className={`chip ${billingData?.hasActivePlan ? 'chip-success' : 'chip-neutral'}`}>
-                {billingData?.hasActivePlan && <span className="chip-dot" />}
-                {billingData?.hasActivePlan ? 'Active' : 'Inactive'}
+              <span className={`chip ${hasActivePlan ? 'chip-success' : 'chip-neutral'}`}>
+                {hasActivePlan && <span className="chip-dot" />}
+                {hasActivePlan ? 'Active' : 'Inactive'}
               </span>
             </div>
 
             <p className="meta mt-3 mb-4">
-              Subscription ID: <code>{billingData?.hasActivePlan ? subId : 'None'}</code>
+              Subscription ID: <code>{hasActivePlan ? subId : 'None'}</code>
             </p>
 
             <ul className="space-y-2 text-[13.5px] text-[#3f3f46]">
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
-                <span>{maxSites} production site slots</span>
+                <span>{hasActivePlan ? maxSites : '—'} production site slots</span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
-                <span>{maxRuns.toLocaleString()} edge worker runs / month</span>
+                <span>{hasActivePlan ? maxRuns.toLocaleString() : '—'} edge worker runs / month</span>
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
@@ -166,9 +169,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           {/* Segmented Meter */}
           <div
             className="grid gap-1.5 mb-6"
-            style={{ gridTemplateColumns: `repeat(${Math.max(5, maxSites)}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: `repeat(${Math.max(1, maxSites)}, minmax(0, 1fr))` }}
           >
-            {Array.from({ length: Math.max(5, maxSites) }).map((_, i) => (
+            {Array.from({ length: Math.max(1, maxSites) }).map((_, i) => (
               <span
                 key={i}
                 className={`h-4 rounded-sm border transition-all duration-300 ${
@@ -267,7 +270,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 const bw = 40;
                 const step = 78;
                 const x0 = 20;
-                const max = maxRuns || 2000;
+                const max = chartMax;
                 const h = Math.max(8, (d.v / max) * 80);
                 const x = x0 + i * step;
                 const y = 100 - h;
@@ -324,38 +327,43 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           <table className="ds-table">
             <thead>
               <tr className="bg-[#fafafa]">
-                <th className="w-1/4">Features</th>
-                <th className="w-1/4">Starter</th>
-                <th className="w-1/4 bg-[#fff1ef] border-t-2 border-[#f03e2f]">
+                <th className="w-1/5">Features</th>
+                <th className="w-1/5">Starter</th>
+                <th className="w-1/5">Pro</th>
+                <th className="w-1/5 bg-[#fff1ef] border-t-2 border-[#f03e2f]">
                   <span className="font-mono text-[10px] uppercase text-[#f03e2f] bg-white px-2 py-0.5 rounded-full border border-red-200">
                     Popular
                   </span>
                   <div className="mt-1">Agency</div>
                 </th>
-                <th className="w-1/4">Enterprise</th>
+                <th className="w-1/5">Enterprise</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td className="font-medium text-[#171717]">Price</td>
                 <td className="font-mono">$19/mo</td>
+                <td className="font-mono">$49/mo</td>
                 <td className="font-mono bg-[#fff1ef]/40 font-bold">$79/mo</td>
                 <td className="font-mono">Custom</td>
               </tr>
               <tr>
                 <td className="font-medium text-[#171717]">Site slots</td>
+                <td className="font-mono">1</td>
                 <td className="font-mono">5</td>
-                <td className="font-mono bg-[#fff1ef]/40 font-bold">25</td>
-                <td className="font-mono">Unlimited</td>
+                <td className="font-mono bg-[#fff1ef]/40 font-bold">10</td>
+                <td className="font-mono">100</td>
               </tr>
               <tr>
                 <td className="font-medium text-[#171717]">Worker runs/mo</td>
-                <td className="font-mono">500</td>
+                <td className="font-mono">200</td>
+                <td className="font-mono">1,000</td>
                 <td className="font-mono bg-[#fff1ef]/40 font-bold">2,000</td>
-                <td className="font-mono">Custom</td>
+                <td className="font-mono">10,000</td>
               </tr>
               <tr>
                 <td className="font-medium text-[#171717]">AVIF & Critical CSS</td>
+                <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
                 <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
                 <td className="bg-[#fff1ef]/40"><Check className="w-4 h-4 text-[#16a34a]" /></td>
                 <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
@@ -363,11 +371,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <tr>
                 <td className="font-medium text-[#171717]">Priority support</td>
                 <td className="text-[#a1a1aa]">—</td>
+                <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
                 <td className="bg-[#fff1ef]/40"><Check className="w-4 h-4 text-[#16a34a]" /></td>
                 <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
               </tr>
               <tr>
                 <td className="font-medium text-[#171717]">SSO & Custom SLA</td>
+                <td className="text-[#a1a1aa]">—</td>
                 <td className="text-[#a1a1aa]">—</td>
                 <td className="bg-[#fff1ef]/40 text-[#a1a1aa]">—</td>
                 <td><Check className="w-4 h-4 text-[#16a34a]" /></td>
@@ -382,6 +392,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     className="btn btn-ghost text-xs"
                   >
                     Select Starter
+                  </button>
+                </td>
+                <td>
+                  <button
+                    onClick={() => onNavigateToPricing()}
+                    className="btn btn-ghost text-xs"
+                  >
+                    Select Pro
                   </button>
                 </td>
                 <td className="bg-[#fff1ef]/40">

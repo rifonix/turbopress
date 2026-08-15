@@ -18,8 +18,8 @@ interface OverviewTabProps {
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   sites,
-  totalRunsUsed = 124,
-  totalRunsMax = 2000,
+  totalRunsUsed = 0,
+  totalRunsMax = 200,
   onSelectSite,
   onNavigateToJobs,
   onNavigateToConnect,

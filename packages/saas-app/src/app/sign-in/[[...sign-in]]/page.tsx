@@ -4,9 +4,15 @@ import React, { Suspense } from 'react';
 import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { SignIn } from '@clerk/nextjs';
+import { useSearchParams } from 'next/navigation';
 import { turbopressClerkAppearance } from '@/components/auth/ClerkTheme';
 
 function SignInContent() {
+  const searchParams = useSearchParams();
+  // Deep-link support: send users back where they came from (e.g. /connect handshake)
+  const redirectUrl = searchParams?.get('redirect_url') || '/';
+  const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/';
+
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
       {/* Top Navbar */}
@@ -107,7 +113,11 @@ function SignInContent() {
                     Sign In
                   </span>
                   <Link
-                    href="/sign-up"
+                    href={
+                      redirectUrl && redirectUrl !== '/'
+                        ? `/sign-up?redirect_url=${encodeURIComponent(redirectUrl)}`
+                        : '/sign-up'
+                    }
                     className="px-2.5 py-1 rounded-md text-[#71717a] hover:text-[#171717] transition-colors"
                   >
                     Register
@@ -121,7 +131,7 @@ function SignInContent() {
                   routing="path"
                   path="/sign-in"
                   signUpUrl="/sign-up"
-                  fallbackRedirectUrl="/"
+                  fallbackRedirectUrl={safeRedirect}
                 />
               </div>
             </div>

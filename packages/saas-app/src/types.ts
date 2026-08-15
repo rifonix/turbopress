@@ -105,11 +105,12 @@ export interface DashboardContextType {
   jobs: OptimizationJobItem[];
   billingData: BillingStatusData | null;
   isLoading: boolean;
+  isVerifyingPurchase: boolean;
   refreshFleetData: () => Promise<void>;
   addToast: (text: string, type?: 'success' | 'info' | 'error') => void;
   handlePurgeSite: (domain: string) => Promise<void>;
   handleRunOptimization: (domain: string) => Promise<void>;
-  handleCreateSite: (domain: string) => Promise<void>;
+  handleCreateSite: (domain: string) => Promise<{ apiKey?: string; siteId?: string } | void>;
   handleDeleteSite: (siteId: string, domain: string) => Promise<void>;
   handleUpdatePreset: (siteId: string, preset: SitePreset) => Promise<void>;
   handleUpdateConfig: (siteId: string, config: SiteConfig) => Promise<void>;

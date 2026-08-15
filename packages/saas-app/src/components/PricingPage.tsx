@@ -1,16 +1,29 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Info } from 'lucide-react';
 import { POLAR_PRODUCT_IDS } from '../types';
 
 interface PricingPageProps {
-  onSelectPlan: (planId: string, interval: 'monthly' | 'annual') => void;
+  onSelectPlan: (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => void;
   onToast: (msg: string) => void;
+  hasActivePlan?: boolean;
+  showRequiredBanner?: boolean;
 }
 
-export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast }) => {
+export const PricingPage: React.FC<PricingPageProps> = ({
+  onSelectPlan,
+  onToast,
+  hasActivePlan = false,
+  showRequiredBanner = false,
+}) => {
   const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly');
+
+  const handleSelect = (planId: string) => {
+    // After checkout, new subscribers return to onboarding to connect their site;
+    // existing subscribers simply come back to the billing page.
+    onSelectPlan(planId, interval, hasActivePlan ? '/billing' : '/onboarding');
+  };
 
   const plans = [
     {
@@ -99,6 +112,18 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
 
   return (
     <div className="space-y-12 animate-fade-in max-w-5xl mx-auto py-2">
+      {/* Gating banner */}
+      {showRequiredBanner && !hasActivePlan && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-[#fffbeb] border border-[#fed7aa]">
+          <Info className="w-4 h-4 text-[#9a3412] flex-none mt-0.5" />
+          <p className="text-xs text-[#78350f] leading-relaxed">
+            <strong className="font-semibold">A plan is required to use the TurboPress dashboard.</strong>{' '}
+            Pick any plan below to unlock edge caching, Critical CSS extraction, and site pairing.
+            After checkout you&apos;ll continue straight into onboarding.
+          </p>
+        </div>
+      )}
+
       {/* Hero Header */}
       <div className="text-center space-y-3">
         <span className="font-mono text-xs font-semibold uppercase tracking-wider px-3 py-1 bg-[#fff1ef] text-[#f03e2f] rounded-full border border-red-200 inline-block">
@@ -191,7 +216,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onSelectPlan, onToast 
                     if (p.id === 'enterprise') {
                       onToast('Enterprise sales request submitted');
                     } else {
-                      onSelectPlan(p.id, interval);
+                      handleSelect(p.id);
                     }
                   }}
                   className={`w-full btn text-xs ${

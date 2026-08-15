@@ -101,6 +101,11 @@ body {
   50% { opacity: 0.35; transform: scale(0.85); }
 }
 
+@keyframes loadingbar {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(340%); }
+}
+
 /* Custom Buttons */
 .btn {
   display: inline-flex;

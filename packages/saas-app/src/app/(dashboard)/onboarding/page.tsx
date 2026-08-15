@@ -17,8 +17,13 @@ export default function OnboardingPage() {
   return (
     <OnboardingFlow
       hasActivePlan={hasActivePlan}
+      isVerifyingPurchase={ctx.isVerifyingPurchase}
+      planName={ctx.billingData?.plan?.name}
+      jobs={ctx.jobs}
       onComplete={() => router.push('/')}
       onSelectPlan={ctx.handleSelectPlan}
+      onCreateSite={ctx.handleCreateSite}
+      onRunOptimization={ctx.handleRunOptimization}
       onToast={ctx.addToast}
     />
   );
