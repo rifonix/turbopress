@@ -11,11 +11,16 @@ import { billingRoutes } from './routes/billing.js';
 import { assetRoutes } from './routes/assets.js';
 import { processOptimizationQueue } from './services/queue-consumer.js';
 
+// @ts-ignore - OpenNext worker handler generated during build
+import openNextHandler from '../../saas-app/.open-next/worker.js';
+
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
-// Global Middlewares
-app.use('*', traceMiddleware);
-app.use('*', corsMiddleware);
+// API Middlewares
+app.use('/api/*', traceMiddleware);
+app.use('/api/*', corsMiddleware);
+app.use('/health', traceMiddleware);
+app.use('/health', corsMiddleware);
 app.onError(errorHandler);
 
 // Health Check & Worker Trace Diagnostic
@@ -51,18 +56,29 @@ app.route('/api/v1/optimize', optimizeRoutes);
 app.route('/api/v1/billing', billingRoutes);
 app.route('/api/v1/assets', assetRoutes);
 
-// Fallback to SPA Frontend Static Assets
-app.notFound(async (c) => {
-  if (c.env.ASSETS) {
-    const res = await c.env.ASSETS.fetch(c.req.raw as any);
-    return res as unknown as Response;
-  }
-  return c.text('Not found', 404);
-});
-
 // Export Cloudflare Worker Handlers
 export default {
-  fetch: app.fetch,
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Route API endpoints and health checks to Hono
+    if (url.pathname.startsWith('/api/') || url.pathname === '/health') {
+      return app.fetch(request, env, ctx);
+    }
+
+    // Delegate all multi-page Next.js application routes & assets to OpenNext
+    if (openNextHandler && typeof openNextHandler.fetch === 'function') {
+      return (await openNextHandler.fetch(request as any, env as any, ctx as any)) as unknown as Response;
+    }
+
+    // Fallback to static assets
+    if (env.ASSETS) {
+      return (await env.ASSETS.fetch(request as any)) as unknown as Response;
+    }
+
+    return new Response('Not found', { status: 404 });
+  },
+
   async queue(batch: any, env: Env): Promise<void> {
     await processOptimizationQueue(batch, env);
   },

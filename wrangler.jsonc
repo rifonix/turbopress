@@ -4,15 +4,20 @@
   "main": "packages/edge-api/src/index.ts",
   "compatibility_date": "2025-02-14",
   "compatibility_flags": [
-    "nodejs_compat"
+    "nodejs_compat",
+    "global_fetch_strictly_public"
   ],
   "assets": {
     "directory": "./packages/saas-app/.open-next/assets",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "html_handling": "auto-trailing-slash",
-    "run_worker_first": false
+    "run_worker_first": true
   },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "turbopress"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
@@ -55,6 +60,8 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev"
+    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev",
+    "NEXT_PUBLIC_API_BASE_URL": "https://turbopress.webaccessibility.workers.dev",
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk"
   }
 }
