@@ -14,12 +14,21 @@ class ApiError extends Error {
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}, token?: string | null): Promise<T> {
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  token?: string | null,
+  userEmail?: string | null
+): Promise<T> {
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
 
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  if (userEmail) {
+    headers.set('X-User-Email', userEmail);
   }
 
   const url = `${API_BASE}${endpoint}`;
@@ -205,15 +214,17 @@ export const api = {
   async createCheckout(
     token: string | null,
     productId: string,
-    returnTo?: string
+    returnTo?: string,
+    userEmail?: string | null
   ): Promise<{ checkoutUrl: string; checkoutId: string }> {
     return request<{ checkoutUrl: string; checkoutId: string }>(
       '/api/v1/billing/checkout',
       {
         method: 'POST',
-        body: JSON.stringify({ productId, returnTo }),
+        body: JSON.stringify({ productId, returnTo, customerEmail: userEmail }),
       },
-      token
+      token,
+      userEmail
     );
   },
 

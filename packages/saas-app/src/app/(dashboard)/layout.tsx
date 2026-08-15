@@ -47,6 +47,15 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Plan Gating: If signed in and data is loaded, redirect unsubscribed users to /pricing
+  useEffect(() => {
+    if (!isLoading && isSignedIn && billingData && !billingData.hasActivePlan) {
+      if (pathname !== '/pricing' && pathname !== '/billing') {
+        router.replace('/pricing?required=1');
+      }
+    }
+  }, [isLoading, isSignedIn, billingData, pathname, router]);
+
   // Auth Loading Screen
   if (!isLoaded) {
     return (

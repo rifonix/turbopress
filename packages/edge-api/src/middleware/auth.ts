@@ -74,21 +74,25 @@ export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variable
 
   const token = authHeader.replace('Bearer ', '').trim();
 
-  // In production with Clerk, decode & verify JWT or header.
   let userId = 'user_admin';
-  let userEmail = 'admin@turbopress.io';
+  let userEmail = '';
+
+  const headerEmail = c.req.header('X-User-Email');
+  if (headerEmail && headerEmail.includes('@')) {
+    userEmail = headerEmail.trim().toLowerCase();
+  }
 
   if (token.startsWith('user_')) {
     userId = token;
-    userEmail = `${userId}@users.turbopress.io`;
   } else if (token.includes('.')) {
     try {
       const parts = token.split('.');
-      // Base64url decode
       const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const payload = JSON.parse(atob(base64));
       userId = payload.sub || userId;
-      userEmail = payload.email || payload.primary_email_address || `${userId}@users.turbopress.io`;
+      if (!userEmail) {
+        userEmail = payload.email || payload.primary_email_address || payload.email_address || '';
+      }
     } catch {
       // Fallback
     }
@@ -99,10 +103,15 @@ export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variable
 
   // Auto-provision user in D1 if not present
   try {
-    await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO users (id, email, created_at, updated_at) VALUES (?, ?, unixepoch(), unixepoch())'
-    )
-      .bind(userId, userEmail)
+    const dbEmail = userEmail || `${userId}@user.local`;
+    await c.env.DB.prepare(`
+      INSERT INTO users (id, email, created_at, updated_at)
+      VALUES (?, ?, unixepoch(), unixepoch())
+      ON CONFLICT(id) DO UPDATE SET
+        email = CASE WHEN excluded.email NOT LIKE '%@user.local' THEN excluded.email ELSE users.email END,
+        updated_at = unixepoch()
+    `)
+      .bind(userId, dbEmail)
       .run();
   } catch (err) {
     console.error('[saasUserAuthMiddleware] Error auto-provisioning user:', err);

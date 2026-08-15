@@ -1,7 +1,5 @@
-'use client';
-
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ExtendedSite,
@@ -19,8 +17,11 @@ const DashboardContext = createContext<DashboardContextType | null>(null);
 
 export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
   const router = useRouter();
   const pathname = usePathname();
+
+  const userEmail = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses?.[0]?.emailAddress || '';
 
   const [sites, setSites] = useState<ExtendedSite[]>([]);
   const [jobs, setJobs] = useState<OptimizationJobItem[]>([]);
@@ -103,7 +104,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             : POLAR_PRODUCT_IDS.starterMonthly
           : `prod_${planId}_${interval}`;
 
-      const res = await api.createCheckout(token, targetProductId, returnTo);
+      const res = await api.createCheckout(token, targetProductId, returnTo, userEmail);
       if (res?.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       } else {
@@ -115,6 +116,12 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const handleOpenPortal = async () => {
+    if (!billingData?.hasActivePlan) {
+      addToast('Please select and activate a plan first to access the Polar customer portal', 'info');
+      router.push('/pricing');
+      return;
+    }
+
     try {
       addToast('Opening Polar customer portal session…', 'info');
       const token = await getToken();
@@ -122,10 +129,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (res?.portalUrl) {
         window.location.href = res.portalUrl;
       } else {
-        window.open('https://polar.sh/purchases', '_blank');
+        addToast('Unable to create customer portal session', 'error');
       }
     } catch (err: any) {
-      addToast(err?.message || 'Failed to open customer portal', 'error');
+      addToast(err?.message || 'No active billing customer found. Please subscribe to a plan first.', 'error');
+      router.push('/pricing');
     }
   };
 

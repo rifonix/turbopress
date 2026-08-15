@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth, UserButton } from '@clerk/nextjs';
+import { useAuth, useUser, UserButton } from '@clerk/nextjs';
 import {
   Zap,
   ShieldCheck,
@@ -87,6 +87,9 @@ function ConnectContent() {
     billingData?.subscription?.status === 'active' ||
     billingData?.subscription?.status === 'trialing';
 
+  const { user } = useUser();
+  const userEmail = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses?.[0]?.emailAddress || '';
+
   // Handle plan purchase
   const handlePurchasePlan = async (interval: 'monthly' | 'annual' = 'monthly') => {
     try {
@@ -103,7 +106,7 @@ function ConnectContent() {
       if (pluginVersion) currentParams.set('plugin_version', pluginVersion);
       const returnTo = `/connect?${currentParams.toString()}`;
 
-      const res = await api.createCheckout(token, productId, returnTo);
+      const res = await api.createCheckout(token, productId, returnTo, userEmail);
       if (res?.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       }

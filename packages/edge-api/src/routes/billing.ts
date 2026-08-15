@@ -130,14 +130,23 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
  */
 billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'customer@turbopress.io';
+  const authUserEmail = c.get('userEmail') || '';
   const body = await c.req.json().catch(() => ({}));
   const productId = body.productId || body.product_id;
   const returnTo = body.returnTo || body.return_to;
+  const bodyEmail = body.customerEmail || body.customer_email || body.email;
 
   if (!productId) {
     return c.json({ success: false, error: 'Missing productId' }, 400);
   }
+
+  // Validate candidate email
+  const candidateEmail = (bodyEmail || authUserEmail || '').trim().toLowerCase();
+  const isValidRealEmail =
+    candidateEmail.includes('@') &&
+    !candidateEmail.endsWith('@users.turbopress.io') &&
+    !candidateEmail.endsWith('@user.local') &&
+    !candidateEmail.includes('turbopress.internal');
 
   const polar = getPolarClient(c.env);
   const saasUrl = c.env.SAAS_APP_URL || 'https://turbopress.webaccessibility.workers.dev';
@@ -148,16 +157,21 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
     : `${saasUrl}/billing?success=1&checkoutId={CHECKOUT_ID}`;
 
   try {
-    const session = await polar.checkouts.create({
+    const checkoutPayload: any = {
       products: [productId],
       successUrl,
-      customerEmail: userEmail,
       customerExternalId: userId,
       metadata: {
         userId,
         source: 'turbopress_saas_checkout',
       },
-    });
+    };
+
+    if (isValidRealEmail) {
+      checkoutPayload.customerEmail = candidateEmail;
+    }
+
+    const session = await polar.checkouts.create(checkoutPayload);
 
     return c.json({
       success: true,
@@ -180,6 +194,24 @@ billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
   const polar = getPolarClient(c.env);
 
+  // Check if user has an active subscription in D1
+  const subscription = await c.env.DB.prepare(
+    'SELECT id, status FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
+  )
+    .bind(userId)
+    .first<{ id: string; status: string }>();
+
+  if (!subscription) {
+    return c.json(
+      {
+        success: false,
+        code: 'NO_ACTIVE_SUBSCRIPTION',
+        error: 'No active subscription found. Please choose and activate a plan first.',
+      },
+      400
+    );
+  }
+
   try {
     const session = await polar.customerSessions.create({
       customerExternalId: userId,
@@ -192,8 +224,19 @@ billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
       },
     });
   } catch (err: any) {
-    console.error('[Polar Portal Error]', err);
-    return c.json({ success: false, error: err?.message || 'Failed to create customer portal' }, 500);
+    console.warn('[Polar Portal Error]', err);
+    const errorMsg = String(err?.message || '');
+    if (errorMsg.includes('Customer does not exist') || errorMsg.includes('value_error')) {
+      return c.json(
+        {
+          success: false,
+          code: 'NO_CUSTOMER',
+          error: 'No active billing account found on Polar. Please purchase a plan first.',
+        },
+        400
+      );
+    }
+    return c.json({ success: false, error: err?.message || 'Failed to create customer portal session' }, 500);
   }
 });
 
