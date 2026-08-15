@@ -123,7 +123,10 @@ export const PRESET_SAFE: SiteConfig = {
     lazyload_images: true,
     lazyload_iframes: true,
     lazyload_offset_px: 300,
-    excluded_images: []
+    excluded_images: [],
+    offload_images: false,
+    offload_video: false,
+    offload_widths: [480, 768, 1200, 1600]
   },
   dynamic: {
     speculation_rules_prerender: true,
@@ -188,7 +191,10 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     lazyload_images: true,
     lazyload_iframes: true,
     lazyload_offset_px: 300,
-    excluded_images: []
+    excluded_images: [],
+    offload_images: false,
+    offload_video: false,
+    offload_widths: [480, 768, 1200, 1600]
   },
   dynamic: {
     speculation_rules_prerender: true,
@@ -253,7 +259,10 @@ export const PRESET_LUDICROUS: SiteConfig = {
     lazyload_images: true,
     lazyload_iframes: true,
     lazyload_offset_px: 300,
-    excluded_images: []
+    excluded_images: [],
+    offload_images: false,
+    offload_video: false,
+    offload_widths: [480, 768, 1200, 1600]
   },
   dynamic: {
     speculation_rules_prerender: true,

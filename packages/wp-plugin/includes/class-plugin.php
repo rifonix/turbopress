@@ -84,6 +84,13 @@ class Plugin {
             wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'turbopress_rum_heartbeat');
         }
 
+        // Hourly media derivative generation (R2 offload queue: webp
+        // derivatives + edge uploads; nothing runs when the queue is empty).
+        add_action('turbopress_media_offload', [MediaOffloader::class, 'process_queue']);
+        if (!wp_next_scheduled('turbopress_media_offload')) {
+            wp_schedule_event(time() + 15 * MINUTE_IN_SECONDS, 'hourly', 'turbopress_media_offload');
+        }
+
         // Edge push callback (HMAC-verified REST route)
         OptimizeCallback::register_routes();
 
@@ -303,7 +310,7 @@ class Plugin {
         CacheIntegration::purge_foreign_caches('all');
 
         // Unschedule heartbeats
-        foreach (['turbopress_health_heartbeat', 'turbopress_rum_heartbeat'] as $hook) {
+        foreach (['turbopress_health_heartbeat', 'turbopress_rum_heartbeat', 'turbopress_media_offload'] as $hook) {
             $timestamp = wp_next_scheduled($hook);
             while ($timestamp) {
                 wp_unschedule_event($timestamp, $hook);

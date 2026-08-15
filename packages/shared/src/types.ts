@@ -71,6 +71,9 @@ export interface MediaConfig {
   lazyload_iframes: boolean;
   lazyload_offset_px: number;
   excluded_images: string[];
+  offload_images: boolean;
+  offload_video: boolean;
+  offload_widths: number[];
 }
 
 export interface DynamicConfig {

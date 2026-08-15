@@ -150,6 +150,9 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             lazyload_iframes: true,
             lazyload_offset_px: 300,
             excluded_images: [],
+            offload_images: false,
+            offload_video: false,
+            offload_widths: [480, 768, 1200, 1600],
           },
           dynamic: {
             speculation_rules_prerender: true,
@@ -272,6 +275,9 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         lazyload_iframes: true,
         lazyload_offset_px: 300,
         excluded_images: [],
+        offload_images: false,
+        offload_video: false,
+        offload_widths: [480, 768, 1200, 1600],
       },
       dynamic: {
         speculation_rules_prerender: enableSpeculation,

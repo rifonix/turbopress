@@ -76,6 +76,7 @@ class CssOptimizer {
         // Pass 2: build the combined bundle for the main screen group.
         $combined_url = null;
         $combined_idx = null;
+        $main_keys = [];
         if ($combine_enabled) {
             $main_keys = array_keys(array_filter($combinable, fn($c) => $c['media'] === 'all'));
             if (count($main_keys) >= 2) {
@@ -88,21 +89,31 @@ class CssOptimizer {
 
         // Pass 3: rewrite the HTML.
         $i = -1;
+        $used_rescue = false;
         $html = preg_replace_callback(
             '/<link\s+([^>]*rel=[\'"]stylesheet[\'"][^>]*)>/i',
-            function ($m) use (&$i, $combinable, $combined_url, $combined_idx, $excluded) {
+            function ($m) use (&$i, &$used_rescue, $combinable, $combined_url, $combined_idx, $main_keys) {
                 $i++;
                 if (!isset($combinable[$i])) {
                     return $m[0]; // excluded / print / skipped
                 }
                 $entry = $combinable[$i];
+                $used_rescue = true;
 
                 // First member of the combined group carries the bundle tag.
+                // data-tp-css keeps the original hrefs so the rescue script
+                // can restore real <link rel=stylesheet> tags when the
+                // preload→stylesheet swap never applies (CSP blocking the
+                // inline onload attribute, 404, dropped preload): styles can
+                // never be permanently lost.
                 if ($combined_url !== null && $i === $combined_idx) {
+                    $orig_hrefs = array_map(fn($k) => $combinable[$k]['href'], $main_keys);
                     return sprintf(
-                        '<link rel="preload" href="%s" as="style" onload="this.onload=null;this.rel=\'stylesheet\'">' .
+                        '<link rel="preload" href="%s" as="style" data-tp-css="%s" ' .
+                        'onload="this.onload=null;this.rel=\'stylesheet\'" onerror="if(window.__tpCssRescue)window.__tpCssRescue(this)">' .
                         '<noscript><link rel="stylesheet" href="%s"></noscript>',
                         esc_url($combined_url),
+                        esc_attr((string) wp_json_encode($orig_hrefs)),
                         esc_url($combined_url)
                     );
                 }
@@ -117,9 +128,11 @@ class CssOptimizer {
                     $clean_attrs = preg_replace('/rel=[\'"]stylesheet[\'"]/i', '', $clean_attrs);
 
                     return sprintf(
-                        '<link rel="preload" href="%s" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" %s>' .
+                        '<link rel="preload" href="%s" as="style" data-tp-css="%s" %s ' .
+                        'onload="this.onload=null;this.rel=\'stylesheet\'" onerror="if(window.__tpCssRescue)window.__tpCssRescue(this)">' .
                         '<noscript><link rel="stylesheet" href="%s"></noscript>',
                         esc_url($href),
+                        esc_attr((string) wp_json_encode([$this->absolutize($href)])),
                         trim($clean_attrs),
                         esc_url($href)
                     );
@@ -128,6 +141,24 @@ class CssOptimizer {
             },
             $html
         );
+
+        // Rescue script (once per page): restores the original stylesheets
+        // when the preload→stylesheet swap has not applied shortly after
+        // load, or immediately on preload error.
+        if ($used_rescue && is_string($html) && stripos((string) $html, 'turbopress-css-rescue') === false) {
+            $sel = 'link[rel=preload][as=style][data-tp-css]';
+            $scan = 'var ls=document.querySelectorAll(\'' . $sel . '\');for(var i=0;i<ls.length;i++){if(!ls[i].sheet)window.__tpCssRescue(ls[i])}';
+            $rescue = '<script tp-exclude id="turbopress-css-rescue">(function(){'
+                . 'window.__tpCssRescue=function(l){try{'
+                . 'var a=JSON.parse(l.getAttribute(\'data-tp-css\')||\'[]\');'
+                . 'for(var i=0;i<a.length;i++){var s=document.createElement(\'link\');s.rel=\'stylesheet\';s.href=a[i];document.head.appendChild(s)}'
+                . 'l.removeAttribute(\'onload\');l.removeAttribute(\'onerror\');l.parentNode&&l.parentNode.removeChild(l)'
+                . '}catch(e){}};'
+                . 'function chk(){setTimeout(function(){' . $scan . '},2500);setTimeout(function(){' . $scan . '},6000);}'
+                . 'if(document.readyState!==\'loading\')chk();else document.addEventListener(\'DOMContentLoaded\',chk);'
+                . '})();</script>';
+            $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $rescue, (string) $html, 1) ?? (string) $html;
+        }
 
         return $html;
     }
@@ -296,7 +327,10 @@ class CssOptimizer {
                 if (preg_match('#^(https?:)?//#i', $ref)) {
                     return $m[0]; // already absolute(-ish)
                 }
-                return 'url(' . esc_url($this->resolve_relative($base_href, $ref)) . ')';
+                // esc_url_raw: this value lives INSIDE CSS text, where HTML
+                // entity escaping (& -> &#038;) corrupts the URL. esc_url()
+                // here broke any sheet URL containing a query string.
+                return 'url(' . esc_url_raw($this->resolve_relative($base_href, $ref)) . ')';
             },
             $css
         );

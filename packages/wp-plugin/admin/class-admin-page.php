@@ -67,7 +67,12 @@ class AdminPage {
         $current_preset = $this->config->get('preset', 'ludicrous');
         $caching_enabled = $this->config->get('caching.enabled', true);
         $critical_css_enabled = $this->config->get('critical_css.enabled', true);
-        $js_delay_enabled = $this->config->get('javascript.execution_mode', 'defer') === 'interaction_delay';
+        $js_execution_mode = (string) $this->config->get('javascript.execution_mode', 'defer');
+        if (!in_array($js_execution_mode, ['none', 'defer', 'interaction_delay'], true)) {
+            $js_execution_mode = 'defer';
+        }
+        $offload_images = (bool) $this->config->get('media.offload_images', false);
+        $offload_video = (bool) $this->config->get('media.offload_video', false);
         $speculation_enabled = $this->config->get('dynamic.speculation_rules_prerender', true);
         $nonce_refresh_enabled = $this->config->get('dynamic.nonce_ajax_refresh', true);
         $css_combine = $this->config->get('css.combine', true);
@@ -217,13 +222,34 @@ class AdminPage {
                             </td>
                         </tr>
                         <tr>
-                            <th scope="row">3-Tier JS Delay Engine</th>
+                            <th scope="row">JavaScript Execution</th>
+                            <td>
+                                <select name="js_execution_mode" id="tp-js-mode" style="min-width:260px">
+                                    <option value="none" <?php selected($js_execution_mode, 'none'); ?>>Off — scripts load normally</option>
+                                    <option value="defer" <?php selected($js_execution_mode, 'defer'); ?>>Safe Defer (recommended) — order-preserving, zero breakage</option>
+                                    <option value="interaction_delay" <?php selected($js_execution_mode, 'interaction_delay'); ?>>Smart Delay (advanced) — hold scripts until first interaction / 3.5s</option>
+                                </select>
+                                <p class="tp-label-desc">Safe Defer keeps document order (jQuery → plugins → inline configs). Smart Delay maximizes Lighthouse scores; auto-protect steps it down automatically if real-user errors spike.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Offload Images to Edge CDN (R2)</th>
                             <td>
                                 <label class="tp-switch">
-                                    <input type="checkbox" name="js_delay_enabled" value="1" <?php checked($js_delay_enabled); ?>>
+                                    <input type="checkbox" name="offload_images" value="1" <?php checked($offload_images); ?>>
                                     <span class="tp-slider"></span>
                                 </label>
-                                <span class="tp-label-desc">Delays non-critical scripts until first user interaction or safety timer (3.5s). Stubs jQuery &amp; <code>$()</code> to prevent errors. When off, all external scripts still get <code>defer</code>.</span>
+                                <span class="tp-label-desc">Serves images from the Turbopress edge worker (R2, webp derivatives, immutable caching). Falls back to a redirect to the original image until the derivative is ready — images can never break.</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Offload Videos to Edge CDN (R2)</th>
+                            <td>
+                                <label class="tp-switch">
+                                    <input type="checkbox" name="offload_video" value="1" <?php checked($offload_video); ?>>
+                                    <span class="tp-slider"></span>
+                                </label>
+                                <span class="tp-label-desc">Routes <code>&lt;video&gt;</code>/<code>&lt;source&gt;</code> sources through the edge worker with R2 caching and range-request support (files up to 100&nbsp;MB).</span>
                             </td>
                         </tr>
                         <tr>
@@ -378,7 +404,7 @@ class AdminPage {
                 const preset = document.querySelector('input[name="tp_preset"]:checked').value;
                 const caching = document.querySelector('input[name="caching_enabled"]').checked;
                 const criticalCss = document.querySelector('input[name="critical_css_enabled"]').checked;
-                const jsDelay = document.querySelector('input[name="js_delay_enabled"]').checked;
+                const jsMode = document.querySelector('select[name="js_execution_mode"]').value;
                 const speculation = document.querySelector('input[name="speculation_enabled"]').checked;
                 const nonceRefresh = document.querySelector('input[name="nonce_refresh_enabled"]').checked;
                 const cssCombine = document.querySelector('input[name="css_combine"]').checked;
@@ -386,6 +412,8 @@ class AdminPage {
                 const hintsEnabled = document.querySelector('input[name="hints_enabled"]').checked;
                 const removeMigrate = document.querySelector('input[name="remove_jquery_migrate"]').checked;
                 const autoDegrade = document.querySelector('input[name="auto_degrade"]').checked;
+                const offloadImages = document.querySelector('input[name="offload_images"]').checked;
+                const offloadVideo = document.querySelector('input[name="offload_video"]').checked;
 
                 const data = new FormData();
                 data.append('action', 'turbopress_save_settings');
@@ -393,7 +421,7 @@ class AdminPage {
                 data.append('preset', preset);
                 data.append('caching_enabled', caching ? '1' : '0');
                 data.append('critical_css_enabled', criticalCss ? '1' : '0');
-                data.append('js_delay_enabled', jsDelay ? '1' : '0');
+                data.append('js_execution_mode', jsMode);
                 data.append('speculation_enabled', speculation ? '1' : '0');
                 data.append('nonce_refresh_enabled', nonceRefresh ? '1' : '0');
                 data.append('css_combine', cssCombine ? '1' : '0');
@@ -401,6 +429,8 @@ class AdminPage {
                 data.append('hints_enabled', hintsEnabled ? '1' : '0');
                 data.append('remove_jquery_migrate', removeMigrate ? '1' : '0');
                 data.append('auto_degrade', autoDegrade ? '1' : '0');
+                data.append('offload_images', offloadImages ? '1' : '0');
+                data.append('offload_video', offloadVideo ? '1' : '0');
 
                 fetch(ajaxurl, {
                     method: 'POST',
@@ -531,7 +561,10 @@ class AdminPage {
         $preset = sanitize_text_field($_POST['preset'] ?? 'ludicrous');
         $caching_enabled = !empty($_POST['caching_enabled']);
         $critical_css_enabled = !empty($_POST['critical_css_enabled']);
-        $js_delay_enabled = !empty($_POST['js_delay_enabled']);
+        $js_execution_mode = sanitize_text_field($_POST['js_execution_mode'] ?? 'defer');
+        if (!in_array($js_execution_mode, ['none', 'defer', 'interaction_delay'], true)) {
+            $js_execution_mode = 'defer';
+        }
         $speculation_enabled = !empty($_POST['speculation_enabled']);
         $nonce_refresh_enabled = !empty($_POST['nonce_refresh_enabled']);
         $css_combine = !empty($_POST['css_combine']);
@@ -539,12 +572,14 @@ class AdminPage {
         $hints_enabled = !empty($_POST['hints_enabled']);
         $remove_jquery_migrate = !empty($_POST['remove_jquery_migrate']);
         $auto_degrade = !empty($_POST['auto_degrade']);
+        $offload_images = !empty($_POST['offload_images']);
+        $offload_video = !empty($_POST['offload_video']);
 
         $config_data = $this->config->get_all();
         $config_data['preset'] = $preset;
         $config_data['caching']['enabled'] = $caching_enabled;
         $config_data['critical_css']['enabled'] = $critical_css_enabled;
-        $config_data['javascript']['execution_mode'] = $js_delay_enabled ? 'interaction_delay' : 'defer';
+        $config_data['javascript']['execution_mode'] = $js_execution_mode;
         $config_data['javascript']['remove_jquery_migrate'] = $remove_jquery_migrate;
         $config_data['css']['combine'] = $css_combine;
         $config_data['fonts']['localize_google'] = $fonts_enabled;
@@ -552,6 +587,8 @@ class AdminPage {
         $config_data['dynamic']['speculation_rules_prerender'] = $speculation_enabled;
         $config_data['dynamic']['nonce_ajax_refresh'] = $nonce_refresh_enabled;
         $config_data['deployment']['auto_degrade'] = $auto_degrade;
+        $config_data['media']['offload_images'] = $offload_images;
+        $config_data['media']['offload_video'] = $offload_video;
 
         $this->config->save($config_data);
         CacheManager::purge_all_static();

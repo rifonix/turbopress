@@ -14,6 +14,7 @@ class DomEngine {
     private CriticalCssTransformer $critical_css_transformer;
     private ScriptDelayer $script_delayer;
     private MediaOptimizer $media_optimizer;
+    private MediaOffloader $media_offloader;
     private FontOptimizer $font_optimizer;
     private ResourceHints $resource_hints;
     private SpeculationRules $speculation_rules;
@@ -28,6 +29,7 @@ class DomEngine {
         $this->critical_css_transformer = new CriticalCssTransformer($config, $api_client);
         $this->script_delayer = new ScriptDelayer($config);
         $this->media_optimizer = new MediaOptimizer($config);
+        $this->media_offloader = new MediaOffloader($config);
         $this->font_optimizer = new FontOptimizer($config);
         $this->resource_hints = new ResourceHints($config);
         $this->speculation_rules = new SpeculationRules($config);
@@ -88,12 +90,19 @@ class DomEngine {
             //    vendor CSS pinning removes unpkg/code.jquery.com links.
             $html = $this->stage($html, fn(string $h): string => $this->font_optimizer->transform($h), 'fonts');
 
-            // 2. Optimize Media (LCP Preload, fetchpriority="high", CLS dimensions)
+            // 2. Media offload FIRST: rewriting img/video URLs to the R2
+            //    worker must happen before the LCP preload / fetchpriority
+            //    pass so preloads point at the worker URLs too.
+            if ($this->config->get('media.offload_images', false) || $this->config->get('media.offload_video', false)) {
+                $html = $this->stage($html, fn(string $h): string => $this->media_offloader->transform($h), 'offload');
+            }
+
+            // 3. Optimize Media (LCP Preload, fetchpriority="high", CLS dimensions)
             if ($this->config->get('media.auto_fetchpriority_lcp', true)) {
                 $html = $this->stage($html, fn(string $h): string => $this->media_optimizer->transform($h), 'media');
             }
 
-            // 3. Critical CSS Inlining + Combined/Async Stylesheets
+            // 4. Critical CSS Inlining + Combined/Async Stylesheets
             if ($this->config->get('critical_css.enabled', true)) {
                 $html = $this->stage($html, fn(string $h): string => $this->critical_css_transformer->transform($h), 'critical_css');
             }

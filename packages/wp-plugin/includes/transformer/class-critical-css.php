@@ -41,8 +41,12 @@ class CriticalCssTransformer {
             );
             $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $style_tag, $html, 1);
 
-            // Combine + async-load the remaining stylesheets.
-            if ($this->config->get('critical_css.async_load_full', true)) {
+            // Combine + async-load the remaining stylesheets — ONLY with
+            // verified edge CSS. The local heuristic fallback is truncated
+            // (~50KB) and incomplete; deferring full sheets on top of it is
+            // exactly how backgrounds go permanently missing. Worst case
+            // with fallback CSS = brief double-render, never broken styles.
+            if (!$used_local_fallback && $this->config->get('critical_css.async_load_full', true)) {
                 $css_optimizer = new CssOptimizer($this->config);
                 $html = $css_optimizer->defer_stylesheets($html);
             }

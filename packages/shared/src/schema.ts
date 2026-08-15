@@ -65,7 +65,10 @@ export const MediaConfigSchema = z.object({
   lazyload_images: z.boolean().default(true),
   lazyload_iframes: z.boolean().default(true),
   lazyload_offset_px: z.number().int().min(0).max(2000).default(300),
-  excluded_images: z.array(z.string()).default([])
+  excluded_images: z.array(z.string()).default([]),
+  offload_images: z.boolean().default(false),
+  offload_video: z.boolean().default(false),
+  offload_widths: z.array(z.number().int().min(16).max(4000)).default([480, 768, 1200, 1600])
 });
 
 export const DynamicConfigSchema = z.object({

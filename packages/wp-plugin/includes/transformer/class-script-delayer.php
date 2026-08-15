@@ -75,8 +75,17 @@ class ScriptDelayer {
                     return $full_tag;
                 }
 
-                // Already non-blocking: leave untouched.
-                if (preg_match('/[\s\'"](?:async|defer)(?:[\s\'"]|$)/i', $attributes)) {
+                // async scripts self-manage ordering; leave untouched.
+                if (preg_match('/[\s\'"]async(?:[\s\'"]|$)/i', $attributes)) {
+                    return $full_tag;
+                }
+
+                // Already-deferred externals are correct in defer mode. In
+                // interaction_delay mode they MUST join the delayed chain:
+                // left as-is they execute at parse time against globals
+                // (e.g. jQuery) that are still withheld placeholders — the
+                // #1 cause of "interactivity doesn't work" reports.
+                if (preg_match('/[\s\'"]defer(?:[\s\'"]|$)/i', $attributes) && $mode !== 'interaction_delay') {
                     return $full_tag;
                 }
 
@@ -141,7 +150,7 @@ class ScriptDelayer {
                 if ($has_src) {
                     $src = $src_match[1];
                     $clean_attrs = preg_replace('/src=[\'"][^\'"]+[\'"]/i', '', $attributes);
-                    $clean_attrs = preg_replace('/type=[\'"][^\'"]+[\'"]/i', '', $attributes);
+                    $clean_attrs = preg_replace('/type=[\'"][^\'"]+[\'"]/i', '', (string) $clean_attrs);
 
                     return sprintf(
                         '<script type="text/turbopress" data-tp-src="%s" data-tp-order="%d" %s></script>',
