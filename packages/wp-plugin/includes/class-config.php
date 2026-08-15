@@ -16,7 +16,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.3.0';
+    public const CONFIG_VERSION = '1.4.0';
 
     private array $data = [];
 
@@ -29,7 +29,7 @@ class Config {
         $preset = is_array($stored) && !empty($stored['preset']) ? (string) $stored['preset'] : 'ludicrous';
         $defaults = $this->get_default_config($preset);
         $this->data = is_array($stored) ? array_replace_recursive($defaults, $stored) : $defaults;
-        $this->migrate_legacy_config($preset);
+        $this->migrate_legacy_config($preset, is_array($stored) ? $stored : []);
     }
 
     /**
@@ -40,7 +40,7 @@ class Config {
      * blanket keywords are stripped from stored configs. Structure-only
      * keywords (consent banners, payment providers) are kept.
      */
-    private function migrate_legacy_config(string $preset): void {
+    private function migrate_legacy_config(string $preset, array $stored): void {
         $stored_version = (string) ($this->data['version'] ?? '1.0.0');
         if (version_compare($stored_version, self::CONFIG_VERSION, '>=')) {
             return;
@@ -87,6 +87,18 @@ class Config {
                 && $preset !== 'ludicrous'
             ) {
                 $this->data['javascript']['execution_mode'] = 'defer';
+            }
+        }
+
+        if (version_compare($stored_version, '1.4.0', '<')) {
+            // Test Mode is the default for NEW sites, but existing sites
+            // must keep serving optimized HTML after the upgrade. Decide by
+            // what the STORED config (pre-defaults-merge) contained.
+            if (!isset($stored['deployment']['status'])) {
+                $this->data['deployment']['status'] = 'live';
+            }
+            if (!isset($stored['deployment']['auto_degrade'])) {
+                $this->data['deployment']['auto_degrade'] = true;
             }
         }
 
@@ -266,6 +278,15 @@ class Config {
             'hints' => [
                 // Auto preconnect/dns-prefetch for detected 3rd-party origins.
                 'resource_hints' => true
+            ],
+            'deployment' => [
+                // Test Mode: fresh installs serve visitors UNOPTIMIZED while
+                // admins verify the optimized page via ?tp_preview=1, then
+                // hit Deploy. Existing sites are migrated to 'live'.
+                'status' => 'test',
+                // Safety net: automatically step down interaction_delay →
+                // defer → none when live RUM error rates spike.
+                'auto_degrade' => true
             ],
             'dynamic' => [
                 'speculation_rules_prerender' => true,

@@ -52,6 +52,13 @@ export interface HintsConfig {
   resource_hints: boolean; // auto preconnect/dns-prefetch for 3rd-party origins
 }
 
+export interface DeploymentConfig {
+  /** test = visitors get unoptimized HTML, admins preview via ?tp_preview=1 */
+  status: 'test' | 'live';
+  /** auto step down interaction_delay→defer→none on rising JS error rates */
+  auto_degrade: boolean;
+}
+
 export interface MediaConfig {
   auto_fetchpriority_lcp: boolean;
   preload_lcp_image: boolean;
@@ -80,6 +87,7 @@ export interface SiteConfig {
   javascript: JavascriptConfig;
   fonts?: FontsConfig;
   hints?: HintsConfig;
+  deployment?: DeploymentConfig;
   media: MediaConfig;
   dynamic: DynamicConfig;
 }

@@ -18,6 +18,10 @@ class DomEngine {
     private ResourceHints $resource_hints;
     private SpeculationRules $speculation_rules;
 
+    /** Set by Plugin when the RUM beacon should ship (live mode or preview). */
+    private bool $rum_enabled = false;
+    private bool $rum_preview = false;
+
     public function __construct(Config $config, ApiClient $api_client) {
         $this->config = $config;
         $this->api_client = $api_client;
@@ -27,6 +31,11 @@ class DomEngine {
         $this->font_optimizer = new FontOptimizer($config);
         $this->resource_hints = new ResourceHints($config);
         $this->speculation_rules = new SpeculationRules($config);
+    }
+
+    public function enable_rum(bool $preview = false): void {
+        $this->rum_enabled = true;
+        $this->rum_preview = $preview;
     }
 
     public function transform(string $html): string {
@@ -86,7 +95,14 @@ class DomEngine {
                 $html = $this->stage($html, fn(string $h): string => $this->inject_hydrator_scripts($h), 'hydrator');
             }
 
-            // 8. Signature watermark (inside <body> so it never lands after </html>)
+            // 8. RUM beacon (live traffic + preview): collects JS errors,
+            //    LCP/CLS and reports through the phase-one kill switch
+            //    pipeline (AutoDegrade + SaaS dashboard).
+            if ($this->rum_enabled) {
+                $html = $this->stage($html, fn(string $h): string => $this->inject_rum_beacon($h), 'rum');
+            }
+
+            // 9. Signature watermark (inside <body> so it never lands after </html>)
             $signature = "\n<!-- Optimized with TurboPress v" . TURBOPRESS_VERSION . " -->";
             if (stripos($html, '</body>') !== false) {
                 $html = str_ireplace('</body>', $signature . '</body>', $html);
@@ -178,5 +194,28 @@ class DomEngine {
         );
 
         return str_ireplace('</body>', $script . '</body>', $html);
+    }
+
+    /**
+     * ~1KB RUM beacon: window.onerror + unhandledrejection (max 5), LCP via
+     * PerformanceObserver, CLS layout-shift sum (recent-input filtered);
+     * ships once on pagehide via sendBeacon. Tagged with the execution mode
+     * that produced the page so error rates are attributable per mode.
+     */
+    private function inject_rum_beacon(string $html): string {
+        $mode = (string) $this->config->get('javascript.execution_mode', 'defer');
+        $endpoint = esc_url_raw(rest_url('turbopress/v1/telemetry'));
+        $preview = $this->rum_preview ? 'true' : 'false';
+
+        $js = '(function(){var m={mode:"' . esc_js($mode) . '",version:"' . esc_js(TURBOPRESS_VERSION) . '",preview:' . $preview . '},e=[],n=0,l=0,c=0;'
+            . 'window.onerror=function(s,f){if(n<5){e.push({m:String(s).slice(0,120),f:String(f||"").slice(0,80)});n++}};'
+            . 'window.addEventListener("unhandledrejection",function(v){if(n<5){var r=v.reason;e.push({m:String(r&&r.message||r||"promise").slice(0,120),f:""});n++}});'
+            . 'try{new PerformanceObserver(function(b){var x=b.getEntries();l=x[x.length-1].startTime}).observe({type:"largest-contentful-paint",buffered:true});'
+            . 'new PerformanceObserver(function(b){b.getEntries().forEach(function(x){if(!x.hadRecentInput)c+=x.value})}).observe({type:"layout-shift",buffered:true})}catch(_){}'
+            . 'window.addEventListener("pagehide",function(){try{navigator.sendBeacon("' . esc_url_raw($endpoint) . '",JSON.stringify({m:m,e:e,l:Math.round(l),c:Math.round(c*1000)/1000,p:location.pathname}))}catch(_){}},{once:true});})();';
+
+        $tag = '<script tp-exclude id="turbopress-rum">' . $js . '</script>';
+
+        return str_ireplace('</body>', $tag . '</body>', $html);
     }
 }

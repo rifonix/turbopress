@@ -68,8 +68,22 @@ class Plugin {
             wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'turbopress_health_heartbeat');
         }
 
+        // Hourly RUM heartbeat: push aggregated telemetry + evaluate the
+        // auto-degrade safety net on live error rates.
+        add_action('turbopress_rum_heartbeat', [$this, 'run_rum_heartbeat']);
+        if (!wp_next_scheduled('turbopress_rum_heartbeat')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'turbopress_rum_heartbeat');
+        }
+
         // Edge push callback (HMAC-verified REST route)
         OptimizeCallback::register_routes();
+
+        // RUM telemetry endpoint (beacon receiver)
+        Telemetry::register_routes();
+
+        // Auto-degrade notices + dismiss handler
+        add_action('admin_notices', [AutoDegrade::class, 'admin_notice']);
+        AutoDegrade::register_ajax();
 
         // Initialize Dynamic Nonce & Cart Micro-Hydration
         $this->nonce_refresher->init();
@@ -94,8 +108,28 @@ class Plugin {
     }
 
     public function start_output_buffer(): void {
-        if (!CacheRules::should_cache_request($this->config)) {
+        $preview = false;
+
+        // Test Mode: visitors get the untouched origin page; only admins
+        // carrying the preview flag see (and verify) the optimized page.
+        if (($this->config->get('deployment.status', 'live')) === 'test') {
+            $can_preview = current_user_can('manage_options') && isset($_GET['tp_preview']);
+            if (!$can_preview) {
+                return;
+            }
+            $preview = true;
+        }
+
+        if (!$preview && !CacheRules::should_cache_request($this->config)) {
             return;
+        }
+
+        // The beacon must observe real traffic: live mode always, preview so
+        // admins can check console health before deploying.
+        $this->dom_engine->enable_rum($preview);
+
+        if ($preview && !headers_sent()) {
+            header('X-Turbopress-Preview: 1');
         }
 
         ob_start([$this, 'process_output_buffer']);
@@ -116,12 +150,29 @@ class Plugin {
         // Transform DOM (Inject Critical CSS, Delay Scripts, Preload LCP, Inject Nonce Markers)
         $transformed = $this->dom_engine->transform($buffer);
 
-        // Save to static disk cache if caching is active
-        if ($this->config->get('caching.enabled', true)) {
+        // Preview requests are never written to the static page cache.
+        $is_preview = $this->is_preview_request();
+
+        if (!$is_preview && $this->config->get('caching.enabled', true)) {
             $this->cache_manager->write_cache($transformed);
         }
 
+        if ($is_preview) {
+            $badge = '<div style="position:fixed;bottom:16px;right:16px;z-index:99999;background:#111;color:#fff;'
+                . 'padding:8px 14px;border-radius:8px;font:600 12px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)">'
+                . '&#9889; TurboPress Test Preview v' . TURBOPRESS_VERSION . '</div>';
+            if (stripos($transformed, '</body>') !== false) {
+                $transformed = str_ireplace('</body>', $badge . '</body>', $transformed);
+            }
+        }
+
         return $transformed;
+    }
+
+    private function is_preview_request(): bool {
+        return ($this->config->get('deployment.status', 'live')) === 'test'
+            && current_user_can('manage_options')
+            && isset($_GET['tp_preview']);
     }
 
     /**
@@ -201,6 +252,17 @@ class Plugin {
     public function run_health_heartbeat(): void {
         $this->health_check->run();
         $this->health_check->push_to_edge();
+
+        // DISABLE_WP_CRON fallback: the daily heartbeat also services the
+        // RUM pipeline (hourly cron may never fire on some hosts).
+        Telemetry::push_to_edge($this->api_client);
+        AutoDegrade::evaluate($this->config);
+    }
+
+    /** Cron: push aggregated RUM + evaluate auto-degrade (hourly). */
+    public function run_rum_heartbeat(): void {
+        Telemetry::push_to_edge($this->api_client);
+        AutoDegrade::evaluate($this->config);
     }
 
     public static function activate(): void {
@@ -230,10 +292,13 @@ class Plugin {
         // links, combined bundles) — force a fresh unoptimized render.
         CacheIntegration::purge_foreign_caches('all');
 
-        // Unschedule heartbeat
-        $timestamp = wp_next_scheduled('turbopress_health_heartbeat');
-        if ($timestamp) {
-            wp_unschedule_event($timestamp, 'turbopress_health_heartbeat');
+        // Unschedule heartbeats
+        foreach (['turbopress_health_heartbeat', 'turbopress_rum_heartbeat'] as $hook) {
+            $timestamp = wp_next_scheduled($hook);
+            while ($timestamp) {
+                wp_unschedule_event($timestamp, $hook);
+                $timestamp = wp_next_scheduled($hook);
+            }
         }
     }
 }

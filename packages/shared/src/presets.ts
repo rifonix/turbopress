@@ -70,7 +70,7 @@ export const DEFAULT_EXCLUDED_PRERENDER_PATHS = [
 ];
 
 export const PRESET_SAFE: SiteConfig = {
-  version: '1.3.0',
+  version: '1.4.0',
   preset: 'safe',
   caching: {
     enabled: true,
@@ -111,6 +111,10 @@ export const PRESET_SAFE: SiteConfig = {
   hints: {
     resource_hints: true
   },
+  deployment: {
+    status: 'test', // new sites start in Test Mode; existing migrate as live
+    auto_degrade: true
+  },
   media: {
     auto_fetchpriority_lcp: true,
     preload_lcp_image: true,
@@ -131,7 +135,7 @@ export const PRESET_SAFE: SiteConfig = {
 };
 
 export const PRESET_AGGRESSIVE: SiteConfig = {
-  version: '1.3.0',
+  version: '1.4.0',
   preset: 'aggressive',
   caching: {
     enabled: true,
@@ -172,6 +176,10 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
   hints: {
     resource_hints: true
   },
+  deployment: {
+    status: 'test', // new sites start in Test Mode; existing migrate as live
+    auto_degrade: true
+  },
   media: {
     auto_fetchpriority_lcp: true,
     preload_lcp_image: true,
@@ -192,7 +200,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
 };
 
 export const PRESET_LUDICROUS: SiteConfig = {
-  version: '1.3.0',
+  version: '1.4.0',
   preset: 'ludicrous',
   caching: {
     enabled: true,
@@ -232,6 +240,10 @@ export const PRESET_LUDICROUS: SiteConfig = {
   },
   hints: {
     resource_hints: true
+  },
+  deployment: {
+    status: 'test', // new sites start in Test Mode; existing migrate as live
+    auto_degrade: true
   },
   media: {
     auto_fetchpriority_lcp: true,

@@ -246,6 +246,71 @@ authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
 });
 
 /**
+ * RUM Telemetry Ingest (plugin → edge)
+ * POST /api/v1/rum
+ *
+ * Body: { days: [{ day: 'YYYY-MM-DD', modes: { <mode>: { views, errors,
+ * lcpP75, clsP75, pages: { path: count } } } }], degraded?: {...} }
+ * Upserted into rum_daily per (site, day, mode) for trend charts and the
+ * SaaS auto-degrade activity feed.
+ */
+authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
+  const site = c.get('site')!;
+
+  let body: any;
+  try {
+    const raw = await c.req.text();
+    if (raw.length === 0 || raw.length > 16384) {
+      return c.json({ success: false, error: 'Payload out of bounds' }, 400);
+    }
+    body = JSON.parse(raw);
+  } catch {
+    return c.json({ success: false, error: 'Invalid JSON payload' }, 400);
+  }
+
+  const days = Array.isArray(body?.days) ? body.days : [];
+  let stored = 0;
+
+  for (const dayEntry of days.slice(0, 7)) {
+    const day = typeof dayEntry?.day === 'string' ? dayEntry.day : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const modes = dayEntry.modes && typeof dayEntry.modes === 'object' ? dayEntry.modes : {};
+
+    for (const [mode, m] of Object.entries<any>(modes)) {
+      if (typeof m !== 'object' || m === null) continue;
+      const views = Math.max(0, Math.min(10_000_000, Math.floor(Number(m.views) || 0)));
+      const errors = Math.max(0, Math.min(views, Math.floor(Number(m.errors) || 0)));
+      const lcpP75 = m.lcpP75 == null ? null : Math.max(0, Math.min(600_000, Math.round(Number(m.lcpP75))));
+      const clsP75 = m.clsP75 == null ? null : Math.max(0, Math.min(1, Number(m.clsP75)));
+      let pagesJson: string | null = null;
+      if (m.pages && typeof m.pages === 'object') {
+        const entries = Object.entries(m.pages)
+          .slice(0, 20)
+          .map(([p, n]) => [String(p).slice(0, 120), Math.max(0, Math.floor(Number(n) || 0))] as [string, number]);
+        pagesJson = JSON.stringify(entries.filter(([, n]) => n > 0));
+      }
+
+      await c.env.DB.prepare(`
+        INSERT INTO rum_daily (site_id, day, mode, pageviews, errors, lcp_p75_ms, cls_p75, error_pages_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        ON CONFLICT(site_id, day, mode) DO UPDATE SET
+          pageviews = excluded.pageviews,
+          errors = excluded.errors,
+          lcp_p75_ms = excluded.lcp_p75_ms,
+          cls_p75 = excluded.cls_p75,
+          error_pages_json = excluded.error_pages_json,
+          updated_at = unixepoch()
+      `)
+        .bind(site.id, day, mode, views, errors, lcpP75, clsP75, pagesJson)
+        .run();
+      stored++;
+    }
+  }
+
+  return c.json({ success: true, data: { stored } });
+});
+
+/**
  * Get current authenticated user profile & summary
  * GET /api/v1/auth/me
  */

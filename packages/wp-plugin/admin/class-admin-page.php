@@ -31,6 +31,7 @@ class AdminPage {
         add_action('wp_ajax_turbopress_purge_cache', [$this, 'ajax_purge_cache']);
         add_action('wp_ajax_turbopress_disconnect', [$this, 'ajax_disconnect']);
         add_action('wp_ajax_turbopress_health_recheck', [$this, 'ajax_health_recheck']);
+        add_action('wp_ajax_turbopress_deploy', [$this, 'ajax_deploy']);
     }
 
     public function register_menu(): void {
@@ -73,6 +74,9 @@ class AdminPage {
         $fonts_enabled = $this->config->get('fonts.localize_google', true);
         $hints_enabled = $this->config->get('hints.resource_hints', true);
         $remove_jquery_migrate = $this->config->get('javascript.remove_jquery_migrate', false);
+        $deployment_status = $this->config->get('deployment.status', 'live');
+        $auto_degrade = $this->config->get('deployment.auto_degrade', true);
+        $degrade_state = get_option(AutoDegrade::OPTION, []);
         $health = HealthCheck::get_latest();
         $cache_status = CacheIntegration::get_status();
 
@@ -148,6 +152,45 @@ class AdminPage {
                 </div>
             </div>
 
+            <!-- Deployment: Test Mode -> Live -->
+            <div class="tp-card">
+                <h2>🚀 Deployment</h2>
+                <?php if ($deployment_status === 'test'): ?>
+                    <p class="tp-desc">
+                        <span class="tp-status-pill" style="background:#f59e0b;color:#fff;padding:2px 10px;border-radius:12px;font-weight:600;">TEST MODE</span>
+                        Visitors currently see the <strong>unoptimized</strong> page. Verify the optimized version first, then deploy.
+                    </p>
+                    <p>
+                        <a href="<?php echo esc_url(add_query_arg('tp_preview', '1', home_url('/'))); ?>" target="_blank" class="button button-secondary">
+                            👁 Preview Optimized Homepage
+                        </a>
+                        <button type="button" id="tp-deploy-btn" class="button button-primary" style="margin-left:6px;">
+                            ✅ Deploy to Visitors
+                        </button>
+                        <span id="tp-deploy-status" class="tp-status-msg"></span>
+                    </p>
+                    <p class="tp-desc">Check the browser console for errors on the preview page before deploying.</p>
+                <?php else: ?>
+                    <p class="tp-desc">
+                        <span class="tp-status-pill" style="background:#10b981;color:#fff;padding:2px 10px;border-radius:12px;font-weight:600;">LIVE</span>
+                        All visitors receive the optimized page.
+                        <button type="button" id="tp-testmode-btn" class="button button-secondary" style="margin-left:10px;">
+                            ↩ Enter Test Mode
+                        </button>
+                        <span id="tp-deploy-status" class="tp-status-msg"></span>
+                    </p>
+                <?php endif; ?>
+                <?php if (is_array($degrade_state) && !empty($degrade_state['at'])): ?>
+                    <p class="tp-desc" style="color:#b45309;">
+                        🛡 Auto-Protect last action <?php echo esc_html(human_time_diff((int) $degrade_state['at'], time())); ?> ago:
+                        stepped <code><?php echo esc_html((string) $degrade_state['from']); ?></code> →
+                        <code><?php echo esc_html((string) $degrade_state['to']); ?></code>
+                        (error rate <?php echo esc_html(number_format((float) $degrade_state['rate'] * 100, 1)); ?>% over
+                        <?php echo (int) $degrade_state['views']; ?> views).
+                    </p>
+                <?php endif; ?>
+            </div>
+
             <!-- Granular Feature Switches -->
             <div class="tp-card">
                 <h2>⚙️ Optimization Modules</h2>
@@ -221,6 +264,16 @@ class AdminPage {
                                     <span class="tp-slider"></span>
                                 </label>
                                 <span class="tp-label-desc">Injects <code>preconnect</code>/<code>dns-prefetch</code> for detected 3rd-party origins (fonts, CDNs, trackers).</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Auto-Protect (Auto-Degrade)</th>
+                            <td>
+                                <label class="tp-switch">
+                                    <input type="checkbox" name="auto_degrade" value="1" <?php checked($auto_degrade); ?>>
+                                    <span class="tp-slider"></span>
+                                </label>
+                                <span class="tp-label-desc">When visitors see elevated JS error rates, automatically step JS execution down (<code>interaction_delay → defer → none</code>) and purge caches. Max one step per 6h.</span>
                             </td>
                         </tr>
                         <tr>
@@ -332,6 +385,7 @@ class AdminPage {
                 const fontsEnabled = document.querySelector('input[name="fonts_enabled"]').checked;
                 const hintsEnabled = document.querySelector('input[name="hints_enabled"]').checked;
                 const removeMigrate = document.querySelector('input[name="remove_jquery_migrate"]').checked;
+                const autoDegrade = document.querySelector('input[name="auto_degrade"]').checked;
 
                 const data = new FormData();
                 data.append('action', 'turbopress_save_settings');
@@ -346,6 +400,7 @@ class AdminPage {
                 data.append('fonts_enabled', fontsEnabled ? '1' : '0');
                 data.append('hints_enabled', hintsEnabled ? '1' : '0');
                 data.append('remove_jquery_migrate', removeMigrate ? '1' : '0');
+                data.append('auto_degrade', autoDegrade ? '1' : '0');
 
                 fetch(ajaxurl, {
                     method: 'POST',
@@ -415,6 +470,33 @@ class AdminPage {
                 });
             }
 
+            // Deploy / Test Mode toggle
+            const deployBtn = document.getElementById('tp-deploy-btn');
+            const testModeBtn = document.getElementById('tp-testmode-btn');
+            [deployBtn, testModeBtn].forEach(btn => {
+                if (!btn) return;
+                btn.addEventListener('click', function() {
+                    const goingLive = btn.id === 'tp-deploy-btn';
+                    if (goingLive && !confirm('Deploy optimizations to all visitors now?')) return;
+                    btn.disabled = true;
+                    const statusEl = document.getElementById('tp-deploy-status');
+                    if (statusEl) { statusEl.textContent = 'Working...'; statusEl.style.color = '#666'; }
+
+                    const data = new FormData();
+                    data.append('action', 'turbopress_deploy');
+                    data.append('status', goingLive ? 'live' : 'test');
+                    data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
+
+                    fetch(ajaxurl, { method: 'POST', body: data })
+                        .then(r => r.json())
+                        .then(() => { location.reload(); })
+                        .catch(() => {
+                            btn.disabled = false;
+                            if (statusEl) { statusEl.textContent = '✗ Request failed'; statusEl.style.color = '#ef4444'; }
+                        });
+                });
+            });
+
             // Disconnect
             if (disconnectBtn) {
                 disconnectBtn.addEventListener('click', function() {
@@ -456,6 +538,7 @@ class AdminPage {
         $fonts_enabled = !empty($_POST['fonts_enabled']);
         $hints_enabled = !empty($_POST['hints_enabled']);
         $remove_jquery_migrate = !empty($_POST['remove_jquery_migrate']);
+        $auto_degrade = !empty($_POST['auto_degrade']);
 
         $config_data = $this->config->get_all();
         $config_data['preset'] = $preset;
@@ -468,12 +551,34 @@ class AdminPage {
         $config_data['hints']['resource_hints'] = $hints_enabled;
         $config_data['dynamic']['speculation_rules_prerender'] = $speculation_enabled;
         $config_data['dynamic']['nonce_ajax_refresh'] = $nonce_refresh_enabled;
+        $config_data['deployment']['auto_degrade'] = $auto_degrade;
 
         $this->config->save($config_data);
         CacheManager::purge_all_static();
         CacheIntegration::purge_foreign_caches('all');
 
         wp_send_json_success();
+    }
+
+    public function ajax_deploy(): void {
+        check_ajax_referer('turbopress_admin', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        $status = sanitize_text_field($_POST['status'] ?? 'live');
+        if (!in_array($status, ['test', 'live'], true)) {
+            wp_send_json_error('Invalid status');
+        }
+
+        $this->config->set('deployment.status', $status);
+
+        // Switching either way invalidates every cached variant.
+        CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
+
+        wp_send_json_success(['status' => $status]);
     }
 
     public function ajax_health_recheck(): void {

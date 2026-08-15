@@ -124,6 +124,42 @@ class ApiClient {
     }
 
     /**
+     * Push aggregated RUM daily buckets to the SaaS control plane.
+     */
+    public function send_rum(array $payload): array {
+        $api_key = $this->config->get_api_key();
+        if (empty($api_key)) {
+            return ['success' => false, 'error' => 'API Key is missing'];
+        }
+
+        $api_url = rtrim($this->config->get_api_url(), '/') . '/api/v1/auth/rum';
+
+        $response = wp_remote_post($api_url, [
+            'timeout' => 8,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-Domain' => $this->get_site_domain(),
+                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode($payload),
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($code === 200 && !empty($body['success'])) {
+            return ['success' => true];
+        }
+
+        return ['success' => false, 'error' => $body['error'] ?? 'RUM push failed with HTTP ' . $code];
+    }
+
+    /**
      * Poll the optimization job status (KV/D1 backed).
      * Returns ['status' => queued|processing|completed|failed, ...] or error array.
      */

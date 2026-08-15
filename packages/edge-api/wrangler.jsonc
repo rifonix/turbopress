@@ -1,6 +1,10 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "turbopress-edge-api",
+  // Canonical worker name. MUST stay "turbopress": this is the worker that
+  // owns the queue consumer and serves the plugin/dashboard default URL
+  // (turbopress.webaccessibility.workers.dev). Deploying anywhere else
+  // splits producers/consumers across code versions.
+  "name": "turbopress",
   "main": "src/index.ts",
   "compatibility_date": "2025-02-14",
   "compatibility_flags": [
