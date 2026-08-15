@@ -7,6 +7,12 @@
     "nodejs_compat",
     "global_fetch_strictly_public"
   ],
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true
+    }
+  },
   "assets": {
     "directory": "./packages/saas-app/.open-next/assets",
     "binding": "ASSETS",

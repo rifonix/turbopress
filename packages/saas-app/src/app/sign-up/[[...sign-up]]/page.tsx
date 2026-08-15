@@ -3,13 +3,10 @@
 import React, { Suspense } from 'react';
 import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
-import { CustomSignUp } from '@/components/auth/CustomSignUp';
+import { SignUp } from '@clerk/nextjs';
+import { turbopressClerkAppearance } from '@/components/auth/ClerkTheme';
 
 function SignUpContent() {
-  const searchParams = useSearchParams();
-  const redirectUrl = searchParams?.get('redirect_url') || '/';
-
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
       {/* Top Navbar */}
@@ -91,7 +88,7 @@ function SignUpContent() {
             </div>
           </div>
 
-          {/* Right Column: Custom Sign Up Form */}
+          {/* Right Column: Clerk Sign Up Form */}
           <div className="lg:col-span-6 flex flex-col items-center justify-center">
             <div className="w-full max-w-md bg-white border border-[#e4e4e7] rounded-2xl p-6 sm:p-8 shadow-xl">
               <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#f1f1f2]">
@@ -118,8 +115,14 @@ function SignUpContent() {
                 </div>
               </div>
 
-              <div className="pt-1">
-                <CustomSignUp redirectUrl={redirectUrl} showFooter={true} />
+              <div className="pt-1 flex justify-center">
+                <SignUp
+                  appearance={turbopressClerkAppearance}
+                  routing="path"
+                  path="/sign-up"
+                  signInUrl="/sign-in"
+                  fallbackRedirectUrl="/"
+                />
               </div>
             </div>
           </div>

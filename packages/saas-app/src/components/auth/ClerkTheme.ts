@@ -27,8 +27,9 @@ export const turbopressClerkAppearance = {
   elements: {
     rootBox: 'w-full',
     card: 'shadow-none p-0 border-0 bg-transparent w-full',
-    headerTitle: 'text-lg font-semibold text-[#171717] tracking-tight',
-    headerSubtitle: 'text-xs text-[#71717a]',
+    headerTitle: 'hidden',
+    headerSubtitle: 'hidden',
+    header: 'hidden',
     socialButtonsBlockButton:
       'border border-[#e4e4e7] hover:bg-[#f8f8f7] text-[#171717] text-xs font-medium py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 hover:border-[#d4d4d8]',
     socialButtonsBlockButtonText: 'text-xs font-semibold text-[#171717]',

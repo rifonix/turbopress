@@ -29,8 +29,6 @@ export default function RootLayout({
       signUpUrl="/sign-up"
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
-      signInForceRedirectUrl="/"
-      signUpForceRedirectUrl="/"
     >
       <html lang="en">
         <head>

@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { X, Zap } from 'lucide-react';
-import { CustomSignIn } from './CustomSignIn';
-import { CustomSignUp } from './CustomSignUp';
+import { SignIn, SignUp } from '@clerk/nextjs';
+import { turbopressClerkAppearance } from './ClerkTheme';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -16,7 +16,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   initialMode = 'signin',
   onClose,
-  onSuccess,
 }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
 
@@ -31,7 +30,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       />
 
       {/* Modal Card */}
-      <div className="relative w-full max-w-md bg-white border border-[#e4e4e7] rounded-2xl shadow-2xl p-6 sm:p-8 z-10 animate-fade-in text-[#171717]">
+      <div className="relative w-full max-w-md bg-white border border-[#e4e4e7] rounded-2xl shadow-2xl p-6 sm:p-8 z-10 animate-fade-in text-[#171717] max-h-[90vh] overflow-y-auto">
         {/* Top Header */}
         <div className="flex items-center justify-between pb-4 mb-5 border-b border-[#f1f1f2]">
           <div className="flex items-center gap-2">
@@ -82,25 +81,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Auth Body */}
-        {mode === 'signin' ? (
-          <CustomSignIn
-            onSuccess={() => {
-              if (onSuccess) onSuccess();
-              onClose();
-            }}
-            onSwitchToSignUp={() => setMode('signup')}
-            showFooter={true}
-          />
-        ) : (
-          <CustomSignUp
-            onSuccess={() => {
-              if (onSuccess) onSuccess();
-              onClose();
-            }}
-            onSwitchToSignIn={() => setMode('signin')}
-            showFooter={true}
-          />
-        )}
+        <div className="flex justify-center">
+          {mode === 'signin' ? (
+            <SignIn
+              appearance={turbopressClerkAppearance}
+              routing="hash"
+              signUpUrl="/sign-up"
+              fallbackRedirectUrl="/"
+            />
+          ) : (
+            <SignUp
+              appearance={turbopressClerkAppearance}
+              routing="hash"
+              signInUrl="/sign-in"
+              fallbackRedirectUrl="/"
+            />
+          )}
+        </div>
       </div>
     </div>
   );

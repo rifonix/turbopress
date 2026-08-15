@@ -7,6 +7,12 @@
     "nodejs_compat",
     "global_fetch_strictly_public"
   ],
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true
+    }
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
@@ -18,7 +24,7 @@
     }
   ],
   "vars": {
-    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_dHVyYm9wcmVzcy1kZW1vLWNsaWVudA",
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk",
     "NEXT_PUBLIC_API_BASE_URL": "https://turbopress.webaccessibility.workers.dev",
     "ENVIRONMENT": "production"
   }

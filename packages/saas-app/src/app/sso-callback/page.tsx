@@ -10,9 +10,8 @@ export default function SSOCallbackPage() {
         <span className="text-xs font-mono text-[#71717a]">Finalizing authentication…</span>
       </div>
       <AuthenticateWithRedirectCallback
-        signInForceRedirectUrl="/"
-        signUpForceRedirectUrl="/"
-        continueSignUpUrl="/sign-up"
+        signInFallbackRedirectUrl="/"
+        signUpFallbackRedirectUrl="/"
       />
     </div>
   );
