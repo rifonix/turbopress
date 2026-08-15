@@ -22,7 +22,7 @@
     }
   },
   "assets": {
-    "directory": "../saas-app/dist",
+    "directory": "../saas-app/.open-next/assets",
     "binding": "ASSETS",
     "html_handling": "single-page-application",
     "not_found_handling": "single-page-application"

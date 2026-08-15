@@ -7,7 +7,7 @@
     "nodejs_compat"
   ],
   "assets": {
-    "directory": "./packages/saas-app/dist",
+    "directory": "./packages/saas-app/.open-next/assets",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "html_handling": "auto-trailing-slash",
@@ -55,6 +55,6 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "SAAS_APP_URL": "https://turbopress.workers.dev"
+    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev"
   }
 }
