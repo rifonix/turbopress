@@ -1,12 +1,11 @@
 import React from 'react';
 import { LayoutGrid, Globe, Activity, CreditCard, Link2, Tag, Sparkles } from 'lucide-react';
-import { AppView, ExtendedSite } from '../types';
+import { ExtendedSite } from '../types';
 import { UserButton, SignedIn, SignedOut, SignInButton } from '@clerk/clerk-react';
+import { Link, useLocation } from 'react-router-dom';
 
 interface SidebarProps {
-  currentView: AppView;
   selectedSite: ExtendedSite | null;
-  onNavigate: (view: AppView) => void;
   siteCount: number;
   jobCount: number;
   isOpen: boolean;
@@ -14,18 +13,14 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  currentView,
   selectedSite,
-  onNavigate,
   siteCount,
   jobCount,
   isOpen,
   onClose,
 }) => {
-  const handleNav = (view: AppView) => {
-    onNavigate(view);
-    onClose();
-  };
+  const location = useLocation();
+  const pathname = location.pathname;
 
   return (
     <>
@@ -44,8 +39,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         {/* Brand */}
-        <div
-          onClick={() => handleNav('overview')}
+        <Link
+          to="/"
+          onClick={onClose}
           className="flex items-center gap-2.5 px-2 py-3 mb-2 cursor-pointer group select-none"
         >
           <span className="w-7 h-7 rounded-lg bg-[#171717] text-white flex items-center justify-center flex-none shadow-sm group-hover:bg-[#f03e2f] transition-colors">
@@ -56,17 +52,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="font-semibold text-[15px] tracking-tight text-[#171717]">
             TurboPress <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
           </span>
-        </div>
+        </Link>
 
         {/* Current Site Quick Pill (If on Site Detail Page) */}
-        {currentView === 'site-detail' && selectedSite && (
-          <div
-            onClick={() => handleNav('site-detail')}
+        {pathname.startsWith('/sites/') && selectedSite && (
+          <Link
+            to={`/sites/${selectedSite.id}`}
+            onClick={onClose}
             className="flex items-center gap-2 px-2.5 py-1.5 mb-3 bg-[#fff1ef] border border-red-200 rounded-lg text-xs cursor-pointer"
           >
             <span className="w-2 h-2 rounded-full bg-[#f03e2f] animate-pulse" />
             <span className="font-mono font-medium text-[#171717] truncate">{selectedSite.domain}</span>
-          </div>
+          </Link>
         )}
 
         {/* Navigation Groups */}
@@ -77,43 +74,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Monitor
             </p>
             <nav className="space-y-0.5">
-              <button
-                onClick={() => handleNav('overview')}
+              <Link
+                to="/"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'overview'
+                  pathname === '/' || pathname === '/overview'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <LayoutGrid className={`w-4 h-4 ${currentView === 'overview' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <LayoutGrid className={`w-4 h-4 ${pathname === '/' || pathname === '/overview' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Overview</span>
-              </button>
+              </Link>
 
-              <button
-                onClick={() => handleNav('sites')}
+              <Link
+                to="/sites"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'sites' || currentView === 'site-detail'
+                  pathname.startsWith('/sites')
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Globe className={`w-4 h-4 ${currentView === 'sites' || currentView === 'site-detail' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Globe className={`w-4 h-4 ${pathname.startsWith('/sites') ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Sites</span>
                 <span className="ml-auto font-mono text-[11px] text-[#71717a]">{siteCount}</span>
-              </button>
+              </Link>
 
-              <button
-                onClick={() => handleNav('jobs')}
+              <Link
+                to="/jobs"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'jobs'
+                  pathname === '/jobs'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Activity className={`w-4 h-4 ${currentView === 'jobs' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Activity className={`w-4 h-4 ${pathname === '/jobs' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Jobs</span>
                 <span className="ml-auto font-mono text-[11px] text-[#71717a]">{jobCount}</span>
-              </button>
+              </Link>
             </nav>
           </div>
 
@@ -123,56 +123,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Account & Plans
             </p>
             <nav className="space-y-0.5">
-              <button
-                onClick={() => handleNav('billing')}
+              <Link
+                to="/billing"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'billing'
+                  pathname === '/billing'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <CreditCard className={`w-4 h-4 ${currentView === 'billing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <CreditCard className={`w-4 h-4 ${pathname === '/billing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Billing & Usage</span>
-              </button>
+              </Link>
 
-              <button
-                onClick={() => handleNav('pricing')}
+              <Link
+                to="/pricing"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'pricing'
+                  pathname === '/pricing'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Tag className={`w-4 h-4 ${currentView === 'pricing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Tag className={`w-4 h-4 ${pathname === '/pricing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Plans & Pricing</span>
                 <span className="ml-auto font-mono text-[10px] uppercase px-1.5 py-0.2 bg-[#fff1ef] text-[#f03e2f] rounded font-bold">
                   Starter
                 </span>
-              </button>
+              </Link>
 
-              <button
-                onClick={() => handleNav('connect')}
+              <Link
+                to="/connect"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'connect'
+                  pathname === '/connect'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Link2 className={`w-4 h-4 ${currentView === 'connect' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Link2 className={`w-4 h-4 ${pathname === '/connect' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Connect Site</span>
-              </button>
+              </Link>
 
-              <button
-                onClick={() => handleNav('onboarding')}
+              <Link
+                to="/onboarding"
+                onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  currentView === 'onboarding'
+                  pathname === '/onboarding'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Sparkles className={`w-4 h-4 ${currentView === 'onboarding' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Sparkles className={`w-4 h-4 ${pathname === '/onboarding' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Onboarding Flow</span>
-              </button>
+              </Link>
             </nav>
           </div>
         </div>
@@ -188,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* User Profile Card / Clerk Profile */}
           <div className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-[#f8f8f7] transition-colors">
             <SignedIn>
-              <UserButton afterSignOutUrl="/" />
+              <UserButton afterSignOutUrl="/sign-in" />
               <div className="min-w-0 flex-1 leading-tight text-left">
                 <p className="text-[12.5px] font-semibold text-[#171717] truncate">Account Settings</p>
                 <p className="text-[11px] text-[#71717a] truncate">Starter plan · {siteCount} site(s)</p>

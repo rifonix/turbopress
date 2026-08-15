@@ -98,6 +98,26 @@ export interface UserProfileData {
   siteCount: number;
 }
 
+export interface DashboardContextType {
+  sites: ExtendedSite[];
+  jobs: OptimizationJobItem[];
+  billingData: BillingStatusData | null;
+  isLoading: boolean;
+  refreshFleetData: () => Promise<void>;
+  addToast: (text: string, type?: 'success' | 'info' | 'error') => void;
+  handlePurgeSite: (domain: string) => Promise<void>;
+  handleRunOptimization: (domain: string) => Promise<void>;
+  handleCreateSite: (domain: string) => Promise<void>;
+  handleDeleteSite: (siteId: string, domain: string) => Promise<void>;
+  handleUpdatePreset: (siteId: string, preset: SitePreset) => Promise<void>;
+  handleUpdateConfig: (siteId: string, config: SiteConfig) => Promise<void>;
+  handleDispatchNewJob: (url: string, viewport: 'mobile' | 'desktop') => Promise<void>;
+  handleRerunJob: (jobId: string) => Promise<void>;
+  handleSelectPlan: (planId: string, interval: 'monthly' | 'annual') => Promise<void>;
+  handleOpenPortal: () => Promise<void>;
+  handleAuthorizeConnect: (domain: string, state: string, returnUrl: string) => Promise<string>;
+}
+
 export const POLAR_PRODUCT_IDS = {
   starterMonthly: 'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
   starterYearly: '3907e862-b1e1-4006-9289-040cabe18c2d',
