@@ -206,10 +206,12 @@ export async function processOptimizationQueue(
           .bind(result.r2Key, result.criticalCssBytes, result.lcpSelector, result.lcpImageUrl, jobId)
           .run();
 
-        // Persist REAL measured metrics (no fabricated values)
+        // Persist REAL measured metrics (no fabricated values).
+        // OR IGNORE: a retried attempt re-inserts the same audit_{jobId} row —
+        // a duplicate must never fail an otherwise successful extraction.
         if (result.metrics.performanceScore != null || result.metrics.lcpMs != null) {
           await env.DB.prepare(`
-            INSERT INTO performance_audits (id, site_id, url, device, performance_score, lcp_ms, fid_inp_ms, cls_score, fcp_ms, ttfb_ms, created_at)
+            INSERT OR IGNORE INTO performance_audits (id, site_id, url, device, performance_score, lcp_ms, fid_inp_ms, cls_score, fcp_ms, ttfb_ms, created_at)
             VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, unixepoch())
           `)
             .bind(

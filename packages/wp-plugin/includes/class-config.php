@@ -16,7 +16,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.2.0';
+    public const CONFIG_VERSION = '1.2.1';
 
     private array $data = [];
 
@@ -60,6 +60,21 @@ class Config {
             $this->data['javascript']['exclusions'] = array_values(array_filter(
                 $stored_exclusions,
                 static fn(string $ex): bool => !in_array(strtolower($ex), $blanket, true)
+            ));
+        }
+
+        if (version_compare($stored_version, '1.2.1', '<')) {
+            // 1.2.0's exact-match strip missed path-style legacy keywords
+            // (e.g. 'elementor/assets/js/frontend'), which kept builder
+            // scripts excluded/synchronous while jQuery & their inline
+            // configs were delayed — scrambling execution order. Remove ANY
+            // exclusion containing a builder/jQuery marker.
+            $this->data['javascript']['exclusions'] = array_values(array_filter(
+                (array) ($this->data['javascript']['exclusions'] ?? []),
+                static fn(string $ex): bool => !preg_match(
+                    '/elementor|jquery|divi|bricks|wp-includes\/js/i',
+                    (string) $ex
+                )
             ));
         }
 
