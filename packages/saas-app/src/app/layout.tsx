@@ -25,6 +25,8 @@ export default function RootLayout({
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
       appearance={turbopressClerkAppearance}
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
       signInForceRedirectUrl="/"
