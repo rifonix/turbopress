@@ -1,13 +1,17 @@
-import React from 'react';
-import { useOutletContext, useNavigate, useParams, Link } from 'react-router-dom';
-import { DashboardContextType } from '../types';
-import { SiteDetailPage as SiteDetailView } from '../components/SiteDetailPage';
-import { ArrowLeft, Globe } from 'lucide-react';
+'use client';
 
-export const SiteDetailPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { siteId } = useParams<{ siteId: string }>();
-  const ctx = useOutletContext<DashboardContextType>();
+import React from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { useDashboard } from '@/context/DashboardContext';
+import { SiteDetailPage as SiteDetailView } from '@/components/SiteDetailPage';
+import { ArrowLeft, Globe } from 'lucide-react';
+import Link from 'next/link';
+
+export default function SiteDetailPage() {
+  const router = useRouter();
+  const params = useParams<{ siteId: string }>();
+  const siteId = params?.siteId;
+  const ctx = useDashboard();
 
   const site = ctx.sites.find((s) => s.id === siteId || s.domain === siteId);
 
@@ -21,7 +25,7 @@ export const SiteDetailPage: React.FC = () => {
         <p className="text-xs text-[#71717a]">
           The site with ID <code className="font-mono">{siteId}</code> could not be found in your connected fleet.
         </p>
-        <Link to="/sites" className="btn btn-primary text-xs inline-flex items-center gap-1.5">
+        <Link href="/sites" className="btn btn-primary text-xs inline-flex items-center gap-1.5">
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to all sites</span>
         </Link>
@@ -32,7 +36,7 @@ export const SiteDetailPage: React.FC = () => {
   return (
     <SiteDetailView
       site={site}
-      onBack={() => navigate('/sites')}
+      onBack={() => router.push('/sites')}
       onUpdatePreset={ctx.handleUpdatePreset}
       onUpdateConfig={ctx.handleUpdateConfig}
       onPurgeCache={ctx.handlePurgeSite}
@@ -40,4 +44,4 @@ export const SiteDetailPage: React.FC = () => {
       onToast={ctx.addToast}
     />
   );
-};
+}

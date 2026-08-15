@@ -7,6 +7,8 @@ node_modules/
 dist/
 build/
 .cache/
+.next/
+.open-next/
 
 # Cloudflare Wrangler & Local Dev
 .wrangler/

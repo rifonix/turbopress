@@ -1,6 +1,8 @@
+'use client';
+
 import React from 'react';
 import { Zap, Globe, BarChart3, CreditCard, ExternalLink } from 'lucide-react';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/nextjs';
 
 interface NavbarProps {
   activeTab: 'overview' | 'sites' | 'billing';
@@ -90,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </a>
 
             <SignedIn>
-              <UserButton afterSignOutUrl="/" />
+              <UserButton />
             </SignedIn>
             <SignedOut>
               <SignInButton mode="modal">

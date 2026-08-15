@@ -1,15 +1,20 @@
-import React from 'react';
-import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
-import { SignUp } from '@clerk/clerk-react';
-import { Link } from 'react-router-dom';
-import { clerkAppearance } from './SignInPage';
+'use client';
 
-export const SignUpPage: React.FC = () => {
+import React, { Suspense } from 'react';
+import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { CustomSignIn } from '@/components/auth/CustomSignIn';
+
+function SignInContent() {
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams?.get('redirect_url') || '/';
+
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
       {/* Top Navbar */}
       <header className="px-6 py-4 border-b border-[#e4e4e7] bg-white flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2.5">
+        <Link href="/" className="flex items-center gap-2.5">
           <span className="w-8 h-8 rounded-lg bg-[#171717] text-white flex items-center justify-center font-bold">
             <Zap className="w-4 h-4 text-[#f03e2f] fill-current" />
           </span>
@@ -21,7 +26,7 @@ export const SignUpPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-[#71717a] bg-[#f4f4f5] px-2.5 py-1 rounded-md flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-[#16a34a]" />
-            <span>Fast Registration</span>
+            <span>Secure Edge Authentication</span>
           </span>
         </div>
       </header>
@@ -86,7 +91,7 @@ export const SignUpPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Column: Clerk Sign Up Form */}
+          {/* Right Column: Custom Sign In Form */}
           <div className="lg:col-span-6 flex flex-col items-center justify-center">
             <div className="w-full max-w-md bg-white border border-[#e4e4e7] rounded-2xl p-6 sm:p-8 shadow-xl">
               <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#f1f1f2]">
@@ -95,33 +100,26 @@ export const SignUpPage: React.FC = () => {
                     TP
                   </span>
                   <div>
-                    <h2 className="font-semibold text-sm text-[#171717]">Create Free Account</h2>
+                    <h2 className="font-semibold text-sm text-[#171717]">Sign In to Dashboard</h2>
                     <p className="text-[11px] text-[#71717a]">TurboPress Edge Control Plane</p>
                   </div>
                 </div>
 
                 <div className="flex gap-1 bg-[#f4f4f5] p-0.5 rounded-lg text-xs font-medium">
+                  <span className="px-2.5 py-1 rounded-md bg-white text-[#171717] font-semibold shadow-sm">
+                    Sign In
+                  </span>
                   <Link
-                    to="/sign-in"
+                    href="/sign-up"
                     className="px-2.5 py-1 rounded-md text-[#71717a] hover:text-[#171717] transition-colors"
                   >
-                    Sign In
-                  </Link>
-                  <span className="px-2.5 py-1 rounded-md bg-white text-[#171717] font-semibold shadow-sm">
                     Register
-                  </span>
+                  </Link>
                 </div>
               </div>
 
               <div className="pt-1">
-                <SignUp
-                  path="/sign-up"
-                  routing="path"
-                  signInUrl="/sign-in"
-                  forceRedirectUrl="/"
-                  fallbackRedirectUrl="/"
-                  appearance={clerkAppearance}
-                />
+                <CustomSignIn redirectUrl={redirectUrl} showFooter={true} />
               </div>
             </div>
           </div>
@@ -134,4 +132,18 @@ export const SignUpPage: React.FC = () => {
       </footer>
     </div>
   );
-};
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#f8f8f7] flex items-center justify-center">
+          <div className="w-5 h-5 border-2 border-[#171717] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <SignInContent />
+    </Suspense>
+  );
+}

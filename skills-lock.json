@@ -49,6 +49,12 @@
       "skillPath": "skills/cloudflare-email-service/SKILL.md",
       "computedHash": "6274be056fe5211aa220833c97ff6a7d96a1cdfd8854a53ca839ca758d35f356"
     },
+    "cloudflare-opennext": {
+      "source": "null-shot/cloudflare-skills",
+      "sourceType": "github",
+      "skillPath": "cloudflare-opennext/SKILL.md",
+      "computedHash": "d3b6f0e901551bef1bcbe69e1fc0d5bfdace523a24e81ddd4143123ac0361623"
+    },
     "d1-drizzle-schema": {
       "source": "jezweb/claude-skills",
       "sourceType": "github",

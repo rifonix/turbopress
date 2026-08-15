@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { X, Play, RotateCcw, Zap, ExternalLink } from 'lucide-react';
 import { ExtendedSite, SitePreset } from '../types';

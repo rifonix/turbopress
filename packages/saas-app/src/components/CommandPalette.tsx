@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, ArrowRight } from 'lucide-react';
 import { AppView, ExtendedSite } from '../types';

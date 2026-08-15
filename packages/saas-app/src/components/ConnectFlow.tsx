@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { Check, Copy, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { ExtendedSite } from '../types';

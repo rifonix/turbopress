@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Search, Plus, Sliders, Play, RotateCcw, Trash2, Globe } from 'lucide-react';
 import { ExtendedSite } from '../types';

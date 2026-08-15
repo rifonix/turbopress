@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Play, RotateCcw, ExternalLink, AlertTriangle, AlertOctagon, Plus, Zap, ArrowRight } from 'lucide-react';
 import { ExtendedSite, AttentionItem } from '../types';

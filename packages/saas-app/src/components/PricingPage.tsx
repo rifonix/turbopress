@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Check } from 'lucide-react';
 import { POLAR_PRODUCT_IDS } from '../types';

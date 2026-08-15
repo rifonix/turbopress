@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
-import { Sidebar } from '../components/Sidebar';
-import { Topbar } from '../components/Topbar';
-import { CommandPalette } from '../components/CommandPalette';
-import { ToastContainer } from '../components/ToastContainer';
+'use client';
+
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@clerk/nextjs';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   ExtendedSite,
   OptimizationJobItem,
@@ -17,33 +15,18 @@ import {
 import { api } from '../services/api';
 import { SiteConfig } from '@turbopress/shared';
 
-export const DashboardLayout: React.FC = () => {
+const DashboardContext = createContext<DashboardContextType | null>(null);
+
+export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoaded, isSignedIn, getToken } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const router = useRouter();
+  const pathname = usePathname();
 
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isCmdkOpen, setIsCmdkOpen] = useState(false);
-  const [selectedSite, setSelectedSite] = useState<ExtendedSite | null>(null);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  // Live Datasets
   const [sites, setSites] = useState<ExtendedSite[]>([]);
   const [jobs, setJobs] = useState<OptimizationJobItem[]>([]);
   const [billingData, setBillingData] = useState<BillingStatusData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Global Keyboard Listener for ⌘K / Ctrl+K
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsCmdkOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Toast Helper
   const addToast = useCallback((text: string, type: 'success' | 'info' | 'error' = 'success') => {
@@ -69,10 +52,6 @@ export const DashboardLayout: React.FC = () => {
 
       if (sitesRes.status === 'fulfilled') {
         setSites(sitesRes.value);
-        if (selectedSite) {
-          const updated = sitesRes.value.find((s) => s.id === selectedSite.id || s.domain === selectedSite.domain);
-          if (updated) setSelectedSite(updated);
-        }
       }
 
       if (jobsRes.status === 'fulfilled') {
@@ -87,7 +66,7 @@ export const DashboardLayout: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [isSignedIn, getToken, selectedSite]);
+  }, [isSignedIn, getToken]);
 
   // Initial Load
   useEffect(() => {
@@ -102,16 +81,16 @@ export const DashboardLayout: React.FC = () => {
   useEffect(() => {
     if (!isSignedIn) return;
     const hasActiveJobs = jobs.some((j) => j.status === 'processing' || j.status === 'queued');
-    if (!hasActiveJobs && location.pathname !== '/jobs') return;
+    if (!hasActiveJobs && pathname !== '/jobs') return;
 
     const interval = setInterval(() => {
       refreshFleetData();
     }, 8000);
 
     return () => clearInterval(interval);
-  }, [isSignedIn, jobs, location.pathname, refreshFleetData]);
+  }, [isSignedIn, jobs, pathname, refreshFleetData]);
 
-  // Action handlers
+  // Actions
   const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual') => {
     try {
       addToast(`Initializing Polar checkout for ${planId.toUpperCase()}…`, 'info');
@@ -305,30 +284,14 @@ export const DashboardLayout: React.FC = () => {
       const token = await getToken();
       await api.deleteSite(token, siteId);
       addToast(`Site ${domain} removed from fleet`, 'info');
-      navigate('/sites');
+      router.push('/sites');
       await refreshFleetData();
     } catch (err: any) {
       addToast(err?.message || `Failed to delete ${domain}`, 'error');
     }
   };
 
-  // Auth Guard
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-[#f8f8f7] flex items-center justify-center">
-        <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-[#e4e4e7] shadow-sm">
-          <div className="w-4 h-4 rounded-full border-2 border-[#171717] border-t-transparent animate-spin" />
-          <span className="text-xs font-mono text-[#71717a]">Loading TurboPress Engine…</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isSignedIn) {
-    return <Navigate to="/sign-in" replace />;
-  }
-
-  const contextValue: DashboardContextType = {
+  const value: DashboardContextType = {
     sites,
     jobs,
     billingData,
@@ -349,71 +312,16 @@ export const DashboardLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#f8f8f7]">
-      {/* Sticky Sidebar Navigation */}
-      <Sidebar
-        selectedSite={selectedSite}
-        siteCount={sites.length}
-        jobCount={jobs.length}
-        isOpen={isMobileMenuOpen}
-        onClose={() => setIsMobileMenuOpen(false)}
-      />
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <Topbar
-          onOpenCmdk={() => setIsCmdkOpen(true)}
-          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-          onConnectClick={() => navigate('/connect')}
-          onNotificationClick={() => addToast('No unread fleet notifications', 'info')}
-        />
-
-        <main className="flex-1 p-4 sm:p-8 max-w-6xl w-full mx-auto pb-16">
-          {isLoading ? (
-            <div className="space-y-4 py-8">
-              <div className="h-8 bg-black/5 rounded-lg w-48 animate-pulse" />
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-28 bg-white border border-[#e4e4e7] rounded-xl animate-pulse" />
-                ))}
-              </div>
-              <div className="h-64 bg-white border border-[#e4e4e7] rounded-2xl animate-pulse" />
-            </div>
-          ) : (
-            <Outlet context={contextValue} />
-          )}
-        </main>
-      </div>
-
-      {/* Global Command Palette (⌘K) */}
-      <CommandPalette
-        isOpen={isCmdkOpen}
-        onClose={() => setIsCmdkOpen(false)}
-        sites={sites}
-        onNavigate={(view) => {
-          if (view === 'overview') navigate('/');
-          else if (view === 'sites') navigate('/sites');
-          else if (view === 'jobs') navigate('/jobs');
-          else if (view === 'billing') navigate('/billing');
-          else if (view === 'pricing') navigate('/pricing');
-          else if (view === 'connect') navigate('/connect');
-          else if (view === 'onboarding') navigate('/onboarding');
-        }}
-        onSelectSite={(site) => {
-          setSelectedSite(site);
-          navigate(`/sites/${site.id}`);
-        }}
-        onTriggerPurgeAll={() => {
-          addToast('Fleet-wide edge cache purge broadcasted', 'success');
-        }}
-        onDispatchJob={(domain) => handleRunOptimization(domain)}
-      />
-
-      {/* Floating Notifications Container */}
-      <ToastContainer
-        toasts={toasts}
-        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
-      />
-    </div>
+    <DashboardContext.Provider value={value}>
+      {children}
+    </DashboardContext.Provider>
   );
+};
+
+export const useDashboard = (): DashboardContextType => {
+  const context = useContext(DashboardContext);
+  if (!context) {
+    throw new Error('useDashboard must be used within a DashboardProvider');
+  }
+  return context;
 };

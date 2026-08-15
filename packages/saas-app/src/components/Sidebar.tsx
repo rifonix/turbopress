@@ -1,8 +1,12 @@
+'use client';
+
 import React from 'react';
-import { LayoutGrid, Globe, Activity, CreditCard, Link2, Tag, Sparkles } from 'lucide-react';
+import { LayoutGrid, Globe, Activity, CreditCard, Link2, Tag, Sparkles, LogIn } from 'lucide-react';
 import { ExtendedSite } from '../types';
-import { UserButton, SignedIn, SignedOut, SignInButton } from '@clerk/clerk-react';
-import { Link, useLocation } from 'react-router-dom';
+import { SignedIn, SignedOut } from '@clerk/nextjs';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { CustomUserButton } from './auth/CustomUserButton';
 
 interface SidebarProps {
   selectedSite: ExtendedSite | null;
@@ -10,6 +14,9 @@ interface SidebarProps {
   jobCount: number;
   isOpen: boolean;
   onClose: () => void;
+  onOpenAuthModal?: () => void;
+  planName?: string;
+  onOpenPortal?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -18,9 +25,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   jobCount,
   isOpen,
   onClose,
+  onOpenAuthModal,
+  planName = 'Starter Plan',
+  onOpenPortal,
 }) => {
-  const location = useLocation();
-  const pathname = location.pathname;
+  const pathname = usePathname();
 
   return (
     <>
@@ -40,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Brand */}
         <Link
-          to="/"
+          href="/"
           onClick={onClose}
           className="flex items-center gap-2.5 px-2 py-3 mb-2 cursor-pointer group select-none"
         >
@@ -55,9 +64,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </Link>
 
         {/* Current Site Quick Pill (If on Site Detail Page) */}
-        {pathname.startsWith('/sites/') && selectedSite && (
+        {pathname?.startsWith('/sites/') && selectedSite && (
           <Link
-            to={`/sites/${selectedSite.id}`}
+            href={`/sites/${selectedSite.id}`}
             onClick={onClose}
             className="flex items-center gap-2 px-2.5 py-1.5 mb-3 bg-[#fff1ef] border border-red-200 rounded-lg text-xs cursor-pointer"
           >
@@ -75,34 +84,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </p>
             <nav className="space-y-0.5">
               <Link
-                to="/"
+                href="/"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/' || pathname === '/overview'
+                  pathname === '/'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <LayoutGrid className={`w-4 h-4 ${pathname === '/' || pathname === '/overview' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <LayoutGrid className={`w-4 h-4 ${pathname === '/' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Overview</span>
               </Link>
 
               <Link
-                to="/sites"
+                href="/sites"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname.startsWith('/sites')
+                  pathname?.startsWith('/sites')
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Globe className={`w-4 h-4 ${pathname.startsWith('/sites') ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Globe className={`w-4 h-4 ${pathname?.startsWith('/sites') ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Sites</span>
-                <span className="ml-auto font-mono text-[11px] text-[#71717a]">{siteCount}</span>
+                {siteCount > 0 && (
+                  <span className="ml-auto font-mono text-[11px] px-1.5 py-0.5 rounded bg-[#f4f4f5] text-[#71717a]">
+                    {siteCount}
+                  </span>
+                )}
               </Link>
 
               <Link
-                to="/jobs"
+                href="/jobs"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
                   pathname === '/jobs'
@@ -111,20 +124,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <Activity className={`w-4 h-4 ${pathname === '/jobs' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
-                <span>Jobs</span>
-                <span className="ml-auto font-mono text-[11px] text-[#71717a]">{jobCount}</span>
+                <span>Jobs Queue</span>
+                {jobCount > 0 && (
+                  <span className="ml-auto font-mono text-[11px] px-1.5 py-0.5 rounded bg-[#fff1ef] text-[#f03e2f] font-semibold">
+                    {jobCount}
+                  </span>
+                )}
               </Link>
             </nav>
           </div>
 
-          {/* Account & Growth Group */}
+          {/* Manage Group */}
           <div>
             <p className="font-mono text-[10px] uppercase tracking-wider text-[#71717a] px-2.5 mb-1.5 font-medium">
-              Account & Plans
+              Manage
             </p>
             <nav className="space-y-0.5">
               <Link
-                to="/billing"
+                href="/billing"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
                   pathname === '/billing'
@@ -133,11 +150,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <CreditCard className={`w-4 h-4 ${pathname === '/billing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
-                <span>Billing & Usage</span>
+                <span>Billing & Polar</span>
               </Link>
 
               <Link
-                to="/pricing"
+                href="/pricing"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
                   pathname === '/pricing'
@@ -146,14 +163,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <Tag className={`w-4 h-4 ${pathname === '/pricing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
-                <span>Plans & Pricing</span>
-                <span className="ml-auto font-mono text-[10px] uppercase px-1.5 py-0.2 bg-[#fff1ef] text-[#f03e2f] rounded font-bold">
-                  Starter
-                </span>
+                <span>Plans & Upgrade</span>
               </Link>
 
               <Link
-                to="/connect"
+                href="/connect"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
                   pathname === '/connect'
@@ -166,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </Link>
 
               <Link
-                to="/onboarding"
+                href="/onboarding"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
                   pathname === '/onboarding'
@@ -189,16 +203,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="truncate">TurboPress Edge: Active</span>
           </div>
 
-          {/* User Profile Card / Clerk Profile */}
-          <div className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-[#f8f8f7] transition-colors">
-            <SignedIn>
-              <UserButton afterSignOutUrl="/sign-in" />
-              <div className="min-w-0 flex-1 leading-tight text-left">
-                <p className="text-[12.5px] font-semibold text-[#171717] truncate">Account Settings</p>
-                <p className="text-[11px] text-[#71717a] truncate">Starter plan · {siteCount} site(s)</p>
-              </div>
-            </SignedIn>
-            <SignedOut>
+          {/* User Profile Card / Bespoke Clerk User Button */}
+          <SignedIn>
+            <CustomUserButton
+              planName={planName}
+              siteCount={siteCount}
+              onOpenPortal={onOpenPortal}
+            />
+          </SignedIn>
+          <SignedOut>
+            <div className="flex items-center gap-2.5 p-1.5 rounded-lg bg-[#f8f8f7] border border-[#e4e4e7]">
               <div className="w-7 h-7 rounded-full bg-[#171717] text-white text-[11px] font-semibold flex items-center justify-center flex-none">
                 TP
               </div>
@@ -206,13 +220,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <p className="text-[12.5px] font-semibold text-[#171717] truncate">Account</p>
                 <p className="text-[11px] text-[#71717a] truncate">Signed Out</p>
               </div>
-              <SignInButton mode="modal">
-                <button className="text-[11.5px] font-medium text-[#f03e2f] hover:underline flex-none">
-                  Sign in
+              {onOpenAuthModal ? (
+                <button
+                  type="button"
+                  onClick={onOpenAuthModal}
+                  className="text-[11.5px] font-medium text-[#f03e2f] hover:underline flex-none flex items-center gap-1"
+                >
+                  <LogIn className="w-3 h-3" />
+                  <span>Sign in</span>
                 </button>
-              </SignInButton>
-            </SignedOut>
-          </div>
+              ) : (
+                <Link
+                  href="/sign-in"
+                  className="text-[11.5px] font-medium text-[#f03e2f] hover:underline flex-none flex items-center gap-1"
+                >
+                  <LogIn className="w-3 h-3" />
+                  <span>Sign in</span>
+                </Link>
+              )}
+            </div>
+          </SignedOut>
         </div>
       </aside>
     </>

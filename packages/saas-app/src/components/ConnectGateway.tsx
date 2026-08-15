@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Zap, Check, ArrowRight, ShieldCheck, RefreshCw } from 'lucide-react';
 

@@ -1,7 +1,9 @@
 import { ExtendedSite, OptimizationJobItem, BillingStatusData, UserProfileData } from '../types';
 import { SiteConfig } from '@turbopress/shared';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'https://turbopress.webaccessibility.workers.dev';
+const API_BASE =
+  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
+  'https://turbopress.webaccessibility.workers.dev';
 
 class ApiError extends Error {
   status: number;

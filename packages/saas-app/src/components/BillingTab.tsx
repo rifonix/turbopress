@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { ExternalLink, Check, AlertTriangle } from 'lucide-react';
 import { ExtendedSite, BillingStatusData } from '../types';
