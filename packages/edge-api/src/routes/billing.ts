@@ -12,7 +12,7 @@ export const billingRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }
 export function getPolarServer(env: Env): 'sandbox' | 'production' {
   // 1. Explicit override via POLAR_SERVER or POLAR_ENVIRONMENT takes top priority
   const explicit = (env.POLAR_SERVER || env.POLAR_ENVIRONMENT || '').toLowerCase();
-  if (explicit === 'sandbox' || explicit === 'test' || explicit === 'development') {
+  if (explicit === 'sandbox' || explicit === 'test') {
     return 'sandbox';
   }
   if (explicit === 'production' || explicit === 'live') {
@@ -26,39 +26,23 @@ export function getPolarServer(env: Env): 'sandbox' | 'production' {
     polarToken.startsWith('polar_test_') ||
     polarToken.startsWith('polar_sandbox_') ||
     polarToken.startsWith('sand_') ||
-    !polarToken ||
     polarToken === 'polar_test_token'
   ) {
     return 'sandbox';
   }
 
-  // 3. Inspect Clerk API keys: If using Clerk dev/test keys (pk_test_ / sk_test_), default to sandbox
-  const clerkPubKey = (
-    (env as any).NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-    (env as any).CLERK_PUBLISHABLE_KEY ||
-    ''
-  ).trim();
-  const clerkSecKey = (env.CLERK_SECRET_KEY || '').trim();
-  if (clerkPubKey.startsWith('pk_test_') || clerkSecKey.startsWith('sk_test_')) {
-    return 'sandbox';
-  }
-
-  // 4. Inspect global environment flag
-  const appEnv = (env.ENVIRONMENT || '').toLowerCase();
-  if (appEnv === 'development' || appEnv === 'dev' || appEnv === 'test') {
-    return 'sandbox';
-  }
-
-  // 5. If live tokens / live keys are active and no test keys detected
+  // 3. Polar production tokens (polar_o_..., polar_at_..., polar_live_...) or standard live tokens
   if (
     polarToken.startsWith('polar_o_') ||
+    polarToken.startsWith('polar_at_') ||
     polarToken.startsWith('polar_live_') ||
     polarToken.startsWith('live_')
   ) {
     return 'production';
   }
 
-  return env.ENVIRONMENT === 'production' ? 'production' : 'sandbox';
+  // 4. Fallback to production if access token is provided, otherwise sandbox
+  return polarToken ? 'production' : 'sandbox';
 }
 
 /**
