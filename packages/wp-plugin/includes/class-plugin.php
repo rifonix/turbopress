@@ -101,8 +101,9 @@ class Plugin {
         // Check Theme & Plugin Compatibility presets
         $this->preset_engine->apply_auto_presets();
 
-        // Handle 1-Click Handshake Return
-        Handshake::handle_return();
+        // Handle 1-Click Handshake Return (deferred to admin_init:
+        // add_settings_error() is only loaded once wp-admin includes load).
+        add_action('admin_init', [Handshake::class, 'handle_return']);
 
         // Initialize Admin UI
         if (is_admin()) {

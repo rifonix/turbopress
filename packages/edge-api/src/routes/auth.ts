@@ -200,20 +200,24 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
     // Empty/invalid body: header-only verify (legacy plugin versions).
   }
 
-  // Sync the plugin's effective config into D1, preserving the dashboard-owned
-  // deployment.status (test/live) — the SaaS is the source of truth for it.
+  // Sync the plugin's effective config into D1. Authority model: the
+  // PLUGIN owns deployment.status unless the SaaS dashboard explicitly
+  // issued a Deploy/Test command (persisted with source='dashboard').
   let configJson: string | null = null;
   if (wpConfig) {
-    const existingDeployment = (config as Record<string, any>)?.deployment;
     const merged: Record<string, any> = { ...wpConfig };
-    if ((merged.deployment && typeof merged.deployment === 'object') || existingDeployment) {
-      merged.deployment = {
-        ...(typeof existingDeployment === 'object' && existingDeployment ? existingDeployment : {}),
-        ...(typeof merged.deployment === 'object' && merged.deployment ? merged.deployment : {}),
-      };
-      if (existingDeployment && typeof existingDeployment.status === 'string') {
-        merged.deployment.status = existingDeployment.status;
-      }
+    const edgeDep = (config as Record<string, any>)?.deployment;
+    const wpDep = merged.deployment;
+
+    if (edgeDep?.source === 'dashboard' && (edgeDep.status === 'test' || edgeDep.status === 'live')) {
+      // Dashboard command pending adoption: keep the dashboard value so
+      // the plugin converges to it via the config in this response.
+      merged.deployment = { ...edgeDep };
+    } else if (wpDep && typeof wpDep === 'object') {
+      // Plugin-authoritative: mirror the plugin's deployment, drop any
+      // stale/foreign provenance marker.
+      const { source: _ignored, ...pluginDep } = wpDep as Record<string, any>;
+      merged.deployment = pluginDep;
     }
     try {
       configJson = JSON.stringify(merged);
@@ -249,13 +253,24 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
     }
   }
 
+  // Response config: prefer the freshly merged config so a pending
+  // dashboard-issued Deploy/Test command reaches the plugin immediately.
+  let responseConfig = config;
+  if (configJson) {
+    try {
+      responseConfig = JSON.parse(configJson);
+    } catch {
+      responseConfig = config;
+    }
+  }
+
   return c.json({
     success: true,
     data: {
       siteId: site.id,
       domain: site.domain,
       isActive: Boolean(site.is_active),
-      config,
+      config: responseConfig,
     },
   });
 });
@@ -293,21 +308,56 @@ authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
     .bind(healthJson, site.id)
     .run();
 
-  // Deployment reconciliation against the authoritative D1 config.
+  // Deployment reconciliation. Authority model:
+  // - D1 deployment with source='dashboard' = pending SaaS command → tell
+  //   the plugin to adopt it.
+  // - Otherwise the PLUGIN is authoritative → adopt its status into D1 so
+  //   the dashboard reflects reality (plugin-local Test Mode entry, older
+  //   plugins, manual option edits).
   const apply: Record<string, any> = {};
   const pluginStatus = parsed?.deployment?.status;
   if (pluginStatus === 'test' || pluginStatus === 'live') {
     const row = await c.env.DB.prepare('SELECT config_json FROM sites WHERE id = ?')
       .bind(site.id)
       .first<{ config_json: string | null }>();
-    let edgeStatus: string | undefined;
+    let edgeDep: any = null;
     try {
-      edgeStatus = row?.config_json ? JSON.parse(row.config_json)?.deployment?.status : undefined;
+      edgeDep = row?.config_json ? JSON.parse(row.config_json)?.deployment : null;
     } catch {
-      edgeStatus = undefined;
+      edgeDep = null;
     }
-    if ((edgeStatus === 'test' || edgeStatus === 'live') && edgeStatus !== pluginStatus) {
-      apply.deployment = { status: edgeStatus };
+
+    if (
+      edgeDep?.source === 'dashboard' &&
+      (edgeDep.status === 'test' || edgeDep.status === 'live') &&
+      edgeDep.status !== pluginStatus
+    ) {
+      apply.deployment = { status: edgeDep.status, source: 'dashboard' };
+    } else if (edgeDep?.status !== pluginStatus) {
+      // Adopt the plugin-reported status (strip provenance) unless a
+      // dashboard command is pending.
+      try {
+        const cfg = row?.config_json ? JSON.parse(row.config_json) : {};
+        if (cfg && typeof cfg === 'object') {
+          cfg.deployment = { ...(cfg.deployment ?? {}), status: pluginStatus };
+          delete cfg.deployment.source;
+          await c.env.DB.prepare('UPDATE sites SET config_json = ?, updated_at = unixepoch() WHERE id = ?')
+            .bind(JSON.stringify(cfg), site.id)
+            .run();
+          try {
+            const cachedRaw = await c.env.KV.get(`site:${site.domain}`);
+            if (cachedRaw) {
+              const cached = JSON.parse(cachedRaw);
+              cached.config_json = JSON.stringify(cfg);
+              await c.env.KV.put(`site:${site.domain}`, JSON.stringify(cached), { expirationTtl: 3600 });
+            }
+          } catch {
+            // KV update is best-effort; D1 is authoritative.
+          }
+        }
+      } catch {
+        // Adoption is best-effort; next heartbeat retries.
+      }
     }
   }
 

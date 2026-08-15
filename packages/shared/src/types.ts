@@ -57,6 +57,9 @@ export interface DeploymentConfig {
   status: 'test' | 'live';
   /** auto step down interaction_delay→defer→none on rising JS error rates */
   auto_degrade: boolean;
+  /** provenance: 'dashboard' marks a SaaS-issued command the plugin MUST adopt;
+   *  absent/plugin = the plugin is authoritative and the edge value is a mirror */
+  source?: 'dashboard' | 'plugin';
 }
 
 export interface MediaConfig {

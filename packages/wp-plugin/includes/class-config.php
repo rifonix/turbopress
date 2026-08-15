@@ -16,7 +16,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.4.0';
+    public const CONFIG_VERSION = '1.5.1';
 
     private array $data = [];
 
@@ -99,6 +99,17 @@ class Config {
             }
             if (!isset($stored['deployment']['auto_degrade'])) {
                 $this->data['deployment']['auto_degrade'] = true;
+            }
+        }
+
+        if (version_compare($stored_version, '1.5.1', '<')) {
+            // v1.5.0 bug: /verify treated the edge's pair-default
+            // deployment ('test', no provenance marker) as authoritative
+            // and flipped live sites into Test Mode on connect. Revert to
+            // live; dashboard Deploy/Test commands now carry
+            // source=dashboard and bypass this check.
+            if (($this->data['deployment']['status'] ?? '') === 'test') {
+                $this->data['deployment']['status'] = 'live';
             }
         }
 

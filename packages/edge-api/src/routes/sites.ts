@@ -8,6 +8,7 @@ import {
   generateApiKey,
   generateSiteId,
   sha256,
+  hmacSha256Hex,
   normalizeDomain,
   PRESET_LUDICROUS,
 } from '@turbopress/shared';
@@ -370,7 +371,6 @@ siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
   const body = await c.req.json();
 
   const validatedConfig = SiteConfigSchema.parse(body);
-  const configJson = JSON.stringify(validatedConfig);
 
   const site = await c.env.DB.prepare(
     'SELECT domain FROM sites WHERE id = ? AND user_id = ?'
@@ -381,6 +381,30 @@ siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
   if (!site) {
     return c.json({ success: false, error: 'Site not found' }, 404);
   }
+
+  // Dashboard-issued Deploy/Test commands carry provenance: the plugin
+  // only adopts deployment changes marked source='dashboard'.
+  let deployCommand: 'test' | 'live' | null = null;
+  if (validatedConfig.deployment?.status === 'test' || validatedConfig.deployment?.status === 'live') {
+    const prev = await c.env.DB.prepare('SELECT config_json FROM sites WHERE id = ?')
+      .bind(siteId)
+      .first<{ config_json: string | null }>();
+    let prevStatus: string | undefined;
+    try {
+      prevStatus = prev?.config_json ? JSON.parse(prev.config_json)?.deployment?.status : undefined;
+    } catch {
+      prevStatus = undefined;
+    }
+    (validatedConfig as any).deployment = {
+      ...validatedConfig.deployment,
+      source: 'dashboard',
+    };
+    if (prevStatus !== validatedConfig.deployment.status) {
+      deployCommand = validatedConfig.deployment.status;
+    }
+  }
+
+  const configJson = JSON.stringify(validatedConfig);
 
   // Update D1
   await c.env.DB.prepare(
@@ -395,6 +419,36 @@ siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
   if (existingKv) {
     existingKv.config_json = configJson;
     await c.env.KV.put(kvKey, JSON.stringify(existingKv), { expirationTtl: 3600 });
+  }
+
+  // Push dashboard Deploy/Test commands to the plugin instantly through the
+  // HMAC-verified optimize-callback channel (same secret the queue consumer
+  // uses for critical-CSS delivery).
+  if (deployCommand) {
+    const row = await c.env.DB.prepare('SELECT site_url, callback_secret FROM sites WHERE id = ?')
+      .bind(siteId)
+      .first<{ site_url: string | null; callback_secret: string | null }>();
+    if (row?.site_url && row?.callback_secret) {
+      const base = row.site_url.replace(/\/+$/, '');
+      const commandBody = JSON.stringify({
+        command: 'deploy',
+        deployment: { status: deployCommand, source: 'dashboard' },
+      });
+      const signature = await hmacSha256Hex(row.callback_secret, commandBody);
+      c.executionCtx.waitUntil(
+        fetch(`${base}/wp-json/turbopress/v1/optimize-callback`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Turbopress-Signature': signature,
+          },
+          body: commandBody,
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {
+          // Best-effort: the plugin also converges via /verify + heartbeat.
+        })
+      );
+    }
   }
 
   return c.json({

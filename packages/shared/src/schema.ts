@@ -53,7 +53,8 @@ export const HintsConfigSchema = z.object({
 
 export const DeploymentConfigSchema = z.object({
   status: z.enum(['test', 'live']).default('test'),
-  auto_degrade: z.boolean().default(true)
+  auto_degrade: z.boolean().default(true),
+  source: z.enum(['dashboard', 'plugin']).optional()
 });
 
 export const MediaConfigSchema = z.object({

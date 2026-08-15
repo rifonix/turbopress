@@ -59,20 +59,29 @@ class ApiClient {
     }
 
     /**
-     * E3 command channel: apply a remote deployment status (test|live)
-     * issued from the SaaS dashboard. Accepts either the verify shape
-     * {config:{deployment:{status}}} or the heartbeat {deployment:{status}}.
+     * E3 command channel: apply a remote deployment status (test|live).
+     * Authority model: the PLUGIN owns deployment.status unless the edge
+     * explicitly marks it dashboard-issued (deployment.source ===
+     * 'dashboard', set only by the SaaS "Deploy" button) or the call is an
+     * explicitly-signed push callback ($explicit). Otherwise the edge's
+     * value is just a mirror of ours and must never overwrite local state
+     * (v1.5.0 bug: pair-default 'test' flipped live sites to test mode).
      */
-    public static function apply_remote_deployment(Config $config, array $data): void {
-        $status = $data['config']['deployment']['status']
-            ?? $data['deployment']['status']
-            ?? null;
+    public static function apply_remote_deployment(Config $config, array $data, bool $explicit = false): void {
+        $dep = $data['config']['deployment'] ?? $data['deployment'] ?? null;
+        if (!is_array($dep)) {
+            return;
+        }
 
+        $status = $dep['status'] ?? null;
         if (!in_array($status, ['test', 'live'], true)) {
             return;
         }
         if ($status === $config->get('deployment.status', 'live')) {
             return;
+        }
+        if (!$explicit && ($dep['source'] ?? null) !== 'dashboard') {
+            return; // edge mirror without provenance — plugin is authoritative
         }
 
         $config->set('deployment.status', $status);

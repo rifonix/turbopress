@@ -46,6 +46,23 @@ class OptimizeCallback {
             return new \WP_Error('turbopress_invalid_json', 'Invalid JSON', ['status' => 400]);
         }
 
+        // Command channel: dashboard Deploy/Test pushes ride the same
+        // HMAC-verified pipe. Signed with the site secret, so this is the
+        // explicit-command path for apply_remote_deployment.
+        if (($payload['command'] ?? '') === 'deploy') {
+            $status = (string) ($payload['deployment']['status'] ?? '');
+            if (!in_array($status, ['test', 'live'], true)) {
+                return new \WP_Error('turbopress_invalid_deploy', 'Invalid deployment status', ['status' => 400]);
+            }
+            $config = new Config();
+            ApiClient::apply_remote_deployment(
+                $config,
+                ['deployment' => $payload['deployment']],
+                true // signed dashboard command — explicit
+            );
+            return ['success' => true, 'command' => 'deploy', 'status' => $status];
+        }
+
         $url = isset($payload['url']) ? esc_url_raw((string) $payload['url']) : '';
         $viewport = isset($payload['viewport']) ? (string) $payload['viewport'] : '';
         $css = isset($payload['css']) ? (string) $payload['css'] : '';

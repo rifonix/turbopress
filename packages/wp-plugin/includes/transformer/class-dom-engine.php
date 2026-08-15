@@ -44,6 +44,17 @@ class DomEngine {
             return $html;
         }
 
+        // Untouched escape hatch: whatever happens below, the visitor always
+        // receives a structurally complete document.
+        $original = $html;
+
+        // Some hosts lower PCRE limits to a point where bounded-looking
+        // patterns fail on large documents (preg_replace then returns NULL).
+        // Raise to sane defaults for the lifetime of this transform.
+        if (function_exists('ini_set')) {
+            @ini_set('pcre.backtrack_limit', '1000000');
+        }
+
         // Idempotency guard: already transformed by THIS version (e.g. a
         // host cache feeding our own output back through the buffer) —
         // never transform twice.
@@ -55,6 +66,17 @@ class DomEngine {
         // signature) are stripped by LiteSpeed's HTML minifier, an
         // attribute is not.
         $html = $this->stamp_version($html);
+
+        // The stamp must never damage the document. If it somehow did
+        // (regex engine failure, corrupted buffer), bail to the original.
+        if (
+            strlen($html) < 256 ||
+            stripos($html, '</head>') === false ||
+            stripos($html, '</body>') === false ||
+            strlen($html) < strlen($original) * 0.5
+        ) {
+            return $original;
+        }
 
         try {
             // Each stage is validated; a stage that structurally damages
@@ -108,10 +130,21 @@ class DomEngine {
                 $html = str_ireplace('</body>', $signature . '</body>', $html);
             }
 
+            // Final integrity gate: the pipeline must never emit a document
+            // that lost its skeleton or implausibly shrank vs the input.
+            if (
+                strlen($html) < 256 ||
+                stripos($html, '</body>') === false ||
+                stripos($html, '</head>') === false ||
+                strlen($html) < strlen($original) * 0.5
+            ) {
+                return $original;
+            }
+
             return $html;
         } catch (\Throwable $e) {
             // Fault-proof safety fallback: Never break customer front-end
-            return $html . "\n<!-- Turbopress Transformation Fallback: " . esc_html($e->getMessage()) . " -->";
+            return $original . "\n<!-- Turbopress Transformation Fallback: " . esc_html($e->getMessage()) . " -->";
         }
     }
 
@@ -125,7 +158,14 @@ class DomEngine {
         $output = (string) $fn($input);
 
         if ($output === '' || !$this->structurally_valid($input, $output)) {
-            return $input . "\n<!-- Turbopress stage reverted: " . esc_html($name) . " -->";
+            // Never annotate degenerate input: if $input is not a full
+            // document the pipeline has already gone wrong somewhere
+            // upstream and the transform() guards will restore $original.
+            if (strlen($input) > 256 && stripos($input, '</body>') !== false) {
+                $comment = '<!-- Turbopress stage reverted: ' . $name . ' -->';
+                return (string) preg_replace('/<\/body>/i', $comment . '</body>', $input, 1);
+            }
+            return $input;
         }
 
         return $output;
@@ -157,29 +197,53 @@ class DomEngine {
     }
 
     private function transformed_version(string $html): ?string {
-        if (preg_match('/<html\b[^>]*\sdata-tp-version=["\']([0-9.]+)["\']/i', $html, $m)) {
+        // Match ONLY the opening <html …> tag (bounded), then look inside it.
+        if (!preg_match('/<html\b[^>]*>/i', $html, $tag)) {
+            return null;
+        }
+        if (preg_match('/data-tp-version=["\']([0-9.]+)["\']/', $tag[0], $m)) {
             return $m[1];
         }
         return null;
     }
 
     private function stamp_version(string $html): string {
-        if ($this->transformed_version($html) !== null) {
-            // Old-version stamp present: replace it with the current one so
-            // the fingerprint always reflects the transforming release.
-            return (string) preg_replace(
-                '/(<html\b[^>]*\s)data-tp-version=["\'][0-9.]+["\']/i',
-                '$1data-tp-version="' . TURBOPRESS_VERSION . '"',
-                $html,
+        // Never run replacement regexes over the whole document (a PCRE
+        // failure on a large buffer returns NULL and would blank the page).
+        // Isolate the tiny opening tag first and rebuild via substr.
+        if (!preg_match('/<html\b[^>]*>/i', $html, $tag)) {
+            return $html;
+        }
+        $tag_html = $tag[0];
+
+        if (strpos($tag_html, 'data-tp-version=') !== false) {
+            $new_tag = preg_replace(
+                '/\sdata-tp-version=[\"\'][0-9.]+[\"\']/',
+                ' data-tp-version="' . TURBOPRESS_VERSION . '"',
+                $tag_html,
                 1
             );
+        } else {
+            $new_tag = substr($tag_html, 0, -1) . ' data-tp-version="' . TURBOPRESS_VERSION . '">';
         }
-        return (string) preg_replace(
-            '/(<html\b[^>]*?)(\s*>)',
-            '$1 data-tp-version="' . TURBOPRESS_VERSION . '"$2',
-            $html,
-            1
-        );
+
+        if (!is_string($new_tag) || $new_tag === '' || strpos($new_tag, 'data-tp-version=') === false) {
+            return $html;
+        }
+
+        $pos = strpos($html, $tag_html);
+        if ($pos === false) {
+            return $html;
+        }
+
+        $stamped = substr_replace($html, $new_tag, $pos, strlen($tag_html));
+
+        // Stamping must be shape-preserving; anything else is a bug.
+        if (strlen($stamped) < 256 || stripos($stamped, '</head>') === false || stripos($stamped, '</body>') === false) {
+            return $html;
+        }
+
+        return $stamped;
     }
 
     private function inject_hydrator_scripts(string $html): string {
