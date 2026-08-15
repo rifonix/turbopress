@@ -1,4 +1,4 @@
-import { ExtendedSite, OptimizationJobItem, BillingStatusData, UserProfileData } from '../types';
+import { ExtendedSite, OptimizationJobItem, BillingStatusData, UserProfileData, SitePagesData, AttentionFeedData } from '../types';
 import { SiteConfig } from '@turbopress/shared';
 
 const API_BASE =
@@ -199,6 +199,24 @@ export const api = {
       { method: 'POST' },
       token
     );
+  },
+
+  /**
+   * Per-URL optimization status + RUM vitals (Pages tab)
+   */
+  async getSitePages(token: string | null, siteId: string): Promise<SitePagesData> {
+    return request<SitePagesData>(
+      `/api/v1/sites/${siteId}/pages`,
+      { method: 'GET' },
+      token
+    );
+  },
+
+  /**
+   * Attention queue: failed/needs_attention jobs + site health warnings
+   */
+  async getAttention(token: string | null): Promise<AttentionFeedData> {
+    return request<AttentionFeedData>('/api/v1/optimize/attention', { method: 'GET' }, token);
   },
 
   /**

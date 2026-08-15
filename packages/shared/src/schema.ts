@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const PresetTypeSchema = z.enum(['safe', 'aggressive', 'ludicrous', 'custom']);
 export const ViewportModeSchema = z.enum(['mobile', 'desktop']);
-export const JobStatusSchema = z.enum(['queued', 'processing', 'completed', 'failed']);
+export const JobStatusSchema = z.enum(['queued', 'processing', 'completed', 'failed', 'needs_attention']);
 export const SubscriptionStatusSchema = z.enum(['active', 'past_due', 'canceled', 'revoked', 'trialing']);
 
 export const CachingConfigSchema = z.object({
@@ -27,11 +27,33 @@ export const CriticalCssConfigSchema = z.object({
 });
 
 export const JavascriptConfigSchema = z.object({
-  execution_mode: z.enum(['none', 'defer', 'interaction_delay']).default('interaction_delay'),
+  execution_mode: z.enum(['none', 'defer', 'interaction_delay']).default('defer'),
   delay_timeout_ms: z.number().int().min(0).max(10000).default(3500),
   preserve_execution_order: z.boolean().default(true),
   exclusions: z.array(z.string()).default([]),
+  remove_jquery_migrate: z.boolean().default(false),
   worker_offload: z.array(z.string()).default([])
+});
+
+export const CssConfigSchema = z.object({
+  combine: z.boolean().default(true),
+  minify: z.boolean().default(true),
+  max_files: z.number().int().min(2).max(100).default(40)
+});
+
+export const FontsConfigSchema = z.object({
+  localize_google: z.boolean().default(true),
+  bundle_vendor_css: z.boolean().default(true),
+  preload_lcp_font: z.boolean().default(true)
+});
+
+export const HintsConfigSchema = z.object({
+  resource_hints: z.boolean().default(true)
+});
+
+export const DeploymentConfigSchema = z.object({
+  status: z.enum(['test', 'live']).default('test'),
+  auto_degrade: z.boolean().default(true)
 });
 
 export const MediaConfigSchema = z.object({
@@ -60,7 +82,11 @@ export const SiteConfigSchema = z.object({
   critical_css: CriticalCssConfigSchema,
   javascript: JavascriptConfigSchema,
   media: MediaConfigSchema,
-  dynamic: DynamicConfigSchema
+  dynamic: DynamicConfigSchema,
+  css: CssConfigSchema.optional(),
+  fonts: FontsConfigSchema.optional(),
+  hints: HintsConfigSchema.optional(),
+  deployment: DeploymentConfigSchema.optional()
 });
 
 export const HandshakeRequestSchema = z

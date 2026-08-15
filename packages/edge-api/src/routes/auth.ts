@@ -180,16 +180,46 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
 
   let callbackSecret: string | null = null;
   let siteUrl: string | null = null;
+  let wpConfig: Record<string, any> | null = null;
   try {
-    const body = (await c.req.json()) as { callback_secret?: string; site_url?: string };
+    const body = (await c.req.json()) as {
+      callback_secret?: string;
+      site_url?: string;
+      config?: Record<string, any>;
+    };
     if (typeof body?.callback_secret === 'string' && body.callback_secret.length >= 32) {
       callbackSecret = body.callback_secret;
     }
     if (typeof body?.site_url === 'string' && /^https?:\/\//i.test(body.site_url)) {
       siteUrl = body.site_url;
     }
+    if (body?.config && typeof body.config === 'object' && !Array.isArray(body.config)) {
+      wpConfig = body.config;
+    }
   } catch {
     // Empty/invalid body: header-only verify (legacy plugin versions).
+  }
+
+  // Sync the plugin's effective config into D1, preserving the dashboard-owned
+  // deployment.status (test/live) — the SaaS is the source of truth for it.
+  let configJson: string | null = null;
+  if (wpConfig) {
+    const existingDeployment = (config as Record<string, any>)?.deployment;
+    const merged: Record<string, any> = { ...wpConfig };
+    if ((merged.deployment && typeof merged.deployment === 'object') || existingDeployment) {
+      merged.deployment = {
+        ...(typeof existingDeployment === 'object' && existingDeployment ? existingDeployment : {}),
+        ...(typeof merged.deployment === 'object' && merged.deployment ? merged.deployment : {}),
+      };
+      if (existingDeployment && typeof existingDeployment.status === 'string') {
+        merged.deployment.status = existingDeployment.status;
+      }
+    }
+    try {
+      configJson = JSON.stringify(merged);
+    } catch {
+      configJson = null;
+    }
   }
 
   await c.env.DB.prepare(
@@ -198,11 +228,26 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
        plugin_version = coalesce(?, plugin_version),
        callback_secret = coalesce(?, callback_secret),
        site_url = coalesce(?, site_url),
+       config_json = coalesce(?, config_json),
        last_ping_at = unixepoch()
      WHERE id = ?`
   )
-    .bind(wpVersion || null, pluginVersion || null, callbackSecret, siteUrl, site.id)
+    .bind(wpVersion || null, pluginVersion || null, callbackSecret, siteUrl, configJson, site.id)
     .run();
+
+  // Keep the KV verification cache in sync when the config changed.
+  if (configJson) {
+    try {
+      const cachedRaw = await c.env.KV.get(`site:${site.domain}`);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        cached.config_json = configJson;
+        await c.env.KV.put(`site:${site.domain}`, JSON.stringify(cached), { expirationTtl: 3600 });
+      }
+    } catch {
+      // KV update is best-effort; D1 is authoritative.
+    }
+  }
 
   return c.json({
     success: true,
@@ -216,20 +261,26 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
 });
 
 /**
- * Plugin Health Heartbeat
+ * Plugin Health Heartbeat + Deployment Command Channel
  * POST /api/v1/auth/heartbeat
  *
- * Body: the plugin's health report ({ checked_at, checks: [...] }).
- * Persisted to sites.health_json (capped) for the SaaS dashboard.
+ * Body: the plugin's health report ({ checked_at, checks: [...],
+ * deployment: { status }, auto_degrade: {...} }).
+ * - Persisted to sites.health_json (capped) for the SaaS dashboard.
+ * - Deployment reconciliation: D1's deployment.status is authoritative
+ *   (set from the SaaS dashboard). If the plugin reports a different
+ *   status, the response carries data.apply.deployment so the plugin
+ *   converges to it.
  */
 authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
   const site = c.get('site')!;
 
+  let parsed: any = null;
   let healthJson: string | null = null;
   try {
     const body = await c.req.text();
     if (body.length > 0 && body.length <= 16384) {
-      JSON.parse(body); // validate JSON before persisting
+      parsed = JSON.parse(body); // validate JSON before persisting
       healthJson = body;
     }
   } catch {
@@ -242,7 +293,25 @@ authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
     .bind(healthJson, site.id)
     .run();
 
-  return c.json({ success: true });
+  // Deployment reconciliation against the authoritative D1 config.
+  const apply: Record<string, any> = {};
+  const pluginStatus = parsed?.deployment?.status;
+  if (pluginStatus === 'test' || pluginStatus === 'live') {
+    const row = await c.env.DB.prepare('SELECT config_json FROM sites WHERE id = ?')
+      .bind(site.id)
+      .first<{ config_json: string | null }>();
+    let edgeStatus: string | undefined;
+    try {
+      edgeStatus = row?.config_json ? JSON.parse(row.config_json)?.deployment?.status : undefined;
+    } catch {
+      edgeStatus = undefined;
+    }
+    if ((edgeStatus === 'test' || edgeStatus === 'live') && edgeStatus !== pluginStatus) {
+      apply.deployment = { status: edgeStatus };
+    }
+  }
+
+  return c.json({ success: true, ...(Object.keys(apply).length ? { data: { apply } } : {}) });
 });
 
 /**

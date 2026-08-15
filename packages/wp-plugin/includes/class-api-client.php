@@ -34,6 +34,10 @@ class ApiClient {
                 // Shared once per verify so the edge can sign push callbacks.
                 'callback_secret' => Config::get_callback_secret_static(),
                 'site_url' => home_url('/'),
+                // Sync the live plugin config to the SaaS (E3 mirror). The
+                // edge preserves its own `deployment` section — the
+                // dashboard is the authority for Deploy/Test only.
+                'config' => $this->config->get_all(),
             ]),
         ]);
 
@@ -45,10 +49,35 @@ class ApiClient {
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
         if ($code === 200 && !empty($body['success'])) {
+            // Adopt dashboard-issued Deploy/Test commands without waiting
+            // for the daily heartbeat.
+            self::apply_remote_deployment($this->config, ['config' => $body['data'] ?? []]);
             return ['success' => true, 'data' => $body['data']];
         }
 
         return ['success' => false, 'error' => $body['error'] ?? 'Verification failed with HTTP ' . $code];
+    }
+
+    /**
+     * E3 command channel: apply a remote deployment status (test|live)
+     * issued from the SaaS dashboard. Accepts either the verify shape
+     * {config:{deployment:{status}}} or the heartbeat {deployment:{status}}.
+     */
+    public static function apply_remote_deployment(Config $config, array $data): void {
+        $status = $data['config']['deployment']['status']
+            ?? $data['deployment']['status']
+            ?? null;
+
+        if (!in_array($status, ['test', 'live'], true)) {
+            return;
+        }
+        if ($status === $config->get('deployment.status', 'live')) {
+            return;
+        }
+
+        $config->set('deployment.status', $status);
+        CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
     }
 
     public function dispatch_optimization(string $url, array $viewports = ['mobile', 'desktop']): array {
@@ -117,7 +146,7 @@ class ApiClient {
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
         if ($code === 200 && !empty($body['success'])) {
-            return ['success' => true];
+            return ['success' => true, 'data' => $body['data'] ?? []];
         }
 
         return ['success' => false, 'error' => $body['error'] ?? 'Heartbeat failed with HTTP ' . $code];

@@ -20,6 +20,12 @@ if ($request_method !== 'GET' && $request_method !== 'HEAD') {
     return;
 }
 
+// 1b. Revalidation loopback: skip serving so WordPress re-renders the page
+// and writes a fresh cache entry (the fresh write also removes .stale twins).
+if (!empty($_SERVER['HTTP_X_TURBOPRESS_REVALIDATE'])) {
+    return;
+}
+
 // 2. Bypass for Logged-In Users & Password-Protected Posts
 if (!empty($_COOKIE)) {
     foreach ($_COOKIE as $key => $val) {
@@ -117,6 +123,36 @@ if (file_exists($cache_file)) {
         readfile($cache_file);
         exit;
     }
+}
+
+// 7. Stale-while-revalidate: a soft purge renames entries to `.stale`.
+// Serve the stale copy (capped at 24h) and ask the browser to trigger an
+// async revalidation — visitors never pay the purge -> miss -> slow-render
+// cost.
+$stale_file = $cache_file . '.stale';
+if (file_exists($stale_file) && (time() - filemtime($stale_file)) < 86400) {
+    $stale_html = @file_get_contents($stale_file);
+    if ($stale_html !== false && strlen($stale_html) > 255) {
+        header('Content-Type: text/html; charset=UTF-8');
+        header('X-Turbopress-Cache: STALE');
+        header('X-Turbopress-Device: ' . ($is_mobile ? 'mobile' : 'desktop'));
+        // no-cache: host-level proxies (LiteSpeed etc.) must not pin the
+        // stale copy; the fresh entry lands within a minute.
+        header('Cache-Control: no-cache, must-revalidate');
+
+        // Fire-and-forget beacon: the REST endpoint throttles per path and
+        // performs a non-blocking loopback render.
+        $tp_beacon = '<script tp-exclude>(function(){try{navigator.sendBeacon('
+            . 'location.origin + "/wp-json/turbopress/v1/revalidate",'
+            . 'JSON.stringify({p: location.pathname + location.search})'
+            . ');}catch(e){}})();</script>';
+        if (stripos($stale_html, '</body>') !== false) {
+            $stale_html = str_ireplace('</body>', $tp_beacon . '</body>', $stale_html);
+        }
+        echo $stale_html;
+        exit;
+    }
+    @unlink($stale_file); // corrupt/oversized stale entry — drop it
 }
 
 // Cache Miss: Let WordPress continue bootstrap and hit the Turbopress output buffer

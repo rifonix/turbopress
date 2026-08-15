@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import {
   ArrowLeft,
   RotateCcw,
@@ -11,9 +12,12 @@ import {
   Code,
   KeyRound,
   Check,
+  LayoutTemplate,
+  ShieldCheck,
 } from 'lucide-react';
-import { ExtendedSite, SitePreset, OptimizationJobItem } from '../types';
+import { ExtendedSite, SitePreset, OptimizationJobItem, SitePagesData } from '../types';
 import { SiteConfig } from '@turbopress/shared';
+import { api } from '../services/api';
 
 interface SiteDetailPageProps {
   site: ExtendedSite;
@@ -36,7 +40,8 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   onRunOptimization,
   onToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'presets' | 'critical-css' | 'connection'>('presets');
+  const { getToken } = useAuth();
+  const [activeTab, setActiveTab] = useState<'presets' | 'critical-css' | 'pages' | 'connection'>('presets');
   const [currentPreset, setCurrentPreset] = useState<SitePreset>(site.config?.preset || 'ludicrous');
   const [isPurging, setIsPurging] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -47,9 +52,162 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   const [enableDynamicNonces, setEnableDynamicNonces] = useState(site.config?.dynamic?.nonce_ajax_refresh ?? true);
   const [enableSpeculation, setEnableSpeculation] = useState(site.config?.dynamic?.speculation_rules_prerender ?? true);
 
+  // Deployment (Test Mode / Auto Mode) local state
+  const [deployStatus, setDeployStatus] = useState<'test' | 'live'>(site.config?.deployment?.status ?? 'live');
+  const [autoDegrade, setAutoDegrade] = useState(site.config?.deployment?.auto_degrade ?? true);
+  const [isDeploying, setIsDeploying] = useState(false);
+
+  // Pages tab data (lazy) + audits for the CWV trend
+  const [pagesData, setPagesData] = useState<SitePagesData | null>(null);
+  const [pagesLoading, setPagesLoading] = useState(false);
+  const [rerunningPage, setRerunningPage] = useState<string | null>(null);
+  const [audits, setAudits] = useState<any[]>([]);
+
+  // Fetch audits once for the score trend sparkline
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const detail = await api.getSiteDetail(token, site.id);
+        if (!cancelled && Array.isArray(detail.audits)) setAudits(detail.audits);
+      } catch {
+        // audits are optional decoration
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [site.id, getToken]);
+
+  // Lazy-load per-page data when the Pages tab opens
+  useEffect(() => {
+    if (activeTab !== 'pages' || pagesData || pagesLoading) return;
+    let cancelled = false;
+    setPagesLoading(true);
+    (async () => {
+      try {
+        const token = await getToken();
+        const data = await api.getSitePages(token, site.id);
+        if (!cancelled) setPagesData(data);
+      } catch {
+        // leave empty state
+      } finally {
+        if (!cancelled) setPagesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, site.id]);
+
   // Real heartbeat derived from plugin pings
   const lastPing = site.last_ping_at ? new Date(site.last_ping_at * 1000) : null;
   const heartbeatFresh = lastPing != null && Date.now() - site.last_ping_at! * 1000 < 24 * 3600 * 1000;
+
+  const handleSetDeployment = async (status: 'test' | 'live') => {
+    if (!onUpdateConfig || isDeploying) return;
+    setIsDeploying(true);
+    try {
+      const baseConfig: SiteConfig =
+        site.config ||
+        ({
+          version: '1.4.0',
+          preset: currentPreset,
+          caching: {
+            enabled: true,
+            ttl: 604800,
+            mobile_cache: true,
+            purge_on_post_update: true,
+            purge_on_comment: false,
+            strip_query_params: [],
+            excluded_urls: [],
+            excluded_cookies: [],
+          },
+          critical_css: {
+            enabled: true,
+            inline: true,
+            async_load_full: true,
+            font_display_swap: true,
+            viewports: ['mobile', 'desktop'],
+            excluded_stylesheets: [],
+          },
+          javascript: {
+            execution_mode: 'defer',
+            delay_timeout_ms: 3500,
+            preserve_execution_order: true,
+            exclusions: [],
+            remove_jquery_migrate: false,
+            worker_offload: [],
+          },
+          media: {
+            auto_fetchpriority_lcp: true,
+            preload_lcp_image: true,
+            inject_missing_dimensions: true,
+            serve_nextgen_formats: true,
+            lazyload_images: true,
+            lazyload_iframes: true,
+            lazyload_offset_px: 300,
+            excluded_images: [],
+          },
+          dynamic: {
+            speculation_rules_prerender: true,
+            speculation_rules_eagerness: 'moderate',
+            nonce_ajax_refresh: true,
+            cart_micro_hydration: true,
+            excluded_prerender_paths: [],
+          },
+        } as SiteConfig);
+
+      const updated: SiteConfig = {
+        ...baseConfig,
+        deployment: { status, auto_degrade: autoDegrade },
+      };
+      await onUpdateConfig(site.id, updated);
+      setDeployStatus(status);
+      await onPurgeCache(site.domain);
+      onToast(
+        status === 'live'
+          ? 'Deployed — optimized HTML is now served to all visitors'
+          : 'Entered Test Mode — visitors see unoptimized HTML until you deploy'
+      );
+    } catch (err: any) {
+      onToast(err.message || 'Failed to change deployment status');
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const handleToggleAutoDegrade = async (enabled: boolean) => {
+    if (!onUpdateConfig) return;
+    setAutoDegrade(enabled);
+    try {
+      const baseConfig = site.config;
+      if (!baseConfig) return;
+      await onUpdateConfig(site.id, {
+        ...baseConfig,
+        deployment: { status: deployStatus, auto_degrade: enabled },
+      });
+      onToast(enabled ? 'Auto-protect enabled' : 'Auto-protect disabled');
+    } catch (err: any) {
+      setAutoDegrade(!enabled);
+      onToast(err.message || 'Failed to save auto-protect setting');
+    }
+  };
+
+  const handleRerunPage = async (url: string) => {
+    setRerunningPage(url);
+    try {
+      const token = await getToken();
+      await api.dispatchJob(token, { url, viewports: ['mobile', 'desktop'], site_id: site.id });
+      onToast(`Re-optimization queued for ${url}`);
+    } catch (err: any) {
+      onToast(err.message || 'Failed to queue job');
+    } finally {
+      setRerunningPage(null);
+    }
+  };
 
   const handleApplyPreset = async (preset: SitePreset) => {
     setCurrentPreset(preset);
@@ -134,6 +292,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         nonce_ajax_refresh: enableDynamicNonces,
         speculation_rules_prerender: enableSpeculation,
       },
+      deployment: baseConfig.deployment ?? { status: deployStatus, auto_degrade: autoDegrade },
     };
 
     try {
@@ -211,6 +370,56 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
     viewport,
     job: jobs.find((j) => j.siteDomain === site.domain && j.viewport === viewport && j.status === 'completed'),
   }));
+
+  // CWV trend sparkline: mobile performance score over the last 10 audits (oldest → newest)
+  const renderSparkline = (values: number[], label: string) => {
+    if (values.length < 2) {
+      return (
+        <div className="flex items-center justify-between p-3.5 bg-white border border-[#e4e4e7] rounded-xl shadow-sm">
+          <span className="font-mono text-xs text-[#71717a] uppercase tracking-wider">{label}</span>
+          <span className="text-xs text-[#a1a1aa]">Need 2+ audits for a trend</span>
+        </div>
+      );
+    }
+    const w = 200;
+    const h = 40;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    const points = values
+      .map((v, i) => {
+        const x = (i / (values.length - 1)) * w;
+        const y = h - ((v - min) / range) * (h - 6) - 3;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(' ');
+    const last = values[values.length - 1];
+    const color = last >= 90 ? '#16a34a' : last >= 50 ? '#f59e0b' : '#dc2626';
+
+    return (
+      <div className="flex items-center justify-between gap-4 p-3.5 bg-white border border-[#e4e4e7] rounded-xl shadow-sm">
+        <div>
+          <span className="font-mono text-xs text-[#71717a] uppercase tracking-wider block">{label}</span>
+          <span className="font-mono text-lg font-bold text-[#171717]">{last}</span>
+        </div>
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="flex-none">
+          <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <circle
+            cx={w}
+            cy={h - ((last - min) / range) * (h - 6) - 3}
+            r="3"
+            fill={color}
+          />
+        </svg>
+      </div>
+    );
+  };
+
+  const mobileScoreTrend = audits
+    .filter((a) => a?.device === 'mobile' && typeof a?.performance_score === 'number')
+    .sort((a, b) => a.created_at - b.created_at)
+    .slice(-10)
+    .map((a) => a.performance_score);
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -316,6 +525,9 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         </div>
       </div>
 
+      {/* CWV score trend (only when we have enough audits) */}
+      {mobileScoreTrend.length >= 2 && renderSparkline(mobileScoreTrend, 'Mobile Score Trend (last 10 audits)')}
+
       {/* Sub Tabs */}
       <div className="flex border-b border-[#e4e4e7] gap-2 pt-2">
         <button
@@ -340,6 +552,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         >
           <Code className="w-3.5 h-3.5" />
           <span>Critical CSS & R2 Assets</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('pages')}
+          className={`pb-2.5 px-3 text-xs sm:text-[13px] font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'pages'
+              ? 'border-[#f03e2f] text-[#171717] font-semibold'
+              : 'border-transparent text-[#71717a] hover:text-[#171717]'
+          }`}
+        >
+          <LayoutTemplate className="w-3.5 h-3.5" />
+          <span>Pages</span>
         </button>
 
         <button
@@ -416,6 +640,58 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
                 </div>
                 <p className="text-xs text-[#71717a] leading-relaxed pr-16">
                   Critical CSS, optional interaction-based script delay and dynamic nonces for maximum scores.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Deployment / Auto Mode */}
+          <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-[#171717]" />
+                <h3 className="text-base font-semibold text-[#171717]">Deployment</h3>
+              </div>
+              <span
+                className={`chip ${deployStatus === 'live' ? 'chip-success' : 'chip-warn'}`}
+                data-testid="deployment-status"
+              >
+                <span className="chip-dot" />
+                {deployStatus === 'live' ? 'Live — all visitors optimized' : 'Test Mode — visitors unoptimized'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-4 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl space-y-2">
+                <h4 className="text-xs font-semibold text-[#171717]">Staged Rollout</h4>
+                <p className="text-[11.5px] text-[#71717a] leading-relaxed">
+                  {deployStatus === 'test'
+                    ? 'Only admins see optimized HTML (via the ?tp_preview=1 URL param in WP admin). Visitors get the original page.'
+                    : 'Optimized HTML is served to every visitor.'}
+                </p>
+                <button
+                  onClick={() => handleSetDeployment(deployStatus === 'live' ? 'test' : 'live')}
+                  disabled={isDeploying || !onUpdateConfig}
+                  className={`btn text-xs py-1.5 px-3 ${deployStatus === 'test' ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  {isDeploying ? 'Applying…' : deployStatus === 'test' ? 'Deploy to Visitors' : 'Enter Test Mode'}
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-[#171717]">Auto-Protect</h4>
+                  <input
+                    type="checkbox"
+                    checked={autoDegrade}
+                    onChange={(e) => handleToggleAutoDegrade(e.target.checked)}
+                    disabled={!onUpdateConfig || !site.config}
+                    className="w-4 h-4 accent-[#f03e2f]"
+                  />
+                </div>
+                <p className="text-[11.5px] text-[#71717a] leading-relaxed">
+                  Monitors real-user JS errors. If the error rate spikes after a change, TurboPress automatically
+                  steps JavaScript optimization down (delay → defer → none) and purges caches.
                 </p>
               </div>
             </div>
@@ -548,7 +824,149 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         </div>
       )}
 
-      {/* TAB 3: CONNECTION */}
+      {/* TAB 3: PAGES */}
+      {activeTab === 'pages' && (
+        <div className="space-y-6">
+          {/* RUM vitals strip */}
+          <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-[#171717]">Real-User Vitals (last 7 days)</h3>
+                <p className="text-xs text-[#71717a]">Collected by the Turbopress RUM beacon on every optimized pageview</p>
+              </div>
+            </div>
+            {pagesLoading ? (
+              <p className="text-xs text-[#71717a]">Loading…</p>
+            ) : !pagesData || pagesData.rum.length === 0 ? (
+              <p className="text-xs text-[#71717a]">No real-user data yet — deploy the plugin and let traffic flow in.</p>
+            ) : (
+              (() => {
+                const rum = [...pagesData.rum].sort((a, b) => a.day.localeCompare(b.day));
+                const views = rum.reduce((s, r) => s + r.views, 0);
+                const errors = rum.reduce((s, r) => s + r.errors, 0);
+                const latest = rum[rum.length - 1];
+                const errorRate = views > 0 ? (errors / views) * 100 : 0;
+                return (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl">
+                        <span className="font-mono text-[10px] text-[#71717a] uppercase tracking-wider block">Pageviews</span>
+                        <span className="font-mono text-xl font-bold text-[#171717]">{views.toLocaleString()}</span>
+                      </div>
+                      <div className="p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl">
+                        <span className="font-mono text-[10px] text-[#71717a] uppercase tracking-wider block">JS Errors</span>
+                        <span className={`font-mono text-xl font-bold ${errorRate > 1 ? 'text-[#dc2626]' : 'text-[#16a34a]'}`}>
+                          {errors.toLocaleString()}
+                        </span>
+                        <span className="text-[11px] text-[#71717a] block">{errorRate.toFixed(2)}% rate</span>
+                      </div>
+                      <div className="p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl">
+                        <span className="font-mono text-[10px] text-[#71717a] uppercase tracking-wider block">LCP p75</span>
+                        <span className={`font-mono text-xl font-bold ${latest.lcpP75 == null ? 'text-[#a1a1aa]' : latest.lcpP75 <= 2500 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>
+                          {latest.lcpP75 != null ? `${(latest.lcpP75 / 1000).toFixed(2)}s` : '—'}
+                        </span>
+                      </div>
+                      <div className="p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl">
+                        <span className="font-mono text-[10px] text-[#71717a] uppercase tracking-wider block">CLS p75</span>
+                        <span className={`font-mono text-xl font-bold ${latest.clsP75 == null ? 'text-[#a1a1aa]' : latest.clsP75 <= 0.1 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>
+                          {latest.clsP75 != null ? latest.clsP75.toFixed(3) : '—'}
+                        </span>
+                      </div>
+                    </div>
+                    {/* tiny per-day bar strip */}
+                    <div className="flex items-end gap-1.5 h-12">
+                      {rum.map((r) => {
+                        const maxViews = Math.max(...rum.map((x) => x.views), 1);
+                        return (
+                          <div key={r.day} className="flex-1 flex flex-col items-center gap-1" title={`${r.day}: ${r.views} views, ${r.errors} errors`}>
+                            <div
+                              className={`w-full rounded-sm ${r.errors > 0 && r.views > 0 && r.errors / r.views > 0.01 ? 'bg-[#f03e2f]' : 'bg-[#171717]'}`}
+                              style={{ height: `${Math.max(4, (r.views / maxViews) * 40)}px`, opacity: 0.8 }}
+                            />
+                            <span className="font-mono text-[8px] text-[#a1a1aa]">{r.day.slice(5)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()
+            )}
+          </div>
+
+          {/* Per-page optimization table */}
+          <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-[#171717]">Optimized Pages</h3>
+                <p className="text-xs text-[#71717a]">Per-URL critical CSS coverage, job health, and re-run actions</p>
+              </div>
+            </div>
+            {pagesLoading ? (
+              <p className="text-xs text-[#71717a]">Loading…</p>
+            ) : !pagesData || pagesData.pages.length === 0 ? (
+              <p className="text-xs text-[#71717a]">No optimization jobs yet — run an optimization to build page coverage.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[#71717a] font-mono uppercase tracking-wider text-[10px] border-b border-[#e4e4e7]">
+                      <th className="pb-2 pr-4">Page</th>
+                      <th className="pb-2 pr-4">Critical CSS</th>
+                      <th className="pb-2 pr-4">Jobs</th>
+                      <th className="pb-2 pr-4">Last Run</th>
+                      <th className="pb-2 pr-4"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagesData.pages.map((p) => (
+                      <tr key={p.url} className="border-b border-[#f1f1f2]">
+                        <td className="py-2.5 pr-4">
+                          <span className="font-mono text-[#171717]" title={p.url}>{p.path}</span>
+                        </td>
+                        <td className="py-2.5 pr-4">
+                          {p.criticalCssKb != null ? (
+                            <span className="font-mono text-[#171717]">
+                              {p.criticalCssKb} KB
+                              <span className={`ml-1.5 text-[10px] ${p.cssAgeHours != null && p.cssAgeHours > 168 ? 'text-[#b45309]' : 'text-[#71717a]'}`}>
+                                · {p.cssAgeHours != null ? (p.cssAgeHours < 24 ? `${p.cssAgeHours}h old` : `${Math.round(p.cssAgeHours / 24)}d old`) : ''}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-[#a1a1aa]">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-4">
+                          <span className="font-mono text-[#171717]">{p.completedJobs}/{p.totalJobs}</span>
+                          {p.failedJobs > 0 && (
+                            <span className="ml-1.5 chip chip-danger" style={{ padding: '1px 6px' }}>
+                              <span className="chip-dot" />
+                              {p.failedJobs} failed
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-4 text-[#71717a]">{p.lastRunRelative || '—'}</td>
+                        <td className="py-2.5 pr-4">
+                          <button
+                            onClick={() => handleRerunPage(p.url)}
+                            disabled={rerunningPage === p.url}
+                            className="btn btn-secondary text-[11px] py-1 px-2.5"
+                          >
+                            <RotateCcw className="w-3 h-3 mr-1" />
+                            {rerunningPage === p.url ? 'Queuing…' : 'Re-run'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: CONNECTION */}
       {activeTab === 'connection' && (
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm space-y-6">
           <div>

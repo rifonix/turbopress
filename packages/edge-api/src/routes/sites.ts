@@ -252,6 +252,115 @@ siteRoutes.get('/:site_id', saasUserAuthMiddleware, async (c) => {
 });
 
 /**
+ * Per-URL optimization status + RUM vitals (Pages tab)
+ * GET /api/v1/sites/:site_id/pages
+ */
+siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+  const siteId = c.req.param('site_id');
+
+  const site = await c.env.DB.prepare(
+    'SELECT id FROM sites WHERE id = ? AND user_id = ?'
+  )
+    .bind(siteId, userId)
+    .first<{ id: string }>();
+
+  if (!site) {
+    return c.json({ success: false, error: 'Site not found' }, 404);
+  }
+
+  const { results: pageRows } = await c.env.DB.prepare(`
+    SELECT url,
+      COUNT(*) as total_jobs,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
+      SUM(CASE WHEN status IN ('failed', 'needs_attention') THEN 1 ELSE 0 END) as failed_jobs,
+      MAX(created_at) as last_run_at,
+      MAX(CASE WHEN status = 'completed' THEN created_at END) as last_completed_at,
+      MAX(CASE WHEN status = 'completed' THEN critical_css_bytes END) as critical_css_bytes,
+      MAX(CASE WHEN status = 'completed' THEN lcp_image_url END) as lcp_image_url
+    FROM optimization_jobs
+    WHERE site_id = ?
+    GROUP BY lower(rtrim(url, '/'))
+    ORDER BY last_run_at DESC
+    LIMIT 100
+  `)
+    .bind(siteId)
+    .all<{
+      url: string;
+      total_jobs: number;
+      completed_jobs: number;
+      failed_jobs: number;
+      last_run_at: number;
+      last_completed_at: number | null;
+      critical_css_bytes: number | null;
+      lcp_image_url: string | null;
+    }>();
+
+  const { results: rumRows } = await c.env.DB.prepare(
+    `SELECT day, mode, pageviews, errors, lcp_p75_ms, cls_p75, error_pages_json
+     FROM rum_daily
+     WHERE site_id = ? AND day >= date('now', '-6 days')
+     ORDER BY day DESC`
+  )
+    .bind(siteId)
+    .all<{
+      day: string;
+      mode: string;
+      pageviews: number;
+      errors: number;
+      lcp_p75_ms: number | null;
+      cls_p75: number | null;
+      error_pages_json: string | null;
+    }>();
+
+  // Aggregate RUM per day across modes (sum views/errors, pick the dominant mode's vitals)
+  const rumByDay = new Map<
+    string,
+    { day: string; views: number; errors: number; lcpP75: number | null; clsP75: number | null }
+  >();
+  for (const r of rumRows) {
+    const agg =
+      rumByDay.get(r.day) || { day: r.day, views: 0, errors: 0, lcpP75: null, clsP75: null };
+    agg.views += r.pageviews || 0;
+    agg.errors += r.errors || 0;
+    if (r.lcp_p75_ms != null && agg.lcpP75 == null) agg.lcpP75 = r.lcp_p75_ms;
+    if (r.cls_p75 != null && agg.clsP75 == null) agg.clsP75 = r.cls_p75;
+    rumByDay.set(r.day, agg);
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      pages: pageRows.map((p) => ({
+        url: p.url,
+        path: (() => {
+          try {
+            return new URL(p.url).pathname;
+          } catch {
+            return p.url;
+          }
+        })(),
+        totalJobs: p.total_jobs,
+        completedJobs: p.completed_jobs,
+        failedJobs: p.failed_jobs,
+        lastRunAt: p.last_run_at,
+        lastRunRelative: p.last_run_at ? formatRelativeTime(p.last_run_at) : null,
+        cssAgeHours:
+          p.last_completed_at != null
+            ? Math.max(0, Math.round((Date.now() / 1000 - p.last_completed_at) / 3600))
+            : null,
+        criticalCssKb:
+          p.critical_css_bytes != null
+            ? Math.round((p.critical_css_bytes / 1024) * 10) / 10
+            : null,
+        lcpImageUrl: p.lcp_image_url || null,
+      })),
+      rum: Array.from(rumByDay.values()),
+    },
+  });
+});
+
+/**
  * Update Site Configuration
  * PUT /api/v1/sites/:site_id/config
  */

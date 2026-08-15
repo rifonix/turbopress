@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import { Play, RotateCcw, ExternalLink, AlertTriangle, AlertOctagon, Plus, Zap, ArrowRight } from 'lucide-react';
-import { ExtendedSite, AttentionItem } from '../types';
+import { ExtendedSite, AttentionItem, AttentionFeedData } from '../types';
+import { api } from '../services/api';
 
 interface OverviewTabProps {
   sites: ExtendedSite[];
@@ -27,8 +29,27 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   onRunOptimization,
   onToast,
 }) => {
+  const { getToken } = useAuth();
   const [sortKey, setSortKey] = useState<'domain' | 'score' | 'lcp' | 'cacheHitRate'>('score');
   const [sortDir, setSortDir] = useState<1 | -1>(-1); // Default descending score
+  const [attentionFeed, setAttentionFeed] = useState<AttentionFeedData | null>(null);
+
+  // Fetch the edge attention feed (failed jobs + health/auto-degrade warnings)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const data = await api.getAttention(token);
+        if (!cancelled) setAttentionFeed(data);
+      } catch {
+        // attention feed is supplementary
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
 
   // Calculate live aggregate KPI metrics (only from sites with real measurements)
   const scoredSites = sites.filter((s) => s.score != null);
@@ -70,6 +91,31 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         jobId: `job_${s.id.slice(-5)}`,
       };
     });
+
+  // Merge the edge attention feed (real failed jobs + health warnings) — dedup by id
+  if (attentionFeed) {
+    for (const w of attentionFeed.warnings) {
+      dynamicAttentionItems.push({
+        id: `warn-${w.siteId}-${w.kind}-${w.at || 0}`,
+        type: w.kind === 'auto_degrade' ? 'warn' : 'danger',
+        title: `${w.domain} — ${w.kind === 'auto_degrade' ? 'auto-protect stepped in' : 'health check failing'}`,
+        description: w.message,
+        domain: w.domain,
+        actionLabel: 'Open site',
+      });
+    }
+    for (const j of attentionFeed.jobs) {
+      dynamicAttentionItems.push({
+        id: `job-${j.id}`,
+        type: j.status === 'needs_attention' ? 'warn' : 'danger',
+        title: `${j.siteDomain} — ${j.status === 'needs_attention' ? 'job needs attention' : 'job failed'}`,
+        description: `${j.url} (${j.viewport}): ${j.errorMessage || 'unknown error'}`,
+        domain: j.siteDomain,
+        actionLabel: 'View jobs',
+        jobId: j.id,
+      });
+    }
+  }
 
   const handleSort = (key: 'domain' | 'score' | 'lcp' | 'cacheHitRate') => {
     if (sortKey === key) {

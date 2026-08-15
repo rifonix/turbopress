@@ -156,6 +156,19 @@ class HealthCheck {
             'checked_at' => time(),
             'checks' => $checks,
         ];
+
+        // Surface auto-degrade activity to the SaaS attention queue (E2).
+        $degrade = get_option(AutoDegrade::OPTION, []);
+        if (is_array($degrade) && !empty($degrade['at'])) {
+            $report['auto_degrade'] = [
+                'at' => (int) $degrade['at'],
+                'from' => (string) ($degrade['from'] ?? ''),
+                'to' => (string) ($degrade['to'] ?? ''),
+                'rate' => $degrade['rate'] ?? null,
+                'views' => (int) ($degrade['views'] ?? 0),
+            ];
+        }
+
         update_option(self::OPTION_KEY, $report);
 
         return $report;
@@ -195,6 +208,8 @@ class HealthCheck {
 
     /**
      * Push the latest report to the SaaS control plane (daily cron).
+     * Also carries the current deployment status so the dashboard can push
+     * Deploy/Test commands back through the heartbeat response.
      */
     public function push_to_edge(): void {
         if (!$this->config->is_connected()) {
@@ -206,7 +221,15 @@ class HealthCheck {
             return;
         }
 
-        $this->api_client->send_heartbeat($report);
+        $report['deployment'] = ['status' => $this->config->get('deployment.status', 'live')];
+
+        $result = $this->api_client->send_heartbeat($report);
+        if (!empty($result['success'])) {
+            $apply = $result['data']['apply'] ?? null;
+            if (is_array($apply['deployment'] ?? null)) {
+                ApiClient::apply_remote_deployment($this->config, $apply);
+            }
+        }
     }
 
     public static function get_latest(): array {

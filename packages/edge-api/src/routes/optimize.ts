@@ -197,6 +197,111 @@ optimizeRoutes.post('/dispatch', async (c) => {
 });
 
 /**
+ * Attention Queue: failed / needs_attention jobs + site health warnings
+ * GET /api/v1/optimize/attention
+ */
+optimizeRoutes.get('/attention', saasUserAuthMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+
+  const { results: jobs } = await c.env.DB.prepare(`
+    SELECT j.*, s.domain as site_domain
+    FROM optimization_jobs j
+    JOIN sites s ON j.site_id = s.id
+    WHERE s.user_id = ? AND j.status IN ('failed', 'needs_attention')
+    ORDER BY j.created_at DESC
+    LIMIT 50
+  `)
+    .bind(userId)
+    .all<{
+      id: string;
+      site_id: string;
+      site_domain: string;
+      url: string;
+      viewport: ViewportMode;
+      status: string;
+      error_message: string | null;
+      attempts: number;
+      created_at: number;
+    }>();
+
+  const { results: siteRows } = await c.env.DB.prepare(
+    `SELECT id, domain, health_json FROM sites
+     WHERE user_id = ? AND health_json IS NOT NULL
+     ORDER BY updated_at DESC LIMIT 100`
+  )
+    .bind(userId)
+    .all<{ id: string; domain: string; health_json: string | null }>();
+
+  const warnings: Array<{
+    siteId: string;
+    domain: string;
+    kind: 'auto_degrade' | 'health_error';
+    message: string;
+    at?: number;
+  }> = [];
+
+  const now = Math.floor(Date.now() / 1000);
+  for (const s of siteRows) {
+    if (!s.health_json) continue;
+    let health: any;
+    try {
+      health = JSON.parse(s.health_json);
+    } catch {
+      continue;
+    }
+
+    const degrade = health?.auto_degrade;
+    if (
+      degrade &&
+      typeof degrade.at === 'number' &&
+      now - degrade.at < 7 * 86400 &&
+      typeof degrade.from === 'string' &&
+      typeof degrade.to === 'string'
+    ) {
+      warnings.push({
+        siteId: s.id,
+        domain: s.domain,
+        kind: 'auto_degrade',
+        message: `Auto-protect stepped JavaScript mode down from "${degrade.from}" to "${degrade.to}"` +
+          (typeof degrade.rate === 'number' ? ` (error rate ${(degrade.rate * 100).toFixed(1)}%)` : ''),
+        at: degrade.at,
+      });
+    }
+
+    if (Array.isArray(health?.checks)) {
+      for (const check of health.checks) {
+        if (check?.status === 'error') {
+          warnings.push({
+            siteId: s.id,
+            domain: s.domain,
+            kind: 'health_error',
+            message: `${check.label || check.name || 'Health check'}: ${check.detail || 'failed'}`,
+          });
+        }
+      }
+    }
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      jobs: jobs.map((j) => ({
+        id: j.id,
+        siteId: j.site_id,
+        siteDomain: j.site_domain,
+        url: j.url,
+        viewport: j.viewport,
+        status: j.status,
+        errorMessage: j.error_message || null,
+        attempts: j.attempts,
+        createdAt: formatRelativeTime(j.created_at),
+      })),
+      warnings: warnings.slice(0, 50),
+    },
+  });
+});
+
+/**
  * Re-run an existing optimization job
  * POST /api/v1/optimize/jobs/:job_id/rerun
  */

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, RotateCw, Terminal } from 'lucide-react';
+import { Play, RotateCw, RefreshCw, Terminal } from 'lucide-react';
 import { OptimizationJobItem } from '../types';
 
 interface JobsTabProps {
@@ -21,6 +21,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [dispatchUrl, setDispatchUrl] = useState('');
   const [dispatchViewport, setDispatchViewport] = useState<'mobile' | 'desktop'>('mobile');
+  const [isRetryingAll, setIsRetryingAll] = useState(false);
 
   const filteredJobs = jobs.filter((j) => {
     if (filter === 'all') return true;
@@ -30,6 +31,18 @@ export const JobsTab: React.FC<JobsTabProps> = ({
     if (filter === 'needs_attention') return j.status === 'needs_attention';
     return true;
   });
+
+  const retryableJobs = filteredJobs.filter((j) => j.status === 'failed' || j.status === 'needs_attention');
+
+  const handleRetryAll = async () => {
+    if (retryableJobs.length === 0) return;
+    setIsRetryingAll(true);
+    for (const job of retryableJobs) {
+      onRerunJob(job.id);
+    }
+    onToast(`Re-dispatched ${retryableJobs.length} job${retryableJobs.length === 1 ? '' : 's'} to the queue`);
+    setIsRetryingAll(false);
+  };
 
   const handleDispatch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,20 +75,33 @@ export const JobsTab: React.FC<JobsTabProps> = ({
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-2 border-b border-[#e4e4e7] pb-1">
-        {(['all', 'completed', 'processing', 'failed', 'needs_attention'] as const).map((tab) => (
+      <div className="flex items-center justify-between gap-4 border-b border-[#e4e4e7] pb-1">
+        <div className="flex gap-2">
+          {(['all', 'completed', 'processing', 'failed', 'needs_attention'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setFilter(tab)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
+                filter === tab
+                  ? 'bg-[#171717] text-white'
+                  : 'text-[#71717a] hover:text-[#171717] hover:bg-[#f4f4f5]'
+              }`}
+            >
+              {tab === 'needs_attention' ? 'needs attention' : tab}
+            </button>
+          ))}
+        </div>
+        {retryableJobs.length > 0 && (
           <button
-            key={tab}
-            onClick={() => setFilter(tab)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
-              filter === tab
-                ? 'bg-[#171717] text-white'
-                : 'text-[#71717a] hover:text-[#171717] hover:bg-[#f4f4f5]'
-            }`}
+            onClick={handleRetryAll}
+            disabled={isRetryingAll}
+            className="btn btn-secondary text-xs py-1.5 px-3 flex-none"
+            title="Re-run every failed / needs-attention job in the current view"
           >
-            {tab}
+            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isRetryingAll ? 'animate-spin' : ''}`} />
+            <span>{isRetryingAll ? 'Retrying…' : `Retry All (${retryableJobs.length})`}</span>
           </button>
-        ))}
+        )}
       </div>
 
       {/* Jobs Table */}

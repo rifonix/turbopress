@@ -62,6 +62,57 @@ export interface AttentionItem {
   jobId?: string;
 }
 
+export interface SitePageItem {
+  url: string;
+  path: string;
+  totalJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+  lastRunAt: number;
+  lastRunRelative: string | null;
+  cssAgeHours: number | null;
+  criticalCssKb: number | null;
+  lcpImageUrl: string | null;
+}
+
+export interface RumDay {
+  day: string;
+  views: number;
+  errors: number;
+  lcpP75: number | null;
+  clsP75: number | null;
+}
+
+export interface SitePagesData {
+  pages: SitePageItem[];
+  rum: RumDay[];
+}
+
+export interface AttentionJobItem {
+  id: string;
+  siteId: string;
+  siteDomain: string;
+  url: string;
+  viewport: 'mobile' | 'desktop';
+  status: 'failed' | 'needs_attention';
+  errorMessage: string | null;
+  attempts: number;
+  createdAt: string;
+}
+
+export interface AttentionWarningItem {
+  siteId: string;
+  domain: string;
+  kind: 'auto_degrade' | 'health_error';
+  message: string;
+  at?: number;
+}
+
+export interface AttentionFeedData {
+  jobs: AttentionJobItem[];
+  warnings: AttentionWarningItem[];
+}
+
 export interface ToastMessage {
   id: string;
   text: string;

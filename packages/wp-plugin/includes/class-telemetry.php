@@ -24,7 +24,50 @@ class Telemetry {
                 'permission_callback' => '__return_true',
                 'callback' => [self::class, 'handle_beacon'],
             ]);
+            register_rest_route(self::ROUTE_NAMESPACE, '/revalidate', [
+                'methods' => 'POST',
+                'permission_callback' => '__return_true',
+                'callback' => [self::class, 'handle_revalidate'],
+            ]);
         });
+    }
+
+    /**
+     * D1 stale-while-revalidate partner: the beacon appended to stale
+     * entries hits this endpoint. Throttled to one loopback per path per
+     * minute; the loopback carries X-Turbopress-Revalidate so the drop-in
+     * skips serving and WordPress writes a fresh entry.
+     */
+    public static function handle_revalidate(\WP_REST_Request $request) {
+        $payload = json_decode($request->get_body(), true);
+        $path = is_array($payload) ? (string) ($payload['p'] ?? '') : '';
+
+        if (
+            $path === '' || $path[0] !== '/' || strlen($path) > 2048
+            || stripos($path, '://') !== false || str_contains($path, '..')
+        ) {
+            return new \WP_REST_Response(['success' => false], 400);
+        }
+
+        // Collapse revalidate storms (every stale pageview beacons).
+        $throttle_key = 'tp_reval_' . md5($path);
+        if (get_transient($throttle_key)) {
+            return new \WP_REST_Response(['success' => true]);
+        }
+        set_transient($throttle_key, 1, MINUTE_IN_SECONDS);
+
+        // Non-blocking loopback render: returns immediately, the request
+        // finishes in its own PHP process.
+        wp_remote_get(home_url($path), [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'headers' => [
+                'X-Turbopress-Revalidate' => '1',
+                'Cache-Control' => 'no-cache',
+            ],
+        ]);
+
+        return new \WP_REST_Response(['success' => true]);
     }
 
     /**

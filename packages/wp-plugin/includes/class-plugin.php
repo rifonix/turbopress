@@ -56,6 +56,15 @@ class Plugin {
         // Initialize Cache Purger hooks
         $this->cache_purger->init();
 
+        // D4: extend nonce lifetime to the cache TTL on every
+        // visitor-facing request (generation and verification stay
+        // consistent — cached pages keep working even when the hydrator
+        // can't run, e.g. JS disabled).
+        if (!is_admin()) {
+            $nonce_ttl = max(DAY_IN_SECONDS, (int) $this->config->get('caching.ttl', 604800));
+            add_filter('nonce_life', static fn(int $life): int => max($life, $nonce_ttl));
+        }
+
         // Drop-in conflict detection + foreign purge mirroring
         $this->cache_integration->init();
 
