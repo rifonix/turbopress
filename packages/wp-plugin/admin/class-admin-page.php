@@ -136,7 +136,10 @@ class AdminPage {
     }
 
     public function enqueue_assets(string $hook): void {
-        if (strpos($hook, 'turbopress') === false) {
+        // Menu titles are 'Turbopress' (capital T) — the top-level hook is
+        // `toplevel_page_Turbopress`, so this must be case-insensitive or
+        // the stylesheet silently never loads on the dashboard page.
+        if (stripos($hook, 'turbopress') === false) {
             return;
         }
 

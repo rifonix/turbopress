@@ -209,6 +209,46 @@ function EmbedPanel() {
     return () => clearInterval(t);
   }, [activeJobs, load]);
 
+  /* Group jobs by URL for the Optimized Pages view. Hooks must all run
+   * before any early return, so this lives here — not below the guards. */
+  const pages: OptimizedPage[] = useMemo(() => {
+    const byUrl = new Map<string, OptimizedPage>();
+    for (const job of data?.jobs || []) {
+      let entry = byUrl.get(job.url);
+      if (!entry) {
+        let path = job.url;
+        try { path = new URL(job.url).pathname || '/'; } catch { /* keep raw */ }
+        entry = {
+          url: job.url,
+          path,
+          lastCompleted: null,
+          pending: false,
+          failing: false,
+          viewports: {},
+          lastError: null,
+        };
+        byUrl.set(job.url, entry);
+      }
+      if (job.status === 'queued' || job.status === 'processing') entry.pending = true;
+      if (job.status === 'failed' || job.status === 'needs_attention') {
+        entry.failing = true;
+        if (job.error_message) entry.lastError = job.error_message;
+      }
+      if (job.status === 'completed') {
+        const at = job.completed_at || job.created_at;
+        if (!entry.viewports[job.viewport] || (entry.viewports[job.viewport].at ?? 0) < at) {
+          entry.viewports[job.viewport] = {
+            bytes: job.critical_css_bytes,
+            lcpSelector: job.lcp_selector,
+            at,
+          };
+        }
+        if (!entry.lastCompleted || entry.lastCompleted < at) entry.lastCompleted = at;
+      }
+    }
+    return [...byUrl.values()].sort((a, b) => (b.lastCompleted ?? 0) - (a.lastCompleted ?? 0));
+  }, [data?.jobs]);
+
   const upsert = (path: string, value: any) => {
     setConfig((c) => (c ? setPath(c, path, value) : c));
     setDirty(true);
@@ -224,8 +264,8 @@ function EmbedPanel() {
     const preset = PRESETS_RECORD[id];
     if (!preset) return;
     let next: Record<string, any> = { ...preset, preset: id };
-    // Keep deployment decisions + any custom exclusion lists not part of
-    // the preset UX (urls/cookies) from the current config.
+    // Keep deployment decisions from the current config — deploy is a
+    // separate, explicit action.
     if (config.deployment) next.deployment = { ...config.deployment };
     setConfig(next);
     setDirty(true);
@@ -358,53 +398,13 @@ function EmbedPanel() {
   const isTest = deploymentStatus === 'test';
   const previewUrl = `https://${data.site.domain}/?tp_preview=1`;
   const preset: string = config.preset || 'ludicrous';
+  const offloadLog = data.offloadLog || [];
 
   const presets: Array<{ id: string; name: string; desc: string }> = [
     { id: 'safe', name: 'Safe', desc: 'Caching + minify only. No JS deferral.' },
     { id: 'aggressive', name: 'Aggressive', desc: 'Defer all JS, combine CSS, proxy assets.' },
     { id: 'ludicrous', name: 'Ludicrous', desc: 'Everything + delay-until-interaction JS.' },
   ];
-
-  /* Group jobs by URL for the Optimized Pages view. */
-  const pages: OptimizedPage[] = useMemo(() => {
-    const byUrl = new Map<string, OptimizedPage>();
-    for (const job of data.jobs || []) {
-      let entry = byUrl.get(job.url);
-      if (!entry) {
-        let path = job.url;
-        try { path = new URL(job.url).pathname || '/'; } catch { /* keep raw */ }
-        entry = {
-          url: job.url,
-          path,
-          lastCompleted: null,
-          pending: false,
-          failing: false,
-          viewports: {},
-          lastError: null,
-        };
-        byUrl.set(job.url, entry);
-      }
-      if (job.status === 'queued' || job.status === 'processing') entry.pending = true;
-      if (job.status === 'failed' || job.status === 'needs_attention') {
-        entry.failing = true;
-        if (job.error_message) entry.lastError = job.error_message;
-      }
-      if (job.status === 'completed') {
-        const at = job.completed_at || job.created_at;
-        if (!entry.viewports[job.viewport] || (entry.viewports[job.viewport].at ?? 0) < at) {
-          entry.viewports[job.viewport] = {
-            bytes: job.critical_css_bytes,
-            lcpSelector: job.lcp_selector,
-            at,
-          };
-        }
-        if (!entry.lastCompleted || entry.lastCompleted < at) entry.lastCompleted = at;
-      }
-    }
-    return [...byUrl.values()].sort((a, b) => (b.lastCompleted ?? 0) - (a.lastCompleted ?? 0));
-  }, [data.jobs]);
-
-  const offloadLog = data.offloadLog || [];
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#18181b]">

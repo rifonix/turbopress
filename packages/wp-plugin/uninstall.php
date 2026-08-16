@@ -83,7 +83,7 @@ if (is_dir($turbopress_cache_dir)) {
 
 // Our advanced-cache drop-in (only when the checksum matches ours).
 $turbopress_dropin = WP_CONTENT_DIR . '/advanced-cache.php';
-$turbopress_source = dirname(__DIR__) . '/advanced-cache.php';
+$turbopress_source = __DIR__ . '/advanced-cache.php';
 if (file_exists($turbopress_dropin) && file_exists($turbopress_source)) {
     if (md5_file($turbopress_dropin) === md5_file($turbopress_source)) {
         @unlink($turbopress_dropin);
