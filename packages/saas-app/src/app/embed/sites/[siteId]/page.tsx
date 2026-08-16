@@ -99,28 +99,89 @@ function Toggle({
   );
 }
 
-/** One-exclusion-per-line textarea bound to a string[] config path. */
+/**
+ * One-exclusion-per-line textarea bound to a string[] config path.
+ * When the site's plugin catalog is available, a picker lets the user
+ * exclude every asset of an installed plugin in one click (appends the
+ * `/plugins/{slug}/` substring token); free-form lines cover custom
+ * keywords, URL fragments and paths.
+ */
 function ListField({
-  value, onChange, label, hint, placeholder,
+  value, onChange, label, hint, placeholder, plugins,
 }: {
   value: string[];
   onChange: (v: string[]) => void;
   label: string;
   hint?: string;
   placeholder?: string;
+  plugins?: Record<string, string>;
 }) {
+  const entries = value || [];
+  const pluginToken = (slug: string) => `/plugins/${slug}/`;
+  const addedSlugs = new Set(
+    entries
+      .map((e) => /^\/plugins\/([^/]+)\/?$/.exec(e.trim())?.[1])
+      .filter(Boolean) as string[]
+  );
+  const availablePlugins = Object.entries(plugins || {})
+    .filter(([slug]) => !addedSlugs.has(slug))
+    .sort((a, b) => a[1].localeCompare(b[1]));
+
+  const addPlugin = (slug: string) => {
+    if (!slug || addedSlugs.has(slug)) return;
+    onChange([...entries, pluginToken(slug)]);
+  };
+
   return (
     <div className="py-2.5">
       <span className="block text-[13px] font-medium text-[#18181b]">{label}</span>
       {hint && <span className="block text-[11px] text-[#71717a] mt-0.5 leading-snug">{hint}</span>}
+
+      {availablePlugins.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => addPlugin(e.target.value)}
+          className="mt-1.5 w-full rounded-lg border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[11px] text-[#3f3f46] focus:outline-none focus:border-[#f03e2f]"
+        >
+          <option value="">+ Exclude all assets of an installed plugin…</option>
+          {availablePlugins.map(([slug, name]) => (
+            <option key={slug} value={slug}>{name} ({slug})</option>
+          ))}
+        </select>
+      )}
+
+      {addedSlugs.size > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
+          {[...addedSlugs].map((slug) => (
+            <span
+              key={slug}
+              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-[#fff8f7] border border-[#fecaca] text-[10px] font-semibold text-[#b42318]"
+            >
+              {(plugins || {})[slug] || slug}
+              <button
+                type="button"
+                onClick={() => onChange(entries.filter((e) => e.trim() !== pluginToken(slug)))}
+                className="w-4 h-4 grid place-items-center rounded-full hover:bg-[#fecaca] text-[#71717a]"
+                title="Remove"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <textarea
         rows={3}
         spellCheck={false}
         placeholder={placeholder}
-        value={(value || []).join('\n')}
+        value={entries.join('\n')}
         onChange={(e) => onChange(e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
         className="mt-1.5 w-full rounded-lg border border-[#e4e4e7] px-2.5 py-2 text-[11px] font-mono text-[#3f3f46] focus:outline-none focus:border-[#f03e2f] resize-y"
       />
+      <span className="block text-[10px] text-[#a1a1aa] mt-1">
+        Entries match by substring — file name, URL fragment or path segment.
+      </span>
     </div>
   );
 }
@@ -542,6 +603,8 @@ function EmbedPanel() {
   const previewUrl = `https://${data.site.domain}/?tp_preview=1`;
   const preset: string = config.preset || 'ludicrous';
   const offloadLog = data.offloadLog || [];
+  const sitePlugins: Record<string, string> =
+    ((data.health?.site_context as SiteContext | undefined)?.plugins) || {};
 
   const presets: Array<{ id: string; name: string; desc: string }> = [
     { id: 'safe', name: 'Safe', desc: 'Caching + minify only. No JS deferral.' },
@@ -673,6 +736,7 @@ function EmbedPanel() {
               label="Excluded stylesheets"
               hint="Never combine/defer sheets whose URL contains any of these (one per line)"
               placeholder={'elementor/post-123\nwp-includes/block-library'}
+              plugins={sitePlugins}
               value={getPath(config, 'critical_css.excluded_stylesheets') || []}
               onChange={(v) => upsert('critical_css.excluded_stylesheets', v)}
             />
@@ -720,6 +784,7 @@ function EmbedPanel() {
               label="Script exclusions"
               hint="Scripts that must run before first interaction — only applies in Delay mode (one per line)"
               placeholder={'cookiebot\nstripe.js'}
+              plugins={sitePlugins}
               value={getPath(config, 'javascript.exclusions') || []}
               onChange={(v) => upsert('javascript.exclusions', v)}
             />
@@ -736,6 +801,7 @@ function EmbedPanel() {
               label="Excluded images"
               hint="Image URLs never offload/lazy-load (one per line)"
               placeholder={'wp-content/uploads/logo.png'}
+              plugins={sitePlugins}
               value={getPath(config, 'media.excluded_images') || []}
               onChange={(v) => upsert('media.excluded_images', v)}
             />
