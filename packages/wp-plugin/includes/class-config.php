@@ -16,7 +16,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.7.0';
+    public const CONFIG_VERSION = '1.8.0';
 
     private array $data = [];
 
@@ -116,6 +116,19 @@ class Config {
         // 1.7.0 adds css.inline_all*, assets.*, htaccess.* and the 320px
         // media width — pure defaults additions handled by the merge; no
         // persisted values need rewriting.
+
+        if (version_compare($stored_version, '1.8.0', '<')) {
+            // v1.7.0 shipped a 150KB inline threshold; typical Elementor
+            // sites (40+ sheets, ~500KB) fell through to Tier 2 critical
+            // CSS + async deferral, where incomplete pseudo-element
+            // (::before/::after overlay) extraction visibly broke styling.
+            // Inline-all is safe (page-cache brotli keeps the wire small),
+            // so raise the ceiling to 512KB unless the site tuned it.
+            $current_threshold = (int) ($this->data['css']['inline_all_threshold'] ?? 0);
+            if ($current_threshold === 153600) {
+                $this->data['css']['inline_all_threshold'] = 524288;
+            }
+        }
 
         update_option(self::OPTION_KEY, $this->data);
     }

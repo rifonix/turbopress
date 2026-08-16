@@ -71,6 +71,15 @@ class Handshake {
         $verify = $api_client->verify_connection();
 
         if ($verify['success']) {
+            // Set-and-forget kickoff: now that the site is connected,
+            // immediately queue the first optimization pass (edge critical
+            // CSS + LCP measurement for the homepage) and nudge the media
+            // offload worker so R2 derivatives start generating in the
+            // background without any manual action.
+            wp_schedule_single_event(time() + 10, 'turbopress_async_optimize', ['url' => home_url('/'), 'attempt' => 1]);
+            wp_schedule_single_event(time() + 60, 'turbopress_media_offload', []);
+            spawn_cron();
+
             // Clean redirect back to main settings page with success flag
             wp_safe_redirect(add_query_arg(['page' => 'turbopress', 'connected' => '1'], admin_url('admin.php')));
             exit;

@@ -32,4 +32,5 @@ export interface AppVariables {
   siteConfig?: SiteConfig;
   userId?: string;
   userEmail?: string;
+  embedSite?: Record<string, unknown>;
 }

@@ -88,6 +88,29 @@ class AdminPage {
         $health = HealthCheck::get_latest();
         $cache_status = CacheIntegration::get_status();
 
+        // View mode: embedded SaaS dashboard (default) or local controls.
+        $user_id = get_current_user_id();
+        if (isset($_GET['tp_view']) && in_array($_GET['tp_view'], ['dashboard', 'local'], true)) {
+            update_user_meta($user_id, 'turbopress_view_mode', sanitize_key($_GET['tp_view']));
+            wp_safe_redirect(remove_query_arg('tp_view'));
+            exit;
+        }
+        $view_mode = get_user_meta($user_id, 'turbopress_view_mode', true);
+        if ($view_mode !== 'local') {
+            $view_mode = 'dashboard';
+        }
+
+        // Signed embed token: siteId.expiry.hmac(callback_secret). The edge
+        // verifies it, so the iframe needs no Clerk session and no API key
+        // exposure in the browser.
+        $embed_url = '';
+        if ($is_connected && $site_id) {
+            $exp = time() + HOUR_IN_SECONDS;
+            $sig = hash_hmac('sha256', $site_id . '.' . $exp, Config::get_callback_secret_static());
+            $embed_url = rtrim($this->config->get_api_url(), '/') . '/embed/sites/' . rawurlencode($site_id) . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
+        }
+        $switch_url = add_query_arg(['page' => 'turbopress', 'tp_view' => $view_mode === 'dashboard' ? 'local' : 'dashboard'], admin_url('admin.php'));
+
         ?>
         <div class="wrap turbopress-admin-wrap">
             <div class="tp-header">
@@ -97,6 +120,9 @@ class AdminPage {
                     <p class="tp-subtitle">High-performance zero-DNS edge optimization & dynamic DOM transformation</p>
                 </div>
                 <div class="tp-header-actions">
+                    <?php if ($is_connected && $view_mode === 'local'): ?>
+                        <a href="<?php echo esc_url($switch_url); ?>" class="button button-secondary">🚀 Open Cloud Dashboard</a>
+                    <?php endif; ?>
                     <button type="button" id="tp-purge-cache-btn" class="button button-secondary">
                         🧹 Purge Static Cache
                     </button>
@@ -124,6 +150,29 @@ class AdminPage {
                     </div>
                 </div>
             </div>
+
+            <?php if ($is_connected && $view_mode === 'dashboard' && $embed_url !== ''): ?>
+                <!-- Embedded SaaS control panel: every optimization control,
+                     live jobs, deploy/purge — pushed to the plugin instantly
+                     through the signed command channel. -->
+                <div class="tp-card" style="padding:0;overflow:hidden;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #e4e4e7;background:#fafafa;">
+                        <strong style="font-size:13px;">🚀 Turbopress Control Panel</strong>
+                        <a href="<?php echo esc_url($switch_url); ?>" class="button button-small" style="text-decoration:none;">Use local controls instead</a>
+                    </div>
+                    <iframe
+                        src="<?php echo esc_url($embed_url); ?>"
+                        style="width:100%;height:1600px;border:0;display:block;background:#fafafa;"
+                        loading="lazy"
+                        title="Turbopress Control Panel"
+                    ></iframe>
+                </div>
+                <p class="description" style="margin:8px 4px 24px;">
+                    The embedded panel is the full web-app experience for this site. Changes you save there are applied to this WordPress site instantly.
+                </p>
+                </div><?php // close .wrap early — dashboard view ?>
+                <?php return; ?>
+            <?php endif; ?>
 
             <!-- Master Preset Selector -->
             <div class="tp-card">

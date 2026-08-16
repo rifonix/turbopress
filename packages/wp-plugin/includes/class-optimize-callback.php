@@ -63,6 +63,36 @@ class OptimizeCallback {
             return ['success' => true, 'command' => 'deploy', 'status' => $status];
         }
 
+        // Config push from the dashboard (embed or web app): merge the
+        // validated SiteConfig over the stored one so a dashboard save
+        // reaches the plugin instantly (verify/heartbeat remain the
+        // convergence fallbacks).
+        if (($payload['command'] ?? '') === 'config') {
+            $incoming = $payload['config'] ?? null;
+            if (!is_array($incoming)) {
+                return new \WP_Error('turbopress_invalid_config', 'Missing config payload', ['status' => 400]);
+            }
+            $config = new Config();
+            $current = $config->get_all();
+            if (!is_array($current)) {
+                $current = [];
+            }
+            // Recursive merge keeps keys the dashboard payload omits;
+            // save() re-applies defaults + bumps the version.
+            $config->save(array_replace_recursive($current, $incoming));
+
+            CacheManager::purge_all_static();
+            CacheIntegration::purge_foreign_caches('all');
+            return ['success' => true, 'command' => 'config'];
+        }
+
+        // Purge push from the dashboard.
+        if (($payload['command'] ?? '') === 'purge') {
+            CacheManager::purge_all_static();
+            CacheIntegration::purge_foreign_caches('all');
+            return ['success' => true, 'command' => 'purge'];
+        }
+
         $url = isset($payload['url']) ? esc_url_raw((string) $payload['url']) : '';
         $viewport = isset($payload['viewport']) ? (string) $payload['viewport'] : '';
         $css = isset($payload['css']) ? (string) $payload['css'] : '';

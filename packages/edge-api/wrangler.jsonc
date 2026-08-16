@@ -73,6 +73,10 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev"
+    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev",
+    // OpenNext serves the SaaS app from this worker and reads these at
+    // runtime (process.env population), so they must exist as worker vars.
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk",
+    "NEXT_PUBLIC_API_BASE_URL": "https://turbopress.webaccessibility.workers.dev"
   }
 }

@@ -9,6 +9,7 @@ import { siteRoutes } from './routes/sites.js';
 import { optimizeRoutes } from './routes/optimize.js';
 import { billingRoutes } from './routes/billing.js';
 import { assetRoutes } from './routes/assets.js';
+import { embedRoutes } from './routes/embed.js';
 import { processOptimizationQueue } from './services/queue-consumer.js';
 
 // @ts-ignore - OpenNext worker handler generated during build
@@ -55,6 +56,7 @@ app.route('/api/v1/sites', siteRoutes);
 app.route('/api/v1/optimize', optimizeRoutes);
 app.route('/api/v1/billing', billingRoutes);
 app.route('/api/v1/assets', assetRoutes);
+app.route('/api/v1/embed', embedRoutes);
 
 // Export Cloudflare Worker Handlers
 export default {
