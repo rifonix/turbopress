@@ -16,7 +16,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.8.0';
+    public const CONFIG_VERSION = '1.10.0';
 
     private array $data = [];
 
@@ -128,6 +128,25 @@ class Config {
             if ($current_threshold === 153600) {
                 $this->data['css']['inline_all_threshold'] = 524288;
             }
+        }
+
+        if (version_compare($stored_version, '1.10.0', '<')) {
+            // PresetEngine auto-exclusions (retired in v1.10.0) persisted
+            // builder/form keywords into javascript.exclusions. In
+            // interaction_delay mode those keywords matched the builder's
+            // script ids/srcs, leaving them synchronous against the
+            // loader's jQuery stub — broken menus, sticky headers and
+            // "elementorModules is not defined" chains. Strip every
+            // auto-added keyword; user-managed exclusions (consent,
+            // payments, cart fragments) never match these prefixes.
+            $this->data['javascript']['exclusions'] = array_values(array_filter(
+                (array) ($this->data['javascript']['exclusions'] ?? []),
+                static fn($ex): bool => !preg_match(
+                    '/^(?:elementor|elementor-|divi|et_pb_|bricks|wpcf7|contact-form-7|gravityforms|gform|wpforms)/i',
+                    (string) $ex
+                )
+                && !in_array(strtolower((string) $ex), ['woocommerce', 'woocommerce-gateway-stripe'], true)
+            ));
         }
 
         update_option(self::OPTION_KEY, $this->data);
@@ -277,7 +296,7 @@ class Config {
                 'minify' => true,
                 'max_files' => 40,
                 'inline_all' => $preset !== 'safe',
-                'inline_all_threshold' => 153600 // 150KB raw (~25KB brotli on the wire)
+                'inline_all_threshold' => 524288 // 512KB raw (~60-80KB brotli on the wire)
             ],
             'assets' => [
                 // Generic 3rd-party asset proxy: foreign css/js (unpkg,
@@ -331,6 +350,14 @@ class Config {
             'hints' => [
                 // Auto preconnect/dns-prefetch for detected 3rd-party origins.
                 'resource_hints' => true
+            ],
+            'plugins' => [
+                // Per-post-type plugin asset control: on pages of a given
+                // post type, every <script src> / <link href> coming from
+                // /plugins/{slug}/ is stripped entirely. '*' applies to all
+                // pages. Big-plugin-on-small-page wins without disabling
+                // the plugin site-wide.
+                'unload_rules' => []
             ],
             'deployment' => [
                 // Test Mode: fresh installs serve visitors UNOPTIMIZED while

@@ -87,9 +87,17 @@ class MediaOffloader {
             ) ?? $html;
 
             // CSS background images inside inline styles (Elementor classic backgrounds).
+            // IMAGES ONLY: a bare url() match also hits @font-face sources —
+            // rewriting a font to a worker URL breaks it twice (the MISS
+            // redirect makes the font fetch cross-origin, which requires
+            // CORS headers the origin never sends, and f=webp conversion
+            // is meaningless for fonts).
             $html = preg_replace_callback(
                 '/url\((["\']?)(https?:\/\/[^"\')\s]+)\1\)/i',
                 function ($m) use ($excluded, $widths, $max_w, &$queued) {
+                    if (!preg_match('#\.(?:png|jpe?g|webp|gif|svg|avif)(?:[?#]|$)#i', $m[2])) {
+                        return $m[0]; // fonts, icons-as-font, video posters, etc.
+                    }
                     $new = $this->rewrite_source($m[2], $max_w, 'webp', $excluded, $queued);
                     return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
                 },

@@ -45,6 +45,12 @@ export interface HtaccessConfig {
   brotli_filters: boolean; // AddOutputFilterByType BROTLI_COMPRESS when mod_brotli present
 }
 
+export interface PluginsConfig {
+  /** post type (or '*' for all pages) => plugin slugs whose css/js are
+   *  stripped from pages of that type */
+  unload_rules: Record<string, string[]>;
+}
+
 export interface JavascriptConfig {
   execution_mode: 'none' | 'defer' | 'interaction_delay';
   delay_timeout_ms: number; // default 3500ms
@@ -103,6 +109,7 @@ export interface SiteConfig {
   css?: CssConfig;
   assets?: AssetsConfig;
   htaccess?: HtaccessConfig;
+  plugins?: PluginsConfig;
   javascript: JavascriptConfig;
   fonts?: FontsConfig;
   hints?: HintsConfig;

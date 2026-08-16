@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import {
   Zap, Globe, RefreshCw, Trash2, Play, Save, CheckCircle2, XCircle,
   Loader2, ShieldCheck, FlaskConical, Activity, ExternalLink, FileText,
-  HardDriveDownload, Eye, AlertTriangle,
+  HardDriveDownload, Eye, AlertTriangle, Layers, ChevronDown,
 } from 'lucide-react';
 import { PRESETS_RECORD } from '@turbopress/shared';
 
@@ -33,6 +33,11 @@ interface OffloadLogEntry {
   w: number;
   f: string;
   status: string;
+}
+
+interface SiteContext {
+  post_types?: Array<{ name: string; label: string }>;
+  plugins?: Record<string, string>;
 }
 
 interface EmbedData {
@@ -94,6 +99,32 @@ function Toggle({
   );
 }
 
+/** One-exclusion-per-line textarea bound to a string[] config path. */
+function ListField({
+  value, onChange, label, hint, placeholder,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  label: string;
+  hint?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className="py-2.5">
+      <span className="block text-[13px] font-medium text-[#18181b]">{label}</span>
+      {hint && <span className="block text-[11px] text-[#71717a] mt-0.5 leading-snug">{hint}</span>}
+      <textarea
+        rows={3}
+        spellCheck={false}
+        placeholder={placeholder}
+        value={(value || []).join('\n')}
+        onChange={(e) => onChange(e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
+        className="mt-1.5 w-full rounded-lg border border-[#e4e4e7] px-2.5 py-2 text-[11px] font-mono text-[#3f3f46] focus:outline-none focus:border-[#f03e2f] resize-y"
+      />
+    </div>
+  );
+}
+
 function Card({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-white border border-[#e4e4e7] rounded-2xl p-5 shadow-sm">
@@ -118,6 +149,99 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${map[status] || 'bg-[#f4f4f5] text-[#52525b]'}`}>
       {status.replace('_', ' ')}
     </span>
+  );
+}
+
+/**
+ * Per-post-type plugin asset unloading: check which plugins' css/js should
+ * be stripped from pages of each post type. '*' applies to every page.
+ * Built from the plugin's health-report site context (post types + active
+ * plugins with their slugs).
+ */
+function PluginControlCard({
+  siteContext, unloadRules, onChange,
+}: {
+  siteContext: SiteContext;
+  unloadRules: Record<string, string[]>;
+  onChange: (rules: Record<string, string[]>) => void;
+}) {
+  const postTypes: Array<{ name: string; label: string }> = [
+    { name: '*', label: 'All pages' },
+    ...(siteContext.post_types || []),
+  ];
+  const plugins = Object.entries(siteContext.plugins || {}).sort((a, b) => a[1].localeCompare(b[1]));
+  const [openType, setOpenType] = React.useState<string | null>(null);
+
+  if (plugins.length === 0) {
+    return (
+      <div className="bg-white border border-[#e4e4e7] rounded-2xl p-5 shadow-sm text-xs text-[#71717a]">
+        Plugin asset control unlocks once the plugin sends its first health report (a few minutes after connecting).
+      </div>
+    );
+  }
+
+  const toggleRule = (pt: string, slug: string) => {
+    const current = new Set(unloadRules[pt] || []);
+    if (current.has(slug)) current.delete(slug);
+    else current.add(slug);
+    const next = { ...unloadRules };
+    if (current.size === 0) delete next[pt];
+    else next[pt] = [...current];
+    onChange(next);
+  };
+
+  const countFor = (pt: string) => (unloadRules[pt] || []).length;
+
+  return (
+    <div className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-5 py-3 border-b border-[#e4e4e7] flex items-center gap-2">
+        <span className="text-[#f03e2f]"><Layers className="w-4 h-4" /></span>
+        <h3 className="text-sm font-semibold text-[#18181b]">Plugin Asset Control</h3>
+        <span className="text-[11px] text-[#71717a]">
+          Strip the css &amp; js of plugins a page doesn&apos;t use — big wins when many plugins are active.
+        </span>
+      </div>
+      <div className="divide-y divide-[#f4f4f5]">
+        {postTypes.map((pt) => {
+          const open = openType === pt.name;
+          const rules = new Set(unloadRules[pt.name] || []);
+          return (
+            <div key={pt.name}>
+              <button
+                onClick={() => setOpenType(open ? null : pt.name)}
+                className="w-full px-5 py-3 flex items-center gap-3 hover:bg-[#fafafa] text-left"
+              >
+                <span className="text-[13px] font-medium flex-1">{pt.label}</span>
+                {countFor(pt.name) > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-[#fff8f7] text-[#f03e2f] text-[10px] font-bold">
+                    {countFor(pt.name)} unloaded
+                  </span>
+                )}
+                <ChevronDown className={`w-4 h-4 text-[#71717a] transition-transform ${open ? 'rotate-180' : ''}`} />
+              </button>
+              {open && (
+                <div className="px-5 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {plugins.map(([slug, name]) => (
+                    <label key={slug} className="flex items-center gap-2 py-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rules.has(slug)}
+                        onChange={() => toggleRule(pt.name, slug)}
+                        className="accent-[#f03e2f] w-3.5 h-3.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-[12px] text-[#18181b] truncate">{name}</span>
+                        <span className="block text-[10px] text-[#a1a1aa] font-mono truncate">{slug}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -436,7 +560,7 @@ function EmbedPanel() {
             </div>
           </div>
 
-          {isTest && (
+          {isTest ? (
             <button
               onClick={() => setDeployment('live')}
               disabled={saving}
@@ -444,7 +568,24 @@ function EmbedPanel() {
             >
               <ShieldCheck className="w-3.5 h-3.5" /> Deploy to Visitors
             </button>
+          ) : (
+            <button
+              onClick={() => setDeployment('test')}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#e4e4e7] hover:bg-[#fafafa] text-xs font-semibold disabled:opacity-50"
+              title="Visitors will see the unoptimized site while you test"
+            >
+              <FlaskConical className="w-3.5 h-3.5" /> Revert to Test
+            </button>
           )}
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#e4e4e7] hover:bg-[#fafafa] text-xs font-semibold"
+          >
+            <Eye className="w-3.5 h-3.5" /> Preview
+          </a>
           <button
             onClick={dispatch}
             disabled={busy === 'dispatch'}
@@ -509,6 +650,13 @@ function EmbedPanel() {
             <Toggle label="Inline critical CSS" checked={!!getPath(config, 'critical_css.inline')} onChange={(v) => upsert('critical_css.inline', v)} />
             <Toggle label="Async load full CSS" hint="Load remaining CSS after first paint (Tier 2 sites)" checked={!!getPath(config, 'critical_css.async_load_full')} onChange={(v) => upsert('critical_css.async_load_full', v)} />
             <Toggle label="Font display swap" checked={!!getPath(config, 'critical_css.font_display_swap')} onChange={(v) => upsert('critical_css.font_display_swap', v)} />
+            <ListField
+              label="Excluded stylesheets"
+              hint="Never combine/defer sheets whose URL contains any of these (one per line)"
+              placeholder={'elementor/post-123\nwp-includes/block-library'}
+              value={getPath(config, 'critical_css.excluded_stylesheets') || []}
+              onChange={(v) => upsert('critical_css.excluded_stylesheets', v)}
+            />
           </Card>
 
           <Card title="CSS Delivery" icon={<Activity className="w-4 h-4" />}>
@@ -549,6 +697,13 @@ function EmbedPanel() {
               />
             </div>
             <Toggle label="Remove jQuery Migrate" checked={!!getPath(config, 'javascript.remove_jquery_migrate')} onChange={(v) => upsert('javascript.remove_jquery_migrate', v)} />
+            <ListField
+              label="Script exclusions"
+              hint="Scripts that must run before first interaction — only applies in Delay mode (one per line)"
+              placeholder={'cookiebot\nstripe.js'}
+              value={getPath(config, 'javascript.exclusions') || []}
+              onChange={(v) => upsert('javascript.exclusions', v)}
+            />
           </Card>
 
           <Card title="Media & R2 Offload" icon={<Globe className="w-4 h-4" />}>
@@ -558,6 +713,13 @@ function EmbedPanel() {
             <Toggle label="Lazy-load iframes" checked={!!getPath(config, 'media.lazyload_iframes')} onChange={(v) => upsert('media.lazyload_iframes', v)} />
             <Toggle label="Preload LCP image" checked={!!getPath(config, 'media.preload_lcp_image')} onChange={(v) => upsert('media.preload_lcp_image', v)} />
             <Toggle label="fetchpriority on LCP" checked={!!getPath(config, 'media.auto_fetchpriority_lcp')} onChange={(v) => upsert('media.auto_fetchpriority_lcp', v)} />
+            <ListField
+              label="Excluded images"
+              hint="Image URLs never offload/lazy-load (one per line)"
+              placeholder={'wp-content/uploads/logo.png'}
+              value={getPath(config, 'media.excluded_images') || []}
+              onChange={(v) => upsert('media.excluded_images', v)}
+            />
           </Card>
 
           <Card title="Fonts & Hints" icon={<Activity className="w-4 h-4" />}>
@@ -585,6 +747,13 @@ function EmbedPanel() {
             <Toggle label="Auto-degrade safety net" hint="Step down JS aggressiveness automatically on rising error rates" checked={!!getPath(config, 'deployment.auto_degrade')} onChange={(v) => upsert('deployment.auto_degrade', v)} />
           </Card>
         </div>
+
+        {/* Plugin Asset Control — strip css/js of unused plugins per post type */}
+        <PluginControlCard
+          siteContext={(data.health?.site_context as SiteContext) || {}}
+          unloadRules={getPath(config, 'plugins.unload_rules') || {}}
+          onChange={(rules) => upsert('plugins.unload_rules', rules)}
+        />
 
         {/* Pages & logs */}
         <div className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm overflow-hidden">

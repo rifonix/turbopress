@@ -174,18 +174,35 @@ class AdminPage {
         };
 
         document.addEventListener('DOMContentLoaded', function() {
+            var params = new URLSearchParams(window.location.search);
+
             // Toasts queued via redirect (?tp_toast=...).
-            var queued = new URLSearchParams(window.location.search).get('tp_toast');
+            var queued = params.get('tp_toast');
             if (queued === 'warm_test') {
                 window.tpToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
             } else if (queued === 'warm_ok') {
                 window.tpToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
             }
 
-            // Auto-warm trigger (?warm=1 from the admin bar).
-            if (new URLSearchParams(window.location.search).get('warm') === '1') {
-                var btn = document.getElementById('tp-warm-btn');
-                if (btn) btn.click();
+            // Auto-warm trigger (?warm=1 from the admin bar) — fires the
+            // ajax action directly (the dashboard header button is gone;
+            // the embed panel owns the UI now).
+            if (params.get('warm') === '1') {
+                var d = new FormData();
+                d.append('action', 'turbopress_warm_cache');
+                d.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
+                fetch(ajaxurl, { method: 'POST', body: d })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        if (res.success) {
+                            window.tpToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
+                        } else if (res.data === 'test_mode') {
+                            window.tpToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
+                        } else {
+                            window.tpToast('Warm cache failed to start.', 'err');
+                        }
+                    })
+                    .catch(function() { window.tpToast('Warm cache request failed.', 'err'); });
             }
         });
         </script>
@@ -200,8 +217,6 @@ class AdminPage {
         $config = new Config();
         $site_id = $config->get_site_id();
         $domain = wp_parse_url(home_url(), PHP_URL_HOST) ?: '';
-        $is_test = $config->get('deployment.status', 'live') === 'test';
-        $preview_url = add_query_arg('tp_preview', '1', home_url('/'));
 
         // Signed embed token: siteId.expiry.hmac(callback_secret). The
         // edge verifies it, so the iframe needs no Clerk session and no
@@ -213,59 +228,17 @@ class AdminPage {
             . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
         ?>
         <div class="wrap turbopress-admin-wrap tp-dashboard-wrap">
-            <header class="tp-dashboard-bar">
-                <div class="tp-dashboard-brand">
-                    <span class="dashicons dashicons-performance tp-brand-icon"></span>
-                    <div>
-                        <strong>Turbopress Control Panel</strong>
-                        <span class="tp-dashboard-domain"><?php echo esc_html($domain); ?></span>
-                    </div>
-                    <span class="tp-pill <?php echo $is_test ? 'tp-pill--test' : 'tp-pill--live'; ?>">
-                        <?php echo $is_test ? 'Test Mode' : 'Live'; ?>
-                    </span>
-                </div>
-                <div class="tp-dashboard-actions">
-                    <?php if (!empty($_GET['connected'])): ?>
-                        <span class="tp-notice-ok"><span class="dashicons dashicons-yes-alt"></span> Connected — optimization started in the background.</span>
-                    <?php endif; ?>
-                    <a href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener" class="tp-btn tp-btn--ghost">
-                        <span class="dashicons dashicons-visibility"></span> Preview Cached Website
-                    </a>
-                    <button type="button" id="tp-purge-cache-btn" class="tp-btn tp-btn--ghost">
-                        <span class="dashicons dashicons-trash"></span> Purge All Cache
-                    </button>
-                    <button type="button" id="tp-warm-btn" class="tp-btn tp-btn--ghost">
-                        <span class="dashicons dashicons-update"></span> Warm Cache
-                    </button>
-                    <?php if ($is_test): ?>
-                        <button type="button" id="tp-deploy-btn" class="tp-btn tp-btn--primary">
-                            <span class="dashicons dashicons-superhero-alt"></span> Deploy to Visitors
-                        </button>
-                    <?php endif; ?>
-                </div>
-            </header>
-
-            <?php if ($is_test): ?>
-                <div class="tp-testmode-banner">
-                    <span class="dashicons dashicons-info-outline"></span>
-                    <div>
-                        <strong>Not deployed to real visitors yet.</strong>
-                        Real visitors currently see the unoptimized website. Use
-                        <a href="<?php echo esc_url($preview_url); ?>" target="_blank" rel="noopener">Preview Cached Website</a>
-                        to test the optimized version, then click <strong>Deploy to Visitors</strong> once everything looks right.
-                    </div>
-                </div>
-            <?php endif; ?>
-
             <div class="tp-embed-frame">
                 <iframe
                     src="<?php echo esc_url($embed_url); ?>"
                     title="Turbopress Control Panel"
-                    loading="lazy"
                 ></iframe>
             </div>
 
             <p class="tp-embed-footnote">
+                <?php if (!empty($_GET['connected'])): ?>
+                    <span class="tp-notice-ok"><span class="dashicons dashicons-yes-alt"></span> Connected — optimization started in the background.</span>
+                <?php endif; ?>
                 Every optimization control for this site lives in the panel above — presets, critical CSS,
                 JavaScript engine, media offload, fonts, deployment. Changes apply instantly through the
                 signed command channel. Connection details live on the
@@ -274,87 +247,6 @@ class AdminPage {
         </div>
 
         <?php $this->render_toast_shell(); ?>
-
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            var purgeBtn = document.getElementById('tp-purge-cache-btn');
-            var warmBtn = document.getElementById('tp-warm-btn');
-            var deployBtn = document.getElementById('tp-deploy-btn');
-            var nonce = '<?php echo wp_create_nonce('turbopress_admin'); ?>';
-
-            function post(action, onDone) {
-                var data = new FormData();
-                data.append('action', action);
-                data.append('nonce', nonce);
-                return fetch(ajaxurl, { method: 'POST', body: data })
-                    .then(function(r) { return r.json(); })
-                    .then(onDone || function() {});
-            }
-
-            function setBusy(btn, busy) {
-                if (!btn) return;
-                btn.disabled = busy;
-                btn.classList.toggle('is-busy', busy);
-            }
-
-            if (purgeBtn) {
-                purgeBtn.addEventListener('click', function() {
-                    setBusy(purgeBtn, true);
-                    post('turbopress_purge_cache', function() {
-                        setBusy(purgeBtn, false);
-                        window.tpToast('All caches purged.', 'ok');
-                    }).catch(function() { setBusy(purgeBtn, false); window.tpToast('Purge request failed.', 'err'); });
-                });
-            }
-
-            if (warmBtn) {
-                warmBtn.addEventListener('click', function() {
-                    setBusy(warmBtn, true);
-                    fetch(ajaxurl, {
-                        method: 'POST',
-                        body: (function() {
-                            var d = new FormData();
-                            d.append('action', 'turbopress_warm_cache');
-                            d.append('nonce', nonce);
-                            return d;
-                        })()
-                    })
-                    .then(function(r) { return r.json(); })
-                    .then(function(res) {
-                        setBusy(warmBtn, false);
-                        if (res.success) {
-                            window.tpToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
-                        } else if (res.data === 'test_mode') {
-                            window.tpToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
-                        } else {
-                            window.tpToast('Warm cache failed to start.', 'err');
-                        }
-                    })
-                    .catch(function() { setBusy(warmBtn, false); window.tpToast('Warm cache request failed.', 'err'); });
-                });
-            }
-
-            if (deployBtn) {
-                deployBtn.addEventListener('click', function() {
-                    var ok = confirm(
-                        'Deploy the optimized website to ALL visitors now?\n\n' +
-                        'Make sure you have tested the optimized site with "Preview Cached Website" — ' +
-                        'pages, styling, menus, forms and checkout — before deploying.'
-                    );
-                    if (!ok) return;
-                    setBusy(deployBtn, true);
-                    var data = new FormData();
-                    data.append('action', 'turbopress_deploy');
-                    data.append('status', 'live');
-                    data.append('nonce', nonce);
-                    fetch(ajaxurl, { method: 'POST', body: data })
-                        .then(function(r) { return r.json(); })
-                        .then(function() { window.location.reload(); })
-                        .catch(function() { setBusy(deployBtn, false); window.tpToast('Deploy failed.', 'err'); });
-                });
-            }
-        });
-        </script>
         <?php
     }
 

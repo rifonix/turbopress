@@ -19,6 +19,7 @@ class DomEngine {
     private FontOptimizer $font_optimizer;
     private ResourceHints $resource_hints;
     private SpeculationRules $speculation_rules;
+    private PluginAssets $plugin_assets;
 
     /** Set by Plugin when the RUM beacon should ship (live mode or preview). */
     private bool $rum_enabled = false;
@@ -35,6 +36,7 @@ class DomEngine {
         $this->font_optimizer = new FontOptimizer($config);
         $this->resource_hints = new ResourceHints($config);
         $this->speculation_rules = new SpeculationRules($config);
+        $this->plugin_assets = new PluginAssets($config);
     }
 
     public function enable_rum(bool $preview = false): void {
@@ -86,6 +88,16 @@ class DomEngine {
             // Each stage is validated; a stage that structurally damages
             // the document is reverted (Airlift-style fail-safe) instead of
             // ever shipping broken HTML to a visitor.
+
+            // 0. Plugin asset unloading: strip ALL css/js belonging to
+            //    plugins the user marked unused for this post type. Runs
+            //    before everything so downstream stages never see (or
+            //    re-inject hints for) the removed assets. Script parity is
+            //    intentionally relaxed here — removal is the whole point.
+            $unload_rules = $this->config->get('plugins.unload_rules', []);
+            if (is_array($unload_rules) && $unload_rules !== []) {
+                $html = $this->stage($html, fn(string $h): string => $this->plugin_assets->transform($h), 'plugin_assets', -200);
+            }
 
             // 1. Font optimization FIRST: localizing Google Fonts rewrites
             //    stylesheet hrefs before CSS combining ever sees them, and
@@ -174,10 +186,10 @@ class DomEngine {
      * implausible size delta). Worst case = the unoptimized page, never a
      * broken one.
      */
-    private function stage(string $input, callable $fn, string $name): string {
+    private function stage(string $input, callable $fn, string $name, int $min_script_delta = -2): string {
         $output = (string) $fn($input);
 
-        if ($output === '' || !$this->structurally_valid($input, $output)) {
+        if ($output === '' || !$this->structurally_valid($input, $output, $min_script_delta)) {
             // Never annotate degenerate input: if $input is not a full
             // document the pipeline has already gone wrong somewhere
             // upstream and the transform() guards will restore $original.
@@ -191,7 +203,7 @@ class DomEngine {
         return $output;
     }
 
-    private function structurally_valid(string $before, string $after): bool {
+    private function structurally_valid(string $before, string $after, int $min_script_delta = -2): bool {
         // Document skeleton must survive every stage.
         if (stripos($after, '<head') === false || stripos($after, '</body>') === false) {
             return false;
@@ -207,9 +219,10 @@ class DomEngine {
 
         // Script-tag parity: stages must not destroy script tags. Removals
         // are only tolerated up to remove_jquery_migrate (1-2 tags);
-        // additions only up to our own injected-loader allowance.
+        // additions only up to our own injected-loader allowance. Stages
+        // whose PURPOSE is removal (plugin unload) pass a relaxed floor.
         $delta = $this->script_count($after) - $this->script_count($before);
-        return $delta >= -2 && $delta <= self::INJECTED_SCRIPT_ALLOWANCE;
+        return $delta >= $min_script_delta && $delta <= self::INJECTED_SCRIPT_ALLOWANCE;
     }
 
     private function script_count(string $html): int {

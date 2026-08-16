@@ -185,9 +185,41 @@ class HealthCheck {
             ];
         }
 
+        // Site context for the embed UI: post types + active plugins so the
+        // dashboard can build per-post-type plugin asset unloading controls.
+        $report['site_context'] = self::build_site_context();
+
         update_option(self::OPTION_KEY, $report);
 
         return $report;
+    }
+
+    /**
+     * Post types + active plugin catalog for the Plugin Asset Control UI.
+     * Kept small (slug => name) — it rides the heartbeat payload.
+     */
+    private static function build_site_context(): array {
+        $post_types = [];
+        foreach (get_post_types(['public' => true], 'objects') as $pt) {
+            if (in_array($pt->name, ['attachment', 'elementor_library'], true)) {
+                continue;
+            }
+            $post_types[] = ['name' => $pt->name, 'label' => $pt->labels->singular_name];
+        }
+
+        $plugins = [];
+        if (function_exists('wp_get_active_and_valid_plugins')) {
+            foreach (wp_get_active_and_valid_plugins() as $file) {
+                $slug = basename(dirname($file));
+                if ($slug === 'turbopress') {
+                    continue;
+                }
+                $data = get_file_data($file, ['Name' => 'Plugin Name']);
+                $plugins[$slug] = (string) ($data['Name'] ?: $slug);
+            }
+        }
+
+        return ['post_types' => $post_types, 'plugins' => $plugins];
     }
 
     /**

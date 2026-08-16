@@ -53,6 +53,10 @@ export const HtaccessConfigSchema = z.object({
   brotli_filters: z.boolean().default(true)
 });
 
+export const PluginsConfigSchema = z.object({
+  unload_rules: z.record(z.string(), z.array(z.string().min(1).max(100)).max(50)).default({})
+});
+
 export const FontsConfigSchema = z.object({
   localize_google: z.boolean().default(true),
   preload_lcp_font: z.boolean().default(true)
@@ -101,6 +105,7 @@ export const SiteConfigSchema = z.object({
   css: CssConfigSchema.optional(),
   assets: AssetsConfigSchema.optional(),
   htaccess: HtaccessConfigSchema.optional(),
+  plugins: PluginsConfigSchema.optional(),
   fonts: FontsConfigSchema.optional(),
   hints: HintsConfigSchema.optional(),
   deployment: DeploymentConfigSchema.optional()

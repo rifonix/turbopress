@@ -70,7 +70,7 @@ export const DEFAULT_EXCLUDED_PRERENDER_PATHS = [
 ];
 
 export const PRESET_SAFE: SiteConfig = {
-  version: '1.7.0',
+  version: '1.10.0',
   preset: 'safe',
   caching: {
     enabled: true,
@@ -95,7 +95,7 @@ export const PRESET_SAFE: SiteConfig = {
     minify: true,
     max_files: 40,
     inline_all: false,
-    inline_all_threshold: 153600
+    inline_all_threshold: 524288
   },
   assets: {
     proxy_enabled: false,
@@ -104,6 +104,9 @@ export const PRESET_SAFE: SiteConfig = {
   htaccess: {
     enabled: true,
     brotli_filters: true
+  },
+  plugins: {
+    unload_rules: {}
   },
   javascript: {
     execution_mode: 'none', // v1.3.0 risk ladder: safe = no JS changes at all
@@ -147,7 +150,7 @@ export const PRESET_SAFE: SiteConfig = {
 };
 
 export const PRESET_AGGRESSIVE: SiteConfig = {
-  version: '1.7.0',
+  version: '1.10.0',
   preset: 'aggressive',
   caching: {
     enabled: true,
@@ -172,7 +175,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     minify: true,
     max_files: 40,
     inline_all: true,
-    inline_all_threshold: 153600
+    inline_all_threshold: 524288
   },
   assets: {
     proxy_enabled: true,
@@ -181,6 +184,9 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
   htaccess: {
     enabled: true,
     brotli_filters: true
+  },
+  plugins: {
+    unload_rules: {}
   },
   javascript: {
     execution_mode: 'defer',
@@ -224,7 +230,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
 };
 
 export const PRESET_LUDICROUS: SiteConfig = {
-  version: '1.7.0',
+  version: '1.10.0',
   preset: 'ludicrous',
   caching: {
     enabled: true,
@@ -249,7 +255,7 @@ export const PRESET_LUDICROUS: SiteConfig = {
     minify: true,
     max_files: 40,
     inline_all: true,
-    inline_all_threshold: 153600
+    inline_all_threshold: 524288
   },
   assets: {
     proxy_enabled: true,
@@ -258,6 +264,9 @@ export const PRESET_LUDICROUS: SiteConfig = {
   htaccess: {
     enabled: true,
     brotli_filters: true
+  },
+  plugins: {
+    unload_rules: {}
   },
   javascript: {
     execution_mode: 'interaction_delay',
