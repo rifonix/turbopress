@@ -19,6 +19,20 @@ class CriticalCssTransformer {
         $is_mobile = wp_is_mobile();
         $viewport = $is_mobile ? 'mobile' : 'desktop';
 
+        $optimizer = new CssOptimizer($this->config);
+
+        // Tier 1: INLINE-ALL — when the whole combined stylesheet fits the
+        // threshold, inline it directly. No deferral, no critical-CSS
+        // extraction needed, no FOUC and no missing backgrounds/overlays BY
+        // CONSTRUCTION (the full CSS is present before first paint).
+        $inlined = $optimizer->try_inline_all($html);
+        if ($inlined !== null) {
+            // Keep the edge pipeline flowing: jobs feed LCP-image data and
+            // the dashboard audits even when their CSS output goes unused.
+            $this->maybe_dispatch_generation($current_url);
+            return $inlined;
+        }
+
         $critical_css = $this->get_critical_css($current_url, $viewport);
         $used_local_fallback = false;
 
@@ -32,11 +46,16 @@ class CriticalCssTransformer {
         }
 
         if (!empty($critical_css)) {
-            // Inject Critical CSS inline in <head>
+            // Tier 2: inline @font-face rules extracted from the page's own
+            // sheets next to the critical CSS, so custom fonts (e.g.
+            // theme-uploaded woff2 inside Elementor post-*.css) render
+            // immediately with swap instead of waiting for the async bundle.
+            $font_faces = $optimizer->extract_font_faces($html);
             $style_id = $used_local_fallback ? 'turbopress-critical-css tp-fallback' : 'turbopress-critical-css';
             $style_tag = sprintf(
-                '<style id="%s">%s</style>',
+                '<style id="%s">%s%s</style>',
                 $style_id,
+                $font_faces,
                 $critical_css
             );
             $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $style_tag, $html, 1);
@@ -47,8 +66,7 @@ class CriticalCssTransformer {
             // exactly how backgrounds go permanently missing. Worst case
             // with fallback CSS = brief double-render, never broken styles.
             if (!$used_local_fallback && $this->config->get('critical_css.async_load_full', true)) {
-                $css_optimizer = new CssOptimizer($this->config);
-                $html = $css_optimizer->defer_stylesheets($html);
+                $html = $optimizer->defer_stylesheets($html);
             }
         } else {
             // Asynchronously dispatch Critical CSS extraction job to Cloudflare Edge
@@ -57,7 +75,7 @@ class CriticalCssTransformer {
             // the full sheets would flash unstyled content.
         }
 
-        return $html;
+        return is_string($html) ? $html : '';
     }
 
     private function get_critical_css(string $url, string $viewport): ?string {

@@ -38,12 +38,23 @@ export const JavascriptConfigSchema = z.object({
 export const CssConfigSchema = z.object({
   combine: z.boolean().default(true),
   minify: z.boolean().default(true),
-  max_files: z.number().int().min(2).max(100).default(40)
+  max_files: z.number().int().min(2).max(100).default(40),
+  inline_all: z.boolean().default(true),
+  inline_all_threshold: z.number().int().min(10240).max(524288).default(153600)
+});
+
+export const AssetsConfigSchema = z.object({
+  proxy_enabled: z.boolean().default(false),
+  keep_origins: z.array(z.string()).default([])
+});
+
+export const HtaccessConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  brotli_filters: z.boolean().default(true)
 });
 
 export const FontsConfigSchema = z.object({
   localize_google: z.boolean().default(true),
-  bundle_vendor_css: z.boolean().default(true),
   preload_lcp_font: z.boolean().default(true)
 });
 
@@ -68,7 +79,7 @@ export const MediaConfigSchema = z.object({
   excluded_images: z.array(z.string()).default([]),
   offload_images: z.boolean().default(false),
   offload_video: z.boolean().default(false),
-  offload_widths: z.array(z.number().int().min(16).max(4000)).default([480, 768, 1200, 1600])
+  offload_widths: z.array(z.number().int().min(16).max(4000)).default([320, 480, 768, 1200, 1600])
 });
 
 export const DynamicConfigSchema = z.object({
@@ -88,6 +99,8 @@ export const SiteConfigSchema = z.object({
   media: MediaConfigSchema,
   dynamic: DynamicConfigSchema,
   css: CssConfigSchema.optional(),
+  assets: AssetsConfigSchema.optional(),
+  htaccess: HtaccessConfigSchema.optional(),
   fonts: FontsConfigSchema.optional(),
   hints: HintsConfigSchema.optional(),
   deployment: DeploymentConfigSchema.optional()

@@ -6,17 +6,20 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Font & vendor-CSS optimizer.
+ * Font optimizer.
  *
  * 1. Google Fonts localization: fetches the css2 (or css) payload with a
  *    modern Chrome UA (woff2 + unicode-range), downloads the latin/latin-ext
  *    woff2 files to wp-content/cache/turbopress/fonts/, rewrites the CSS to
  *    the same-origin URLs and adds font-display:swap. Kills 4 blocking DNS
- *    connections to fonts.googleapis.com/fonts.gstatic.com.
- * 2. Vendor CSS pinning: rewrites CDN links (unpkg leaflet, code.jquery.com
- *    jquery-ui) to version-pinned files shipped inside the plugin.
- * 3. Injects font-display:swap into inline @font-face rules.
- * 4. Preloads the first localized font file (LCP-critical typography).
+ *    connections to fonts.googleapis.com/fonts.gstatic.com. The localized
+ *    fonts.css is a normal same-origin sheet, so the CSS combiner can
+ *    inline/merge it with the rest of the site CSS.
+ * 2. Injects font-display:swap into inline @font-face rules.
+ * 3. Preloads the first localized font file (LCP-critical typography).
+ *
+ * Third-party vendor CSS (leaflet, jquery-ui, …) is handled generically by
+ * AssetProxy — no plugin-bundled copies of third-party assets.
  */
 class FontOptimizer {
     private Config $config;
@@ -57,10 +60,6 @@ class FontOptimizer {
             '',
             $html
         );
-
-        if ((bool) $this->config->get('fonts.bundle_vendor_css', true)) {
-            $html = $this->rewrite_vendor_css($html);
-        }
 
         // font-display:swap for inline @font-face rules.
         $html = preg_replace_callback(
@@ -194,6 +193,17 @@ class FontOptimizer {
             if (@file_put_contents($css_file, $final_css) === false) {
                 return null;
             }
+            // Pre-compressed twins for the .htaccess serving rules.
+            if (function_exists('brotli_compress')) {
+                $br = @brotli_compress($final_css, 11);
+                if (is_string($br) && $br !== '') {
+                    @file_put_contents($css_file . '.br', $br);
+                }
+            }
+            $gz = @gzencode($final_css, 9);
+            if (is_string($gz) && $gz !== '') {
+                @file_put_contents($css_file . '.gz', $gz);
+            }
             @file_put_contents($stamp_file, (string) time());
             @file_put_contents($dir . '/index.php', "<?php // silence\n");
 
@@ -215,36 +225,5 @@ class FontOptimizer {
             return html_entity_decode($m[1], ENT_QUOTES);
         }
         return null;
-    }
-
-    /**
-     * Pin known CDN CSS to versioned bundles shipped inside the plugin.
-     * integrity/crossorigin attributes must be dropped (they bind to the
-     * original file hash and would block the swapped resource).
-     */
-    private function rewrite_vendor_css(string $html): string {
-        $map = [
-            // unpkg leaflet (any 1.9.x) → bundled 1.9.4
-            '#^https?://unpkg\.com/leaflet@(\d+\.\d+\.\d+)/dist/leaflet\.css#i' => ['leaflet@1.9.4/leaflet.css'],
-            // code.jquery.com jquery-ui theme css → bundled 1.13.3
-            '#^https?://code\.jquery\.com/ui/(\d+\.\d+(\.\d+)?)/themes/[^/]+/jquery-ui(\.min)?\.css#i' => ['jquery-ui@1.13.3/jquery-ui.min.css'],
-        ];
-
-        return preg_replace_callback(
-            '/<link\s+([^>]*href=[\'"](https?:\/\/(?:unpkg\.com|code\.jquery\.com)[^\'"]+)[\'"][^>]*)>/i',
-            function ($m) use ($map) {
-                foreach ($map as $pattern => $target) {
-                    if (!preg_match($pattern, $m[2])) {
-                        continue;
-                    }
-                    $vendor_url = TURBOPRESS_URL . 'assets/vendor/' . $target[0];
-                    $attrs = preg_replace('/href=[\'"][^\'"]+[\'"]/i', 'href="' . esc_url($vendor_url) . '"', $m[1]);
-                    $attrs = preg_replace('/\s(integrity|crossorigin|referrerpolicy)(=[^\s>]+)?/i', '', $attrs);
-                    return '<link ' . trim((string) $attrs) . '>';
-                }
-                return $m[0];
-            },
-            $html
-        );
     }
 }

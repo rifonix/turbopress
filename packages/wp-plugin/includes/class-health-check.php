@@ -63,30 +63,38 @@ class HealthCheck {
             [
                 'key' => 'dropin_installed',
                 'label' => 'Turbopress drop-in installed',
-                'status' => CacheIntegration::is_our_dropin_installed() ? 'ok' : 'warning',
+                'status' => CacheIntegration::is_our_dropin_installed() ? 'ok' : ($foreign !== null ? 'info' : 'warning'),
                 'detail' => CacheIntegration::is_our_dropin_installed()
                     ? 'advanced-cache.php is ours'
-                    : 'advanced-cache.php is not installed',
+                    : ($foreign !== null
+                        ? 'Delegated to ' . $foreign['label'] . ' (it owns the single drop-in slot; Turbopress hooks its purge events)'
+                        : 'advanced-cache.php is not installed'),
             ],
             [
                 'key' => 'wp_cache_constant',
                 'label' => 'WP_CACHE constant enabled',
-                'status' => (defined('WP_CACHE') && WP_CACHE) ? 'ok' : 'warning',
-                'detail' => (defined('WP_CACHE') && WP_CACHE) ? 'true' : 'not defined/false',
+                'status' => (defined('WP_CACHE') && WP_CACHE) ? 'ok' : ($foreign !== null ? 'info' : 'warning'),
+                'detail' => (defined('WP_CACHE') && WP_CACHE)
+                    ? 'true'
+                    : ($foreign !== null ? 'Delegated to ' . $foreign['label'] : 'not defined/false'),
             ],
             [
                 'key' => 'foreign_cache_conflict',
                 'label' => 'Page-cache conflict',
-                'status' => $foreign === null ? 'ok' : 'warning',
+                'status' => $foreign === null ? 'ok' : 'ok',
                 'detail' => $foreign === null
                     ? 'No foreign advanced-cache.php'
-                    : $foreign['label'] . ' owns the drop-in; Turbopress page cache paused (DOM optimizations active)',
+                    : 'Coexisting with ' . $foreign['label'] . ' — Turbopress purges it automatically on content changes',
             ],
             [
                 'key' => 'loopback_cache_hit',
                 'label' => 'Page cache serving (loopback test)',
-                'status' => $loopback_hit ? 'ok' : 'warning',
-                'detail' => $loopback_hit ? 'X-Turbopress-Cache: HIT observed' : 'No cache HIT on loopback request',
+                'status' => $loopback_hit ? 'ok' : ($foreign !== null ? 'info' : 'warning'),
+                'detail' => $loopback_hit
+                    ? 'X-Turbopress-Cache: HIT observed'
+                    : ($foreign !== null
+                        ? 'Host cache (' . $foreign['label'] . ') is serving pages — expected when it owns the drop-in'
+                        : 'No cache HIT on loopback request'),
             ],
             [
                 'key' => 'served_html_current',
@@ -149,6 +157,14 @@ class HealthCheck {
                 'label' => 'DOM engine active',
                 'status' => (bool) $this->config->get('caching.enabled', true) || (bool) $this->config->get('critical_css.enabled', true) ? 'ok' : 'warning',
                 'detail' => 'Critical CSS / deferral pipeline',
+            ],
+            [
+                'key' => 'htaccess_optimized',
+                'label' => '.htaccess asset rules',
+                'status' => Htaccess_Manager::is_active() ? 'ok' : 'info',
+                'detail' => Htaccess_Manager::is_active()
+                    ? 'Immutable/30d TTLs + pre-compressed serving active'
+                    : ('reason: ' . (Htaccess_Manager::get_state()['reason'] ?? 'not installed') . ' — long-cache TTLs unavailable on this host'),
             ],
         ];
 

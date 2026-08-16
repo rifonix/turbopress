@@ -31,6 +31,18 @@ export interface CssConfig {
   combine: boolean; // merge render-blocking stylesheets into one bundle
   minify: boolean;
   max_files: number;
+  inline_all: boolean; // Tier 1: inline the entire combined CSS into HTML when under threshold
+  inline_all_threshold: number; // bytes; sites larger than this use Tier 2 (critical CSS + async bundle)
+}
+
+export interface AssetsConfig {
+  proxy_enabled: boolean; // serve 3rd-party css/js through the signed R2 worker route
+  keep_origins: string[]; // extra origins never proxied (substring match)
+}
+
+export interface HtaccessConfig {
+  enabled: boolean; // manage the TurboPress .htaccess marker block
+  brotli_filters: boolean; // AddOutputFilterByType BROTLI_COMPRESS when mod_brotli present
 }
 
 export interface JavascriptConfig {
@@ -44,7 +56,6 @@ export interface JavascriptConfig {
 
 export interface FontsConfig {
   localize_google: boolean; // serve Google Fonts same-origin w/ display:swap
-  bundle_vendor_css: boolean; // pin leaflet / jquery-ui CSS to plugin bundles
   preload_lcp_font: boolean;
 }
 
@@ -90,6 +101,8 @@ export interface SiteConfig {
   caching: CachingConfig;
   critical_css: CriticalCssConfig;
   css?: CssConfig;
+  assets?: AssetsConfig;
+  htaccess?: HtaccessConfig;
   javascript: JavascriptConfig;
   fonts?: FontsConfig;
   hints?: HintsConfig;

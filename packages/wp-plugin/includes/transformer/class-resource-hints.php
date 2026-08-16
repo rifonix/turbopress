@@ -86,6 +86,31 @@ class ResourceHints {
         $collect($html, '/<img\s+([^>]+)>/i', 'src', 2);
         $collect($html, '/<iframe\s+([^>]+)>/i', 'src', 1);
 
+        // Known-origin table: platforms whose runtime assets are injected
+        // CLIENT-SIDE (invisible to the tag scans above) but whose loader
+        // marker appears somewhere in the HTML. Marker scan of the full
+        // document catches them so the preconnect lands early.
+        $known_origins = [
+            'consent.cookiebot' => 'consent.cookiebot.com',
+            'consentcdn.cookiebot' => 'consentcdn.cookiebot.com',
+            'cookiebot.com' => 'consent.cookiebot.com',
+            'cloudflareinsights' => 'static.cloudflareinsights.com',
+            'js.stripe.com' => 'js.stripe.com',
+            'stripe.com/v3' => 'js.stripe.com',
+            'cdn.polar.sh' => 'cdn.polar.sh',
+            'checkout.razorpay' => 'checkout.razorpay.com',
+            'cdn.jsdelivr.net' => 'cdn.jsdelivr.net',
+            'fonts.bunny.net' => 'fonts.bunny.net',
+        ];
+        foreach ($known_origins as $marker => $origin) {
+            if (stripos($html, $marker) !== false) {
+                $host = strtolower((string) parse_url('https://' . $origin, PHP_URL_HOST));
+                if ($host !== '' && $host !== $own_host) {
+                    $candidates[$host] = max($candidates[$host] ?? 0, 6);
+                }
+            }
+        }
+
         if (empty($candidates)) {
             return $html;
         }

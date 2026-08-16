@@ -15,6 +15,7 @@ class DomEngine {
     private ScriptDelayer $script_delayer;
     private MediaOptimizer $media_optimizer;
     private MediaOffloader $media_offloader;
+    private AssetProxy $asset_proxy;
     private FontOptimizer $font_optimizer;
     private ResourceHints $resource_hints;
     private SpeculationRules $speculation_rules;
@@ -30,6 +31,7 @@ class DomEngine {
         $this->script_delayer = new ScriptDelayer($config);
         $this->media_optimizer = new MediaOptimizer($config);
         $this->media_offloader = new MediaOffloader($config);
+        $this->asset_proxy = new AssetProxy($config);
         $this->font_optimizer = new FontOptimizer($config);
         $this->resource_hints = new ResourceHints($config);
         $this->speculation_rules = new SpeculationRules($config);
@@ -95,6 +97,15 @@ class DomEngine {
             //    pass so preloads point at the worker URLs too.
             if ($this->config->get('media.offload_images', false) || $this->config->get('media.offload_video', false)) {
                 $html = $this->stage($html, fn(string $h): string => $this->media_offloader->transform($h), 'offload');
+            }
+
+            // 2b. Generic 3rd-party asset proxy: rewrite foreign css/js
+            //     (unpkg, code.jquery.com, …) through the signed R2 worker
+            //     route. Consent/payment CDNs are never touched. Runs after
+            //     media offload and before CSS combining so combined bundles
+            //     see final URLs.
+            if ($this->config->get('assets.proxy_enabled', false)) {
+                $html = $this->stage($html, fn(string $h): string => $this->asset_proxy->transform($h), 'proxy');
             }
 
             // 3. Optimize Media (LCP Preload, fetchpriority="high", CLS dimensions)

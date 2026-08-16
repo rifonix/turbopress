@@ -152,7 +152,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             excluded_images: [],
             offload_images: false,
             offload_video: false,
-            offload_widths: [480, 768, 1200, 1600],
+            offload_widths: [320, 480, 768, 1200, 1600],
           },
           dynamic: {
             speculation_rules_prerender: true,
@@ -249,6 +249,16 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         combine: true,
         minify: true,
         max_files: 40,
+        inline_all: true,
+        inline_all_threshold: 153600,
+      },
+      assets: {
+        proxy_enabled: true,
+        keep_origins: [],
+      },
+      htaccess: {
+        enabled: true,
+        brotli_filters: true,
       },
       javascript: {
         execution_mode: 'defer',
@@ -260,7 +270,6 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
       },
       fonts: {
         localize_google: true,
-        bundle_vendor_css: true,
         preload_lcp_font: true,
       },
       hints: {
@@ -277,7 +286,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         excluded_images: [],
         offload_images: false,
         offload_video: false,
-        offload_widths: [480, 768, 1200, 1600],
+        offload_widths: [320, 480, 768, 1200, 1600],
       },
       dynamic: {
         speculation_rules_prerender: enableSpeculation,

@@ -95,6 +95,13 @@ class MediaOffloader {
                 },
                 $html
             ) ?? $html;
+
+            // JSON contexts: Elementor data-settings attributes and
+            // <script type="application/json"> blocks (Leaflet markers,
+            // widget configs). These images are invisible to the <img>
+            // pass — PSI flags them as "enormous" (653KB markers at 55px).
+            // Full-URL substring swaps only; own-host images only.
+            $html = $this->rewrite_json_context_urls($html, $excluded, $max_w, $queued);
         }
 
         if ($offload_video) {
@@ -124,6 +131,99 @@ class MediaOffloader {
         }
 
         return $html;
+    }
+
+    /**
+     * Rewrite own-host image URLs embedded in JSON contexts:
+     *  - data-settings="..." attributes (Elementor widget config)
+     *  - <script type="application/json"> blocks (Leaflet marker config)
+     *
+     * Safety rules (Airlift protected-scan lesson):
+     *  - FULL-URL substring swaps only — never partial paths.
+     *  - Own-host URLs only; third-party origins (map tiles etc.) stay put.
+     *  - Marker/icon-sized images (key context hints marker/icon/pin/logo)
+     *    get a 96px derivative; everything else the max width.
+     *  - Attribute context gets &amp;-escaped replacement URLs (b64url
+     *    alphabet contains no JSON/HTML-special characters otherwise).
+     */
+    private function rewrite_json_context_urls(string $html, array $excluded, int $max_w, array &$queued): string {
+        $own_host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
+        if ($own_host === '') {
+            return $html;
+        }
+
+        $rewrite = function (string $subject, bool $attr_context) use ($own_host, $excluded, $max_w, &$queued): string {
+            if (stripos($subject, '<img') !== false || stripos($subject, '<script') !== false) {
+                return $subject; // never descend into nested markup
+            }
+
+            // Pass 1: marker/icon/pin/logo contexts → small derivative.
+            $subject = preg_replace_callback(
+                '#(?<=(?:marker|icon|pin|logo|thumb)[^"\x27]{0,160})(https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:png|jpe?g|webp|gif|svg))#i',
+                function ($m) use ($own_host, $excluded, &$queued) {
+                    return $this->rewrite_json_url($m[1], 96, $own_host, $excluded, $queued) ?? $m[0];
+                },
+                $subject
+            ) ?? $subject;
+
+            // Pass 2: remaining own-host images → max-width derivative.
+            $subject = preg_replace_callback(
+                '#https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:png|jpe?g|webp|gif|svg)#i',
+                function ($m) use ($own_host, $excluded, $max_w, &$queued, $attr_context) {
+                    $new = $this->rewrite_json_url($m[1], $max_w, $own_host, $excluded, $queued);
+                    if ($new === null) {
+                        return $m[1];
+                    }
+                    return $attr_context ? str_replace('&', '&amp;', $new) : $new;
+                },
+                $subject
+            ) ?? $subject;
+
+            return $subject;
+        };
+
+        // data-settings attributes (double + single quoted).
+        $html = preg_replace_callback(
+            '/(\bdata-settings=")([^"]*)(")/i',
+            fn($m) => $m[1] . $rewrite($m[2], true) . $m[3],
+            $html
+        ) ?? $html;
+        $html = preg_replace_callback(
+            "/(\bdata-settings=')([^']*)(')/i",
+            fn($m) => $m[1] . $rewrite($m[2], true) . $m[3],
+            $html
+        ) ?? $html;
+
+        // <script type="application/json"> bodies.
+        $html = preg_replace_callback(
+            '/(<script\b[^>]*type=)["\']application\/json["\']([^>]*>)([\s\S]*?)(<\/script>)/i',
+            fn($m) => $m[1] . '"application/json"' . $m[2] . $rewrite($m[3], false) . $m[4],
+            $html
+        ) ?? $html;
+
+        return $html;
+    }
+
+    /**
+     * Build a signed worker URL for an own-host image found in a JSON
+     * context, or null when it must stay untouched.
+     */
+    private function rewrite_json_url(string $url, int $w, string $own_host, array $excluded, array &$queued): ?string {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '' || ($host !== $own_host && !str_ends_with($host, '.' . $own_host))) {
+            return null;
+        }
+        foreach ($excluded as $ex) {
+            if ($ex !== '' && stripos($url, $ex) !== false) {
+                return null;
+            }
+        }
+        $new = $this->media_url($url, $w, 'webp');
+        if ($new === null) {
+            return null;
+        }
+        $queued[md5($url . '|' . $w . '|webp')] = ['src' => $url, 'w' => $w, 'f' => 'webp'];
+        return $new;
     }
 
     /**
@@ -180,7 +280,7 @@ class MediaOffloader {
         $widths = (array) $this->config->get('media.offload_widths', []);
         $widths = array_values(array_unique(array_filter(array_map('intval', $widths), fn($w) => $w >= 16 && $w <= 4000)));
         if (empty($widths)) {
-            $widths = [480, 768, 1200, 1600];
+            $widths = [320, 480, 768, 1200, 1600];
         }
         sort($widths);
         return $widths;

@@ -139,8 +139,8 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
   // defined" in the page context. String sources are left untouched.
   const src = `
     (() => {
-      const MAX_RULES = 15000;
-      const MAX_OUTPUT_BYTES = 120 * 1024;
+      const MAX_RULES = 25000;
+      const MAX_OUTPUT_BYTES = 256 * 1024;
       const out = [];
       const crossOrigin = [];
       let ruleCount = 0;
@@ -148,7 +148,7 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
 
       function selectorMatches(sel) {
         try {
-          const test = sel.replace(/::?(before|after|first-line|first-letter|selection|hover|focus|active|visited|marker|placeholder|backdrop|file-selector-button)\\b/g, '');
+          const test = sel.replace(/::?(before|after|first-line|first-letter|selection|hover|focus|active|visited|link|marker|placeholder|backdrop|file-selector-button|focus-visible|focus-within)\\b/g, '');
           if (!test.trim()) return true;
           return document.querySelector(test) !== null;
         } catch (e) {
@@ -173,8 +173,11 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
               let matches = false;
               try { matches = window.matchMedia(query).matches; } catch (e) {}
               if (matches) {
-                const innerCss = collectRules(media.cssRules);
-                if (innerCss) parts.push('@media ' + query + '{' + innerCss + '}');
+                // Keep the WHOLE matching block (v1.7.0): filtering inner
+                // rules was how overlay/background rules inside media
+                // queries went missing. Whole blocks are conservative —
+                // size is bounded by the output cap.
+                parts.push(media.cssText);
               }
               break;
             }
@@ -183,15 +186,17 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
               let ok = false;
               try { ok = CSS.supports(supports.conditionText); } catch (e) { ok = true; }
               if (ok) {
-                const innerCss = collectRules(supports.cssRules);
-                if (innerCss) parts.push('@supports ' + supports.conditionText + '{' + innerCss + '}');
+                parts.push('@supports ' + supports.conditionText + '{' + collectRules(supports.cssRules) + '}');
               }
               break;
             }
             case 'CSSStyleRule': {
               const style = rule;
               const foundation = /(^|,)\\s*(:root|html|body)\\b/.test(style.selectorText);
-              if (foundation || style.selectorText.split(',').some(selectorMatches)) {
+              // Rules that ONLY set custom properties are theme tokens —
+              // dropping them breaks every var() consumer downstream.
+              const onlyVars = style.style.length > 0 && Array.from(style.style).every((p) => String(p).startsWith('--'));
+              if (foundation || onlyVars || style.selectorText.split(',').some(selectorMatches)) {
                 parts.push(style.cssText);
               }
               break;

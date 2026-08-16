@@ -51,6 +51,8 @@ class Plugin {
             CacheIntegration::purge_foreign_caches('all');
             // Re-assert our drop-in on upgrades (source file may have changed).
             CacheIntegration::install_dropin();
+            // Install/refresh .htaccess delivery rules (markers replace cleanly).
+            Htaccess_Manager::install();
         }
 
         // Initialize Cache Purger hooks
@@ -294,6 +296,10 @@ class Plugin {
         // (never clobber LiteSpeed / WP Rocket / host-level drop-ins).
         CacheIntegration::install_dropin();
 
+        // Install .htaccess delivery rules (immutable cache TTLs +
+        // precompressed .br/.gz serving) with loopback verification.
+        Htaccess_Manager::install();
+
         // Stale host-cache entries from before activation must not survive.
         CacheIntegration::purge_foreign_caches('all');
     }
@@ -301,6 +307,9 @@ class Plugin {
     public static function deactivate(): void {
         // Remove OUR drop-in only; a foreign one is left untouched.
         CacheIntegration::remove_dropin();
+
+        // Strip .htaccess rules + delete the pre-install backup.
+        Htaccess_Manager::remove();
 
         // Clear all cached pages
         CacheManager::purge_all_static();

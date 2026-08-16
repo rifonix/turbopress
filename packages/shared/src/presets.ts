@@ -70,7 +70,7 @@ export const DEFAULT_EXCLUDED_PRERENDER_PATHS = [
 ];
 
 export const PRESET_SAFE: SiteConfig = {
-  version: '1.4.0',
+  version: '1.7.0',
   preset: 'safe',
   caching: {
     enabled: true,
@@ -93,7 +93,17 @@ export const PRESET_SAFE: SiteConfig = {
   css: {
     combine: false,
     minify: true,
-    max_files: 40
+    max_files: 40,
+    inline_all: false,
+    inline_all_threshold: 153600
+  },
+  assets: {
+    proxy_enabled: false,
+    keep_origins: []
+  },
+  htaccess: {
+    enabled: true,
+    brotli_filters: true
   },
   javascript: {
     execution_mode: 'none', // v1.3.0 risk ladder: safe = no JS changes at all
@@ -105,7 +115,6 @@ export const PRESET_SAFE: SiteConfig = {
   },
   fonts: {
     localize_google: false,
-    bundle_vendor_css: true,
     preload_lcp_font: true
   },
   hints: {
@@ -126,7 +135,7 @@ export const PRESET_SAFE: SiteConfig = {
     excluded_images: [],
     offload_images: false,
     offload_video: false,
-    offload_widths: [480, 768, 1200, 1600]
+    offload_widths: [320, 480, 768, 1200, 1600]
   },
   dynamic: {
     speculation_rules_prerender: true,
@@ -138,7 +147,7 @@ export const PRESET_SAFE: SiteConfig = {
 };
 
 export const PRESET_AGGRESSIVE: SiteConfig = {
-  version: '1.4.0',
+  version: '1.7.0',
   preset: 'aggressive',
   caching: {
     enabled: true,
@@ -161,7 +170,17 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
   css: {
     combine: true,
     minify: true,
-    max_files: 40
+    max_files: 40,
+    inline_all: true,
+    inline_all_threshold: 153600
+  },
+  assets: {
+    proxy_enabled: true,
+    keep_origins: []
+  },
+  htaccess: {
+    enabled: true,
+    brotli_filters: true
   },
   javascript: {
     execution_mode: 'defer',
@@ -173,7 +192,6 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
   },
   fonts: {
     localize_google: true,
-    bundle_vendor_css: true,
     preload_lcp_font: true
   },
   hints: {
@@ -194,7 +212,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     excluded_images: [],
     offload_images: false,
     offload_video: false,
-    offload_widths: [480, 768, 1200, 1600]
+    offload_widths: [320, 480, 768, 1200, 1600]
   },
   dynamic: {
     speculation_rules_prerender: true,
@@ -206,7 +224,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
 };
 
 export const PRESET_LUDICROUS: SiteConfig = {
-  version: '1.4.0',
+  version: '1.7.0',
   preset: 'ludicrous',
   caching: {
     enabled: true,
@@ -229,7 +247,17 @@ export const PRESET_LUDICROUS: SiteConfig = {
   css: {
     combine: true,
     minify: true,
-    max_files: 40
+    max_files: 40,
+    inline_all: true,
+    inline_all_threshold: 153600
+  },
+  assets: {
+    proxy_enabled: true,
+    keep_origins: []
+  },
+  htaccess: {
+    enabled: true,
+    brotli_filters: true
   },
   javascript: {
     execution_mode: 'interaction_delay',
@@ -241,7 +269,6 @@ export const PRESET_LUDICROUS: SiteConfig = {
   },
   fonts: {
     localize_google: true,
-    bundle_vendor_css: true,
     preload_lcp_font: true
   },
   hints: {
@@ -262,7 +289,7 @@ export const PRESET_LUDICROUS: SiteConfig = {
     excluded_images: [],
     offload_images: false,
     offload_video: false,
-    offload_widths: [480, 768, 1200, 1600]
+    offload_widths: [320, 480, 768, 1200, 1600]
   },
   dynamic: {
     speculation_rules_prerender: true,

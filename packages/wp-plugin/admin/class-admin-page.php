@@ -76,6 +76,9 @@ class AdminPage {
         $speculation_enabled = $this->config->get('dynamic.speculation_rules_prerender', true);
         $nonce_refresh_enabled = $this->config->get('dynamic.nonce_ajax_refresh', true);
         $css_combine = $this->config->get('css.combine', true);
+        $css_inline_all = (bool) $this->config->get('css.inline_all', true);
+        $assets_proxy = (bool) $this->config->get('assets.proxy_enabled', false);
+        $htaccess_enabled = (bool) $this->config->get('htaccess.enabled', true);
         $fonts_enabled = $this->config->get('fonts.localize_google', true);
         $hints_enabled = $this->config->get('hints.resource_hints', true);
         $remove_jquery_migrate = $this->config->get('javascript.remove_jquery_migrate', false);
@@ -273,13 +276,43 @@ class AdminPage {
                             </td>
                         </tr>
                         <tr>
+                            <th scope="row">Inline Full CSS (Recommended)</th>
+                            <td>
+                                <label class="tp-switch">
+                                    <input type="checkbox" name="css_inline_all" value="1" <?php checked($css_inline_all); ?>>
+                                    <span class="tp-slider"></span>
+                                </label>
+                                <span class="tp-label-desc">When the site's combined CSS fits under 150&nbsp;KB, the entire stylesheet is inlined into the HTML — zero render-blocking CSS requests, zero FOUC, and pseudo-element/overlay styles can never go missing. Larger sites automatically fall back to Critical CSS + async bundle.</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">3rd-Party Asset Proxy (R2)</th>
+                            <td>
+                                <label class="tp-switch">
+                                    <input type="checkbox" name="assets_proxy" value="1" <?php checked($assets_proxy); ?>>
+                                    <span class="tp-slider"></span>
+                                </label>
+                                <span class="tp-label-desc">Serves foreign CSS/JS (unpkg, code.jquery.com, other CDNs) through the Turbopress edge worker — removes their DNS/TLS cost and caches them immutably. Consent banners &amp; payment SDKs are never proxied. Falls back to a redirect to the original URL, so assets can never break.</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">.htaccess Delivery Optimization</th>
+                            <td>
+                                <label class="tp-switch">
+                                    <input type="checkbox" name="htaccess_enabled" value="1" <?php checked($htaccess_enabled); ?>>
+                                    <span class="tp-slider"></span>
+                                </label>
+                                <span class="tp-label-desc">Long-cache immutable TTLs for optimized assets, pre-compressed <code>.br</code>/<code>.gz</code> serving, and Brotli output filters (Apache/LiteSpeed). Verified with a loopback healthcheck after every write; auto-restores the backup on any failure.</span>
+                            </td>
+                        </tr>
+                        <tr>
                             <th scope="row">Localize Google Fonts</th>
                             <td>
                                 <label class="tp-switch">
                                     <input type="checkbox" name="fonts_enabled" value="1" <?php checked($fonts_enabled); ?>>
                                     <span class="tp-slider"></span>
                                 </label>
-                                <span class="tp-label-desc">Serves Google Fonts (woff2 + CSS) from your own domain with <code>font-display:swap</code>, preloads LCP-critical fonts, and pins Leaflet/jQuery-UI CSS locally.</span>
+                                <span class="tp-label-desc">Serves Google Fonts (woff2 + CSS) from your own domain with <code>font-display:swap</code> and preloads LCP-critical fonts.</span>
                             </td>
                         </tr>
                         <tr>
@@ -354,7 +387,7 @@ class AdminPage {
                                 <td><strong><?php echo esc_html($check['label']); ?></strong></td>
                                 <td>
                                     <?php
-                                    $icon = $check['status'] === 'ok' ? '✅' : ($check['status'] === 'warning' ? '⚠️' : '❌');
+                                    $icon = $check['status'] === 'ok' ? '✅' : ($check['status'] === 'warning' ? '⚠️' : ($check['status'] === 'info' ? 'ℹ️' : '❌'));
                                     echo $icon . ' <code>' . esc_html($check['status']) . '</code>';
                                     ?>
                                 </td>
@@ -408,6 +441,9 @@ class AdminPage {
                 const speculation = document.querySelector('input[name="speculation_enabled"]').checked;
                 const nonceRefresh = document.querySelector('input[name="nonce_refresh_enabled"]').checked;
                 const cssCombine = document.querySelector('input[name="css_combine"]').checked;
+                const cssInlineAll = document.querySelector('input[name="css_inline_all"]').checked;
+                const assetsProxy = document.querySelector('input[name="assets_proxy"]').checked;
+                const htaccessEnabled = document.querySelector('input[name="htaccess_enabled"]').checked;
                 const fontsEnabled = document.querySelector('input[name="fonts_enabled"]').checked;
                 const hintsEnabled = document.querySelector('input[name="hints_enabled"]').checked;
                 const removeMigrate = document.querySelector('input[name="remove_jquery_migrate"]').checked;
@@ -425,6 +461,9 @@ class AdminPage {
                 data.append('speculation_enabled', speculation ? '1' : '0');
                 data.append('nonce_refresh_enabled', nonceRefresh ? '1' : '0');
                 data.append('css_combine', cssCombine ? '1' : '0');
+                data.append('css_inline_all', cssInlineAll ? '1' : '0');
+                data.append('assets_proxy', assetsProxy ? '1' : '0');
+                data.append('htaccess_enabled', htaccessEnabled ? '1' : '0');
                 data.append('fonts_enabled', fontsEnabled ? '1' : '0');
                 data.append('hints_enabled', hintsEnabled ? '1' : '0');
                 data.append('remove_jquery_migrate', removeMigrate ? '1' : '0');
@@ -568,6 +607,9 @@ class AdminPage {
         $speculation_enabled = !empty($_POST['speculation_enabled']);
         $nonce_refresh_enabled = !empty($_POST['nonce_refresh_enabled']);
         $css_combine = !empty($_POST['css_combine']);
+        $css_inline_all = !empty($_POST['css_inline_all']);
+        $assets_proxy = !empty($_POST['assets_proxy']);
+        $htaccess_enabled = !empty($_POST['htaccess_enabled']);
         $fonts_enabled = !empty($_POST['fonts_enabled']);
         $hints_enabled = !empty($_POST['hints_enabled']);
         $remove_jquery_migrate = !empty($_POST['remove_jquery_migrate']);
@@ -582,6 +624,12 @@ class AdminPage {
         $config_data['javascript']['execution_mode'] = $js_execution_mode;
         $config_data['javascript']['remove_jquery_migrate'] = $remove_jquery_migrate;
         $config_data['css']['combine'] = $css_combine;
+        $config_data['css']['inline_all'] = $css_inline_all;
+        $config_data['assets']['proxy_enabled'] = $assets_proxy;
+
+        $htaccess_was_enabled = (bool) $this->config->get('htaccess.enabled', true);
+        $config_data['htaccess']['enabled'] = $htaccess_enabled;
+
         $config_data['fonts']['localize_google'] = $fonts_enabled;
         $config_data['hints']['resource_hints'] = $hints_enabled;
         $config_data['dynamic']['speculation_rules_prerender'] = $speculation_enabled;
@@ -591,6 +639,16 @@ class AdminPage {
         $config_data['media']['offload_video'] = $offload_video;
 
         $this->config->save($config_data);
+
+        // Apply/remove .htaccess rules when the toggle changed.
+        if ($htaccess_enabled !== $htaccess_was_enabled) {
+            if ($htaccess_enabled) {
+                Htaccess_Manager::install();
+            } else {
+                Htaccess_Manager::remove();
+            }
+        }
+
         CacheManager::purge_all_static();
         CacheIntegration::purge_foreign_caches('all');
 
