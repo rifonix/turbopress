@@ -85,14 +85,15 @@
 
 .tp-embed-frame {
   width: 100%;
-  height: calc(100vh - 140px);
-  min-height: 640px;
   background: #fafafa;
 }
 
+/* Initial height before the panel reports its real content height
+   via postMessage (the JS then sets an explicit px height on the iframe). */
 .tp-embed-frame iframe {
   width: 100%;
-  height: 100%;
+  height: calc(100vh - 160px);
+  min-height: 640px;
   border: 0;
   display: block;
 }

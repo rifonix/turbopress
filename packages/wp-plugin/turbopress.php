@@ -3,7 +3,7 @@
  * Plugin Name: Turbopress - Next-Gen Page Optimizer
  * Plugin URI: https://turbopress.io
  * Description: Ultra-high performance WordPress page speed optimization engine powered by Cloudflare Edge & Browser Rendering.
- * Version: 1.10.0
+ * Version: 1.10.1
  * Author: Turbopress Team
  * Author URI: https://turbopress.io
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('TURBOPRESS_VERSION', '1.10.0');
+define('TURBOPRESS_VERSION', '1.10.1');
 define('TURBOPRESS_PLUGIN_FILE', __FILE__);
 define('TURBOPRESS_PATH', plugin_dir_path(__FILE__));
 define('TURBOPRESS_URL', plugin_dir_url(__FILE__));

@@ -149,7 +149,15 @@ embedRoutes.put('/site/config', async (c) => {
   const site = c.get('embedSite') as unknown as EmbedSiteRow;
   const body = await c.req.json();
 
-  const validatedConfig = SiteConfigSchema.parse(body);
+  const parsed = SiteConfigSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return c.json({
+      success: false,
+      error: `Invalid config: ${issue?.path?.join('.') || 'config'} ${issue?.message || 'failed validation'}`,
+    }, 400);
+  }
+  const validatedConfig = parsed.data;
 
   // Dashboard-issued Deploy/Test carries provenance the plugin honors.
   if (validatedConfig.deployment) {

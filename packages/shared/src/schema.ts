@@ -54,7 +54,12 @@ export const HtaccessConfigSchema = z.object({
 });
 
 export const PluginsConfigSchema = z.object({
-  unload_rules: z.record(z.string(), z.array(z.string().min(1).max(100)).max(50)).default({})
+  // PHP's empty array json_encodes as [] — normalize it to {} so the
+  // record schema accepts plugin-round-tripped configs.
+  unload_rules: z.preprocess(
+    (v) => (Array.isArray(v) ? {} : v),
+    z.record(z.string(), z.array(z.string().min(1).max(100)).max(50)).default({})
+  )
 });
 
 export const FontsConfigSchema = z.object({

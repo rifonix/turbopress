@@ -219,6 +219,11 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
       const { source: _ignored, ...pluginDep } = wpDep as Record<string, any>;
       merged.deployment = pluginDep;
     }
+    // PHP round-trip fix: an empty associative array arrives as [] which
+    // is not a valid record — normalize to {}.
+    if (merged.plugins && Array.isArray((merged.plugins as any).unload_rules)) {
+      (merged.plugins as any).unload_rules = {};
+    }
     try {
       configJson = JSON.stringify(merged);
     } catch {

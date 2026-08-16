@@ -46,6 +46,8 @@ class AdminPage {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('admin_init', [$this, 'maybe_redirect_after_activation']);
         add_action('admin_init', [$this, 'guard_pages']);
+        add_action('add_meta_boxes', [$this, 'register_meta_boxes']);
+        add_action('save_post', [$this, 'save_plugin_assets_metabox'], 10, 2);
         add_action('admin_bar_menu', [$this, 'register_admin_bar'], 100);
         add_action('init', [$this, 'handle_admin_bar_action']);
         // Dashicons are not loaded on the front end by default, but the
@@ -226,14 +228,36 @@ class AdminPage {
         $embed_url = rtrim($config->get_api_url(), '/')
             . '/embed/sites/' . rawurlencode($site_id)
             . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
+
+        // Origin of the embed panel — the only source we accept
+        // auto-height messages from.
+        $parts = wp_parse_url($config->get_api_url());
+        $embed_origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '');
         ?>
         <div class="wrap turbopress-admin-wrap tp-dashboard-wrap">
             <div class="tp-embed-frame">
                 <iframe
+                    id="turbopress-embed"
                     src="<?php echo esc_url($embed_url); ?>"
                     title="Turbopress Control Panel"
                 ></iframe>
             </div>
+
+            <script>
+            (function () {
+                var iframe = document.getElementById('turbopress-embed');
+                if (!iframe) { return; }
+                var expectedOrigin = <?php echo wp_json_encode($embed_origin); ?>;
+                window.addEventListener('message', function (e) {
+                    if (expectedOrigin && e.origin !== expectedOrigin) { return; }
+                    if (!e.data || e.data.type !== 'tp-embed-height') { return; }
+                    var h = parseInt(e.data.h, 10);
+                    if (isNaN(h) || h < 400 || h > 30000) { return; }
+                    // Small buffer so rounding never produces an inner scrollbar.
+                    iframe.style.height = (h + 24) + 'px';
+                });
+            })();
+            </script>
 
             <p class="tp-embed-footnote">
                 <?php if (!empty($_GET['connected'])): ?>
@@ -248,6 +272,132 @@ class AdminPage {
 
         <?php $this->render_toast_shell(); ?>
         <?php
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Plugin Asset Control metabox (every post type, after the editor)     */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Register the "unload this plugin's CSS/JS on this post type"
+     * metabox on every public post type's edit screen. The
+     * 'after_editor' context places it directly below the content
+     * field in both the classic and the block editor.
+     */
+    public function register_meta_boxes(): void {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        foreach (get_post_types(['public' => true, 'show_ui' => true], 'names') as $pt) {
+            if ($pt === 'attachment') {
+                continue;
+            }
+            add_meta_box(
+                'turbopress_plugin_assets',
+                'Turbopress · Plugin Asset Control',
+                [$this, 'render_plugin_assets_metabox'],
+                $pt,
+                'after_editor',
+                'default'
+            );
+        }
+    }
+
+    public function render_plugin_assets_metabox(\WP_Post $post): void {
+        wp_nonce_field('turbopress_plugin_assets', 'turbopress_pa_nonce');
+
+        $rules = $this->config->get('plugins.unload_rules', []);
+        $current = is_array($rules) && isset($rules[$post->post_type]) && is_array($rules[$post->post_type])
+            ? array_map('strval', $rules[$post->post_type])
+            : [];
+
+        $pto = get_post_type_object($post->post_type);
+        $label = $pto->labels->name ?? $post->post_type;
+        $plugins = self::active_plugin_catalog();
+        ?>
+        <p class="description" style="margin:0 0 12px;">
+            Checked plugins will <strong>not load their CSS &amp; JS</strong> on
+            <strong><?php echo esc_html($label); ?></strong> pages — every <?php echo esc_html(strtolower($label)); ?> page,
+            not just this one. Useful when a plugin is active site-wide but not used here.
+            Click <strong>Save/Update</strong> to apply and purge the cache.
+        </p>
+
+        <?php if ($plugins === []): ?>
+            <p class="description">No other active plugins detected.</p>
+        <?php else: ?>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 18px;margin:4px 0 6px;">
+                <?php foreach ($plugins as $slug => $name): ?>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+                        <input type="checkbox"
+                            name="turbopress_unload_plugins[]"
+                            value="<?php echo esc_attr($slug); ?>"
+                            <?php checked(in_array($slug, $current, true)); ?>>
+                        <span><?php echo esc_html($name); ?></span>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <p class="description" style="margin-top:8px;">
+            Also manageable per post type and for “All pages” in the
+            <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::PAGE_DASHBOARD)); ?>">Turbopress dashboard</a>
+            (Plugin Asset Control card).
+        </p>
+        <?php
+    }
+
+    /**
+     * Persist the metabox selection into plugins.unload_rules and purge.
+     * The nonce check doubles as the "this save came from the editor
+     * form (not REST/autosave)" gate, so rules are never wiped by
+     * background saves.
+     */
+    public function save_plugin_assets_metabox(int $post_id, \WP_Post $post): void {
+        if (!current_user_can('manage_options')
+            || wp_is_post_revision($post_id)
+            || wp_is_post_autosave($post_id)
+            || !isset($_POST['turbopress_pa_nonce'])
+            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['turbopress_pa_nonce'])), 'turbopress_plugin_assets')) {
+            return;
+        }
+
+        $slugs = array_values(array_unique(array_filter(
+            array_map('sanitize_key', (array) ($_POST['turbopress_unload_plugins'] ?? [])),
+            static fn (string $s): bool => $s !== '' && $s !== 'turbopress'
+        )));
+
+        $rules = $this->config->get('plugins.unload_rules', []);
+        if (!is_array($rules)) {
+            $rules = [];
+        }
+        if ($slugs === []) {
+            unset($rules[$post->post_type]);
+        } else {
+            $rules[$post->post_type] = $slugs;
+        }
+        $this->config->set('plugins.unload_rules', $rules);
+
+        CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
+    }
+
+    /**
+     * Active plugin catalog (slug => Name) for the metabox checkboxes.
+     */
+    private static function active_plugin_catalog(): array {
+        $plugins = [];
+        if (function_exists('wp_get_active_and_valid_plugins')) {
+            foreach (wp_get_active_and_valid_plugins() as $file) {
+                $slug = basename(dirname($file));
+                if ($slug === 'turbopress') {
+                    continue;
+                }
+                $data = get_file_data($file, ['Name' => 'Plugin Name']);
+                $plugins[$slug] = (string) ($data['Name'] ?: $slug);
+            }
+        }
+        return $plugins;
     }
 
     /* ------------------------------------------------------------------ */
