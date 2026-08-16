@@ -71,13 +71,23 @@ class Handshake {
         $verify = $api_client->verify_connection();
 
         if ($verify['success']) {
-            // Set-and-forget kickoff: now that the site is connected,
-            // immediately queue the first optimization pass (edge critical
-            // CSS + LCP measurement for the homepage) and nudge the media
-            // offload worker so R2 derivatives start generating in the
-            // background without any manual action.
-            wp_schedule_single_event(time() + 10, 'turbopress_async_optimize', ['url' => home_url('/'), 'attempt' => 1]);
-            wp_schedule_single_event(time() + 60, 'turbopress_media_offload', []);
+            // Set-and-forget kickoff: the moment the site is connected,
+            // dispatch the first optimization pass inline (edge critical
+            // CSS + LCP measurement for the homepage) so it starts even
+            // when WP-Cron is slow or disabled, then keep the cron poller
+            // as the delivery fallback. Media offload starts immediately
+            // via a due-now single event + spawn_cron().
+            $home = home_url('/');
+            $dispatch = $api_client->dispatch_optimization($home);
+            if (!empty($dispatch['data']['jobs'])) {
+                $jobs = array_map(
+                    static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']],
+                    $dispatch['data']['jobs']
+                );
+                set_transient('tp_jobs_' . md5($home), $jobs, 30 * MINUTE_IN_SECONDS);
+                wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', ['url' => $home, 'attempt' => 1]);
+            }
+            wp_schedule_single_event(time(), 'turbopress_media_offload', []);
             spawn_cron();
 
             // Clean redirect back to main settings page with success flag

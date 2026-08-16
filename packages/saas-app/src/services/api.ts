@@ -115,6 +115,21 @@ export const api = {
   },
 
   /**
+   * R2 offload log (per-site KV ring buffer)
+   */
+  async getSiteLogs(
+    token: string | null,
+    siteId: string
+  ): Promise<Array<{ t: number; src: string; w: number; f: string; status: string }>> {
+    const res = await request<{ logs: Array<{ t: number; src: string; w: number; f: string; status: string }> }>(
+      `/api/v1/sites/${siteId}/logs`,
+      { method: 'GET' },
+      token
+    );
+    return res?.logs || [];
+  },
+
+  /**
    * Update Site Configuration
    */
   async updateSiteConfig(

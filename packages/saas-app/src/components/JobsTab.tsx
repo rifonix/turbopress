@@ -1,27 +1,70 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Play, RotateCw, RefreshCw, Terminal } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '@clerk/nextjs';
+import { Play, RotateCw, RefreshCw, Terminal, HardDriveDownload } from 'lucide-react';
+import { api } from '../services/api';
 import { OptimizationJobItem } from '../types';
 
 interface JobsTabProps {
   jobs: OptimizationJobItem[];
+  sites: Array<{ id: string; domain: string }>;
   onDispatchNewJob: (url: string, viewport: 'mobile' | 'desktop') => void;
   onRerunJob: (jobId: string) => void;
   onToast: (msg: string) => void;
 }
 
+interface OffloadLogEntry {
+  t: number;
+  src: string;
+  w: number;
+  f: string;
+  status: string;
+}
+
 export const JobsTab: React.FC<JobsTabProps> = ({
   jobs,
+  sites,
   onDispatchNewJob,
   onRerunJob,
   onToast,
 }) => {
+  const { getToken } = useAuth();
   const [filter, setFilter] = useState<'all' | 'completed' | 'processing' | 'failed' | 'needs_attention'>('all');
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [dispatchUrl, setDispatchUrl] = useState('');
   const [dispatchViewport, setDispatchViewport] = useState<'mobile' | 'desktop'>('mobile');
   const [isRetryingAll, setIsRetryingAll] = useState(false);
+
+  // R2 offload log
+  const [logSiteId, setLogSiteId] = useState('');
+  const [offloadLog, setOffloadLog] = useState<OffloadLogEntry[] | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!logSiteId && sites.length > 0) setLogSiteId(sites[0].id);
+  }, [sites, logSiteId]);
+
+  const loadOffloadLog = async (siteId?: string) => {
+    const target = siteId || logSiteId;
+    if (!target) return;
+    setLogsLoading(true);
+    try {
+      const token = await getToken();
+      const logs = await api.getSiteLogs(token, target);
+      setOffloadLog(logs);
+    } catch {
+      setOffloadLog([]);
+      onToast('Failed to load the offload log');
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (logSiteId) loadOffloadLog(logSiteId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logSiteId]);
 
   const filteredJobs = jobs.filter((j) => {
     if (filter === 'all') return true;
@@ -200,6 +243,60 @@ export const JobsTab: React.FC<JobsTabProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* R2 Offload Log */}
+      <div className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#e4e4e7] flex-wrap">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <HardDriveDownload className="w-4 h-4 text-[#f03e2f]" /> R2 Offload Log
+          </h3>
+          <div className="flex items-center gap-2">
+            <select
+              value={logSiteId}
+              onChange={(e) => setLogSiteId(e.target.value)}
+              className="text-xs border border-[#e4e4e7] rounded-lg px-2 py-1.5 bg-white text-[#3f3f46]"
+            >
+              {sites.length === 0 && <option value="">No sites</option>}
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>{s.domain}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => loadOffloadLog()}
+              disabled={logsLoading || !logSiteId}
+              className="btn btn-secondary text-xs py-1.5 px-3"
+              title="Refresh offload log"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${logsLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div className="max-h-72 overflow-y-auto divide-y divide-[#f4f4f5]">
+          {!offloadLog || offloadLog.length === 0 ? (
+            <div className="px-5 py-8 text-center text-xs text-[#71717a]">
+              No R2 offload activity for this site yet.
+            </div>
+          ) : (
+            offloadLog.map((entry, i) => (
+              <div key={`${entry.t}-${i}`} className="px-5 py-2.5 flex items-center gap-3">
+                <span
+                  className={`chip ${entry.status === 'ok' ? 'chip-success' : 'chip-warn'} flex-none`}
+                >
+                  <span className="chip-dot" />
+                  {entry.status === 'ok' ? 'Stored' : 'Retry'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-xs text-[#3f3f46] truncate" title={entry.src}>{entry.src}</div>
+                  <div className="text-[10px] text-[#71717a]">
+                    {entry.f}{entry.w > 0 ? ` · ${entry.w}px` : ''} · {new Date(entry.t * 1000).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

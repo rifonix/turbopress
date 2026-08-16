@@ -12,7 +12,7 @@ import {
   normalizeDomain,
   PRESET_LUDICROUS,
 } from '@turbopress/shared';
-import { saasUserAuthMiddleware } from '../middleware/auth.js';
+import { saasUserAuthMiddleware, siteAuthMiddleware } from '../middleware/auth.js';
 
 export const siteRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -520,9 +520,90 @@ siteRoutes.delete('/:site_id', saasUserAuthMiddleware, async (c) => {
 
   await c.env.DB.prepare('DELETE FROM sites WHERE id = ?').bind(siteId).run();
   await c.env.KV.delete(`site:${site.domain}`);
+  await c.env.KV.delete(`sitelogs:${siteId}`);
 
   return c.json({
     success: true,
     message: `Site ${site.domain} successfully deleted`,
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* R2 offload logs (KV ring buffer per site)                           */
+/* ------------------------------------------------------------------ */
+
+const OFFLOAD_LOG_KEY = (siteId: string) => `sitelogs:${siteId}`;
+const OFFLOAD_LOG_MAX = 300;
+
+interface OffloadLogEntry {
+  t: number;
+  src: string;
+  w: number;
+  f: string;
+  status: string;
+}
+
+async function readOffloadLog(env: Env, siteId: string): Promise<OffloadLogEntry[]> {
+  const existing = await env.KV.get<OffloadLogEntry[]>(OFFLOAD_LOG_KEY(siteId), 'json');
+  return Array.isArray(existing) ? existing : [];
+}
+
+/**
+ * Push offload log entries (plugin worker, site-key auth).
+ * POST /api/v1/sites/:site_id/logs
+ */
+siteRoutes.post('/:site_id/logs', siteAuthMiddleware, async (c) => {
+  const site = c.get('site') as { id: string };
+  const siteId = c.req.param('site_id');
+  if (site.id !== siteId) {
+    return c.json({ success: false, error: 'Site mismatch' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const incoming = Array.isArray(body?.logs) ? body.logs : null;
+  if (!incoming || incoming.length === 0) {
+    return c.json({ success: false, error: 'Missing logs array' }, 400);
+  }
+
+  const sanitized: OffloadLogEntry[] = incoming
+    .filter((e: any) => e && typeof e.src === 'string')
+    .slice(0, 30)
+    .map((e: any) => ({
+      t: Number.isFinite(e.t) ? Math.max(0, Math.min(e.t, 4102444800)) : Math.floor(Date.now() / 1000),
+      src: String(e.src).slice(0, 300),
+      w: Number.isFinite(e.w) ? Math.max(0, Math.min(e.w, 100000)) : 0,
+      f: ['webp', 'orig', 'raw'].includes(e.f) ? e.f : 'webp',
+      status: ['ok', 'retry'].includes(e.status) ? e.status : 'retry',
+    }));
+
+  if (sanitized.length === 0) {
+    return c.json({ success: false, error: 'No valid entries' }, 400);
+  }
+
+  const merged = [...sanitized, ...(await readOffloadLog(c.env, siteId))].slice(0, OFFLOAD_LOG_MAX);
+  await c.env.KV.put(OFFLOAD_LOG_KEY(siteId), JSON.stringify(merged));
+
+  return c.json({ success: true, data: { stored: sanitized.length } });
+});
+
+/**
+ * Read offload logs (dashboard, user auth).
+ * GET /api/v1/sites/:site_id/logs
+ */
+siteRoutes.get('/:site_id/logs', saasUserAuthMiddleware, async (c) => {
+  const userId = c.get('userId')!;
+  const siteId = c.req.param('site_id');
+
+  const site = await c.env.DB.prepare(
+    'SELECT id FROM sites WHERE id = ? AND user_id = ?'
+  )
+    .bind(siteId, userId)
+    .first<{ id: string }>();
+
+  if (!site) {
+    return c.json({ success: false, error: 'Site not found' }, 404);
+  }
+
+  const logs = await readOffloadLog(c.env, siteId);
+  return c.json({ success: true, data: { logs } });
 });

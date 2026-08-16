@@ -119,10 +119,12 @@ embedRoutes.get('/site', async (c) => {
     `SELECT id, url, viewport, status, error_message, attempts, created_at, completed_at,
             critical_css_bytes, lcp_selector, lcp_image_url
      FROM optimization_jobs WHERE site_id = ?
-     ORDER BY created_at DESC LIMIT 15`
+     ORDER BY created_at DESC LIMIT 50`
   )
     .bind(site.id)
     .all();
+
+  const offloadLog = (await c.env.KV.get<any[]>(`sitelogs:${site.id}`, 'json')) || [];
 
   return c.json({
     success: true,
@@ -137,6 +139,7 @@ embedRoutes.get('/site', async (c) => {
       config,
       health,
       jobs: jobs.results || [],
+      offloadLog,
     },
   });
 });

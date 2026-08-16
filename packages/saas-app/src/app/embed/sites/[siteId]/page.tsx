@@ -4,8 +4,10 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Zap, Globe, RefreshCw, Trash2, Play, Save, CheckCircle2, XCircle,
-  Loader2, ShieldCheck, FlaskConical, Activity, ExternalLink,
+  Loader2, ShieldCheck, FlaskConical, Activity, ExternalLink, FileText,
+  HardDriveDownload, Eye, AlertTriangle,
 } from 'lucide-react';
+import { PRESETS_RECORD } from '@turbopress/shared';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -22,6 +24,15 @@ interface EmbedJob {
   completed_at: number | null;
   critical_css_bytes: number | null;
   lcp_selector: string | null;
+  lcp_image_url: string | null;
+}
+
+interface OffloadLogEntry {
+  t: number;
+  src: string;
+  w: number;
+  f: string;
+  status: string;
 }
 
 interface EmbedData {
@@ -35,6 +46,17 @@ interface EmbedData {
   config: Record<string, any>;
   health: any;
   jobs: EmbedJob[];
+  offloadLog?: OffloadLogEntry[];
+}
+
+interface OptimizedPage {
+  url: string;
+  path: string;
+  lastCompleted: number | null;
+  pending: boolean;
+  failing: boolean;
+  viewports: Record<string, { bytes: number | null; lcpSelector: string | null; at: number | null }>;
+  lastError: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -120,6 +142,15 @@ function setPath(obj: any, path: string, value: any): any {
   return clone;
 }
 
+function timeAgo(ts: number | null | undefined): string {
+  if (!ts) return '—';
+  const s = Math.max(1, Math.floor(Date.now() / 1000 - ts));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Main embed panel                                                    */
 /* ------------------------------------------------------------------ */
@@ -137,6 +168,8 @@ function EmbedPanel() {
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [logTab, setLogTab] = useState<'pages' | 'jobs' | 'offload'>('pages');
+  const [pageBusy, setPageBusy] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -181,6 +214,24 @@ function EmbedPanel() {
     setDirty(true);
   };
 
+  /**
+   * Presets are more than a label: selecting one loads its full tuned
+   * configuration into the form so every toggle below updates. The
+   * deployment status stays as-is (deploy is a separate decision).
+   */
+  const applyPreset = (id: string) => {
+    if (!config) return;
+    const preset = PRESETS_RECORD[id];
+    if (!preset) return;
+    let next: Record<string, any> = { ...preset, preset: id };
+    // Keep deployment decisions + any custom exclusion lists not part of
+    // the preset UX (urls/cookies) from the current config.
+    if (config.deployment) next.deployment = { ...config.deployment };
+    setConfig(next);
+    setDirty(true);
+    showToast(`${id[0].toUpperCase()}${id.slice(1)} preset applied — review the toggles and save`);
+  };
+
   const save = async () => {
     if (!config) return;
     setSaving(true);
@@ -220,13 +271,14 @@ function EmbedPanel() {
     }
   };
 
-  const dispatch = async () => {
+  const dispatchUrl = async (url: string) => {
     setBusy('dispatch');
+    setPageBusy(url);
     try {
       const res = await fetch('/api/v1/embed/site/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Embed-Token': token },
-        body: JSON.stringify({ url: `https://${data?.site.domain}/` }),
+        body: JSON.stringify({ url }),
       });
       const json = await res.json();
       if (json.success) {
@@ -239,11 +291,21 @@ function EmbedPanel() {
       showToast('Network error');
     } finally {
       setBusy('');
+      setPageBusy('');
     }
   };
 
+  const dispatch = () => dispatchUrl(`https://${data?.site.domain}/`);
+
   const setDeployment = async (status: 'test' | 'live') => {
     if (!config) return;
+    if (status === 'live') {
+      const ok = window.confirm(
+        'Deploy the optimized website to ALL visitors now?\n\n' +
+        'Make sure you have tested the optimized site with "Preview Cached Website" — pages, styling, menus, forms and checkout — before deploying.'
+      );
+      if (!ok) return;
+    }
     const next = setPath(setPath(config, 'deployment.status', status), 'deployment.source', 'dashboard');
     setConfig(next);
     setDirty(true);
@@ -293,6 +355,8 @@ function EmbedPanel() {
   }
 
   const deploymentStatus: string = getPath(config, 'deployment.status') || 'live';
+  const isTest = deploymentStatus === 'test';
+  const previewUrl = `https://${data.site.domain}/?tp_preview=1`;
   const preset: string = config.preset || 'ludicrous';
 
   const presets: Array<{ id: string; name: string; desc: string }> = [
@@ -300,6 +364,47 @@ function EmbedPanel() {
     { id: 'aggressive', name: 'Aggressive', desc: 'Defer all JS, combine CSS, proxy assets.' },
     { id: 'ludicrous', name: 'Ludicrous', desc: 'Everything + delay-until-interaction JS.' },
   ];
+
+  /* Group jobs by URL for the Optimized Pages view. */
+  const pages: OptimizedPage[] = useMemo(() => {
+    const byUrl = new Map<string, OptimizedPage>();
+    for (const job of data.jobs || []) {
+      let entry = byUrl.get(job.url);
+      if (!entry) {
+        let path = job.url;
+        try { path = new URL(job.url).pathname || '/'; } catch { /* keep raw */ }
+        entry = {
+          url: job.url,
+          path,
+          lastCompleted: null,
+          pending: false,
+          failing: false,
+          viewports: {},
+          lastError: null,
+        };
+        byUrl.set(job.url, entry);
+      }
+      if (job.status === 'queued' || job.status === 'processing') entry.pending = true;
+      if (job.status === 'failed' || job.status === 'needs_attention') {
+        entry.failing = true;
+        if (job.error_message) entry.lastError = job.error_message;
+      }
+      if (job.status === 'completed') {
+        const at = job.completed_at || job.created_at;
+        if (!entry.viewports[job.viewport] || (entry.viewports[job.viewport].at ?? 0) < at) {
+          entry.viewports[job.viewport] = {
+            bytes: job.critical_css_bytes,
+            lcpSelector: job.lcp_selector,
+            at,
+          };
+        }
+        if (!entry.lastCompleted || entry.lastCompleted < at) entry.lastCompleted = at;
+      }
+    }
+    return [...byUrl.values()].sort((a, b) => (b.lastCompleted ?? 0) - (a.lastCompleted ?? 0));
+  }, [data.jobs]);
+
+  const offloadLog = data.offloadLog || [];
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#18181b]">
@@ -316,12 +421,12 @@ function EmbedPanel() {
               </span>
               <span
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  deploymentStatus === 'live'
-                    ? 'bg-[#ecfdf3] text-[#027a48]'
-                    : 'bg-[#fffaeb] text-[#b54708]'
+                  isTest
+                    ? 'bg-[#fffaeb] text-[#b54708]'
+                    : 'bg-[#ecfdf3] text-[#027a48]'
                 }`}
               >
-                {deploymentStatus === 'live' ? <ShieldCheck className="w-3 h-3" /> : <FlaskConical className="w-3 h-3" />}
+                {isTest ? <FlaskConical className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
                 {deploymentStatus.toUpperCase()}
               </span>
             </div>
@@ -331,21 +436,13 @@ function EmbedPanel() {
             </div>
           </div>
 
-          {deploymentStatus === 'test' ? (
+          {isTest && (
             <button
               onClick={() => setDeployment('live')}
               disabled={saving}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#f03e2f] hover:bg-[#d93628] text-white text-xs font-semibold disabled:opacity-50"
             >
               <ShieldCheck className="w-3.5 h-3.5" /> Deploy to Visitors
-            </button>
-          ) : (
-            <button
-              onClick={() => setDeployment('test')}
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#e4e4e7] hover:bg-[#fafafa] text-xs font-semibold disabled:opacity-50"
-            >
-              <FlaskConical className="w-3.5 h-3.5" /> Enter Test Mode
             </button>
           )}
           <button
@@ -367,13 +464,29 @@ function EmbedPanel() {
         </div>
       </header>
 
+      {/* Test-mode explainer */}
+      {isTest && (
+        <div className="bg-[#fffaeb] border-b border-[#fedf89]">
+          <div className="max-w-5xl mx-auto px-5 py-3 flex items-start gap-2.5 text-[12px] text-[#7a2e0e] leading-relaxed">
+            <AlertTriangle className="w-4 h-4 text-[#d97706] shrink-0 mt-0.5" />
+            <span>
+              <strong>Not deployed to real visitors.</strong> Visitors currently see the unoptimized website.{' '}
+              <a href={previewUrl} target="_blank" rel="noreferrer" className="underline font-semibold">
+                Test the optimized version
+              </a>{' '}
+              first, then click <strong>Deploy to Visitors</strong> when everything looks right.
+            </span>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-5xl mx-auto px-5 py-6 space-y-6">
         {/* Presets */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {presets.map((p) => (
             <button
               key={p.id}
-              onClick={() => upsert('preset', p.id)}
+              onClick={() => applyPreset(p.id)}
               className={`text-left p-4 rounded-2xl border transition-all ${
                 preset === p.id
                   ? 'border-[#f03e2f] bg-[#fff8f7] shadow-sm'
@@ -473,39 +586,122 @@ function EmbedPanel() {
           </Card>
         </div>
 
-        {/* Jobs */}
+        {/* Pages & logs */}
         <div className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#e4e4e7]">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Activity className="w-4 h-4 text-[#f03e2f]" /> Optimization Jobs
-            </h3>
+          <div className="flex items-center justify-between px-5 py-3 border-b border-[#e4e4e7]">
+            <div className="flex items-center gap-1">
+              {([
+                ['pages', 'Optimized Pages', <Eye key="e" className="w-3.5 h-3.5" />],
+                ['jobs', 'Job Log', <FileText key="j" className="w-3.5 h-3.5" />],
+                ['offload', 'R2 Offload Log', <HardDriveDownload key="o" className="w-3.5 h-3.5" />],
+              ] as const).map(([id, label, icon]) => (
+                <button
+                  key={id}
+                  onClick={() => setLogTab(id as 'pages' | 'jobs' | 'offload')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                    logTab === id ? 'bg-[#fff8f7] text-[#f03e2f]' : 'text-[#71717a] hover:bg-[#fafafa]'
+                  }`}
+                >
+                  {icon}{label}
+                </button>
+              ))}
+            </div>
             <button onClick={load} className="text-[#71717a] hover:text-[#18181b]" title="Refresh">
               <RefreshCw className={`w-4 h-4 ${activeJobs ? 'animate-spin' : ''}`} />
             </button>
           </div>
-          <div className="max-h-72 overflow-y-auto divide-y divide-[#f4f4f5]">
-            {(data.jobs || []).length === 0 && (
-              <div className="px-5 py-8 text-center text-xs text-[#71717a]">
-                No jobs yet — hit “Run Optimization” to generate critical CSS + measure LCP.
-              </div>
-            )}
-            {(data.jobs || []).map((job) => (
-              <div key={job.id} className="px-5 py-3 flex items-center gap-3">
-                <StatusBadge status={job.status} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[12px] font-medium truncate">{job.url}</div>
-                  <div className="text-[10px] text-[#71717a]">
-                    {job.viewport}
-                    {job.critical_css_bytes ? ` · ${(job.critical_css_bytes / 1024).toFixed(1)}KB CSS` : ''}
-                    {job.created_at ? ` · ${new Date(job.created_at * 1000).toLocaleString()}` : ''}
-                  </div>
-                  {job.error_message && (
-                    <div className="text-[10px] text-[#b42318] truncate" title={job.error_message}>{job.error_message}</div>
-                  )}
+
+          {logTab === 'pages' && (
+            <div className="max-h-96 overflow-y-auto divide-y divide-[#f4f4f5]">
+              {pages.length === 0 && (
+                <div className="px-5 py-8 text-center text-xs text-[#71717a]">
+                  No pages optimized yet — hit “Run Optimization” to generate critical CSS + measure LCP.
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
+              {pages.map((page) => (
+                <div key={page.url} className="px-5 py-3 flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] font-medium truncate">{page.path}</div>
+                    <div className="text-[10px] text-[#71717a] flex items-center gap-1.5 flex-wrap">
+                      <span>optimized {timeAgo(page.lastCompleted)}</span>
+                      {Object.entries(page.viewports).map(([vp, info]) => (
+                        <span key={vp} className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-[#f4f4f5]">
+                          {vp}
+                          {info.bytes ? ` · ${(info.bytes / 1024).toFixed(1)}KB` : ''}
+                        </span>
+                      ))}
+                    </div>
+                    {page.lastError && (
+                      <div className="text-[10px] text-[#b42318] truncate" title={page.lastError}>{page.lastError}</div>
+                    )}
+                  </div>
+                  {page.pending && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#175cd3] shrink-0" />}
+                  {page.failing && !page.pending && <XCircle className="w-3.5 h-3.5 text-[#b42318] shrink-0" />}
+                  <button
+                    onClick={() => dispatchUrl(page.url)}
+                    disabled={pageBusy === page.url || page.pending}
+                    className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#e4e4e7] text-[11px] font-semibold hover:bg-[#fafafa] disabled:opacity-50"
+                    title="Re-optimize this page"
+                  >
+                    {pageBusy === page.url ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    Re-run
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {logTab === 'jobs' && (
+            <div className="max-h-96 overflow-y-auto divide-y divide-[#f4f4f5]">
+              {(data.jobs || []).length === 0 && (
+                <div className="px-5 py-8 text-center text-xs text-[#71717a]">No jobs recorded yet.</div>
+              )}
+              {(data.jobs || []).map((job) => (
+                <div key={job.id} className="px-5 py-2.5 flex items-center gap-3">
+                  <StatusBadge status={job.status} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] font-medium truncate">{job.url}</div>
+                    <div className="text-[10px] text-[#71717a]">
+                      {job.viewport}
+                      {job.critical_css_bytes ? ` · ${(job.critical_css_bytes / 1024).toFixed(1)}KB CSS` : ''}
+                      {job.created_at ? ` · ${new Date(job.created_at * 1000).toLocaleString()}` : ''}
+                      {job.attempts > 1 ? ` · ${job.attempts} attempts` : ''}
+                    </div>
+                    {job.error_message && (
+                      <div className="text-[10px] text-[#b42318] truncate" title={job.error_message}>{job.error_message}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {logTab === 'offload' && (
+            <div className="max-h-96 overflow-y-auto divide-y divide-[#f4f4f5]">
+              {offloadLog.length === 0 && (
+                <div className="px-5 py-8 text-center text-xs text-[#71717a]">
+                  No R2 offload activity yet — enable “Offload images/videos to R2” and save.
+                </div>
+              )}
+              {offloadLog.map((entry, i) => (
+                <div key={`${entry.t}-${i}`} className="px-5 py-2.5 flex items-center gap-3">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${
+                      entry.status === 'ok' ? 'bg-[#ecfdf3] text-[#027a48]' : 'bg-[#fffaeb] text-[#b54708]'
+                    }`}
+                  >
+                    {entry.status === 'ok' ? 'stored' : entry.status}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-mono truncate" title={entry.src}>{entry.src}</div>
+                    <div className="text-[10px] text-[#71717a]">
+                      {entry.f}{entry.w > 0 ? ` · ${entry.w}px` : ''} · {new Date(entry.t * 1000).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="text-center text-[11px] text-[#a1a1aa] pb-4">

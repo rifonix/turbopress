@@ -198,6 +198,41 @@ class ApiClient {
     }
 
     /**
+     * Push R2 offload log entries to the edge (site-auth) so the dashboard
+     * Logs view can display them. Best-effort by design.
+     */
+    public function push_offload_logs(array $entries): array {
+        $api_key = $this->config->get_api_key();
+        $site_id = $this->config->get_site_id();
+        if (empty($api_key) || empty($site_id) || $entries === []) {
+            return ['success' => false, 'error' => 'Not connected'];
+        }
+
+        $api_url = rtrim($this->config->get_api_url(), '/')
+            . '/api/v1/sites/' . rawurlencode($site_id) . '/logs';
+
+        $response = wp_remote_post($api_url, [
+            'timeout' => 8,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-Domain' => $this->get_site_domain(),
+                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode(['logs' => array_slice($entries, 0, 30)]),
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        return !empty($body['success'])
+            ? ['success' => true]
+            : ['success' => false, 'error' => $body['error'] ?? 'Log push failed'];
+    }
+
+    /**
      * Poll the optimization job status (KV/D1 backed).
      * Returns ['status' => queued|processing|completed|failed, ...] or error array.
      */

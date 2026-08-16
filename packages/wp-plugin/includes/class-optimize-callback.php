@@ -77,13 +77,29 @@ class OptimizeCallback {
             if (!is_array($current)) {
                 $current = [];
             }
+
+            // R2 offload activation must start working instantly — not at
+            // the next hourly cron tick. Detect any offload flag flipping
+            // on (or widths changing while enabled) and kick the worker
+            // due-now.
+            $was_offloading = !empty($current['media']['offload_images']) || !empty($current['media']['offload_video']);
+            $now_offloading = !empty($incoming['media']['offload_images']) || !empty($incoming['media']['offload_video']);
+            $widths_changed = ($current['media']['offload_widths'] ?? null) !== ($incoming['media']['offload_widths'] ?? null)
+                && $now_offloading;
+
             // Recursive merge keeps keys the dashboard payload omits;
             // save() re-applies defaults + bumps the version.
             $config->save(array_replace_recursive($current, $incoming));
 
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');
-            return ['success' => true, 'command' => 'config'];
+
+            if (($now_offloading && !$was_offloading) || $widths_changed) {
+                wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+                spawn_cron();
+            }
+
+            return ['success' => true, 'command' => 'config', 'offload_kicked' => $now_offloading && (!$was_offloading || $widths_changed)];
         }
 
         // Purge push from the dashboard.

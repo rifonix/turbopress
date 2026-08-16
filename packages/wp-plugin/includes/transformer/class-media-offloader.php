@@ -306,6 +306,8 @@ class MediaOffloader {
 
     /**
      * Cron worker: generate + upload derivatives (bounded per run).
+     * Every processed item is logged and pushed to the edge so the
+     * dashboard Logs view shows R2 offload activity.
      */
     public static function process_queue(): void {
         $config = new Config();
@@ -319,6 +321,7 @@ class MediaOffloader {
             return;
         }
 
+        $log = [];
         $batch = 0;
         foreach ($queue as $key => $item) {
             if ($batch >= self::MAX_BATCH) {
@@ -339,9 +342,31 @@ class MediaOffloader {
             if ($ok) {
                 unset($queue[$key]);
             }
+
+            $log[] = [
+                't' => time(),
+                'src' => substr((string) $item['src'], 0, 300),
+                'w' => (int) $item['w'],
+                'f' => (string) $item['f'],
+                'status' => $ok ? 'ok' : 'retry',
+            ];
         }
 
         update_option(self::QUEUE_OPTION, $queue, false);
+
+        if ($log !== []) {
+            try {
+                (new ApiClient($config))->push_offload_logs($log);
+            } catch (\Throwable $e) {
+                // Logging is best-effort; never break the worker.
+            }
+        }
+
+        // More work left? Keep the worker hot without waiting an hour.
+        if ($queue !== [] && $batch >= self::MAX_BATCH) {
+            wp_schedule_single_event(time() + 20, 'turbopress_media_offload', []);
+            spawn_cron();
+        }
     }
 
     private function generate_and_upload(string $src, int $w, string $f): bool {
