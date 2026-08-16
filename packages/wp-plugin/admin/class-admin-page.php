@@ -5,12 +5,28 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+/**
+ * Admin experience: two pages.
+ *
+ *  - Dashboard (wp-admin/admin.php?page=turbopress): the full SaaS control
+ *    panel, embedded full-width via a signed 1h HMAC token. Requires a
+ *    connection; otherwise visitors are bounced to the Connect page.
+ *  - Connect (wp-admin/admin.php?page=turbopress-connect): local onboarding
+ *    screen. If already connected, sends the user to the Dashboard.
+ *
+ * Also renders the admin-bar actions (purge this page / re-optimize this
+ * page / purge all) for logged-in administrators.
+ */
 class AdminPage {
     private static ?AdminPage $instance = null;
     private Config $config;
     private ApiClient $api_client;
     private CacheManager $cache_manager;
     private HealthCheck $health_check;
+
+    public const PAGE_DASHBOARD = 'turbopress';
+    public const PAGE_CONNECT = 'turbopress-connect';
+    public const ACTIVATION_REDIRECT_OPTION = 'turbopress_do_activation_redirect';
 
     public static function get_instance(): AdminPage {
         if (self::$instance === null) {
@@ -27,23 +43,98 @@ class AdminPage {
 
         add_action('admin_menu', [$this, 'register_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
-        add_action('wp_ajax_turbopress_save_settings', [$this, 'ajax_save_settings']);
+        add_action('admin_init', [$this, 'maybe_redirect_after_activation']);
+        add_action('admin_init', [$this, 'guard_pages']);
+        add_action('admin_bar_menu', [$this, 'register_admin_bar'], 100);
+        add_action('init', [$this, 'handle_admin_bar_action']);
+        // Dashicons are not loaded on the front end by default, but the
+        // admin-bar actions rely on them.
+        add_action('wp_enqueue_scripts', static function (): void {
+            if (current_user_can('manage_options')) {
+                wp_enqueue_style('dashicons');
+            }
+        });
         add_action('wp_ajax_turbopress_purge_cache', [$this, 'ajax_purge_cache']);
         add_action('wp_ajax_turbopress_disconnect', [$this, 'ajax_disconnect']);
-        add_action('wp_ajax_turbopress_health_recheck', [$this, 'ajax_health_recheck']);
-        add_action('wp_ajax_turbopress_deploy', [$this, 'ajax_deploy']);
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Routing & lifecycle                                                  */
+    /* ------------------------------------------------------------------ */
 
     public function register_menu(): void {
         add_menu_page(
-            'Turbopress Optimizer',
+            'Turbopress',
             'Turbopress',
             'manage_options',
-            'turbopress',
-            [$this, 'render_admin_page'],
+            self::PAGE_DASHBOARD,
+            [$this, 'render_dashboard_page'],
             'dashicons-performance',
             58
         );
+
+        add_submenu_page(
+            self::PAGE_DASHBOARD,
+            'Dashboard',
+            'Dashboard',
+            'manage_options',
+            self::PAGE_DASHBOARD,
+            [$this, 'render_dashboard_page']
+        );
+
+        add_submenu_page(
+            self::PAGE_DASHBOARD,
+            'Connect',
+            'Connect',
+            'manage_options',
+            self::PAGE_CONNECT,
+            [$this, 'render_connect_page']
+        );
+    }
+
+    /**
+     * After activation, drop the user straight onto the Connect page
+     * (or the Dashboard when a connection already exists).
+     */
+    public function maybe_redirect_after_activation(): void {
+        if (!get_option(self::ACTIVATION_REDIRECT_OPTION)) {
+            return;
+        }
+
+        // Never hijack ajax/cron; leave the flag for the next page load.
+        if (wp_doing_ajax() || wp_doing_cron()) {
+            return;
+        }
+
+        delete_option(self::ACTIVATION_REDIRECT_OPTION);
+
+        if (isset($_GET['activate-multi'])) {
+            return;
+        }
+
+        $target = $this->config->is_connected()
+            ? self::PAGE_DASHBOARD
+            : self::PAGE_CONNECT;
+        wp_safe_redirect(add_query_arg(['page' => $target], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * Access control: the Dashboard requires a connection; the Connect
+     * page is only useful while disconnected.
+     */
+    public function guard_pages(): void {
+        $screen = isset($_GET['page']) ? sanitize_key($_GET['page']) : '';
+        if ($screen === self::PAGE_DASHBOARD && !$this->config->is_connected()) {
+            wp_safe_redirect(add_query_arg(['page' => self::PAGE_CONNECT], admin_url('admin.php')));
+            exit;
+        }
+        if ($screen === self::PAGE_CONNECT
+            && $this->config->is_connected()
+            && empty($_GET['force'])) {
+            wp_safe_redirect(add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php')));
+            exit;
+        }
     }
 
     public function enqueue_assets(string $hook): void {
@@ -57,581 +148,99 @@ class AdminPage {
             [],
             TURBOPRESS_VERSION
         );
+
+        // Dashicons for the icon-based UI (usually already loaded in admin).
+        wp_enqueue_style('dashicons');
     }
 
-    public function render_admin_page(): void {
-        $is_connected = $this->config->is_connected();
-        $api_key = $this->config->get_api_key();
+    /* ------------------------------------------------------------------ */
+    /* Dashboard page (embedded SaaS control panel)                         */
+    /* ------------------------------------------------------------------ */
+
+    public function render_dashboard_page(): void {
         $site_id = $this->config->get_site_id();
-        $connect_url = Handshake::generate_connect_url();
-        $current_preset = $this->config->get('preset', 'ludicrous');
-        $caching_enabled = $this->config->get('caching.enabled', true);
-        $critical_css_enabled = $this->config->get('critical_css.enabled', true);
-        $js_execution_mode = (string) $this->config->get('javascript.execution_mode', 'defer');
-        if (!in_array($js_execution_mode, ['none', 'defer', 'interaction_delay'], true)) {
-            $js_execution_mode = 'defer';
-        }
-        $offload_images = (bool) $this->config->get('media.offload_images', false);
-        $offload_video = (bool) $this->config->get('media.offload_video', false);
-        $speculation_enabled = $this->config->get('dynamic.speculation_rules_prerender', true);
-        $nonce_refresh_enabled = $this->config->get('dynamic.nonce_ajax_refresh', true);
-        $css_combine = $this->config->get('css.combine', true);
-        $css_inline_all = (bool) $this->config->get('css.inline_all', true);
-        $assets_proxy = (bool) $this->config->get('assets.proxy_enabled', false);
-        $htaccess_enabled = (bool) $this->config->get('htaccess.enabled', true);
-        $fonts_enabled = $this->config->get('fonts.localize_google', true);
-        $hints_enabled = $this->config->get('hints.resource_hints', true);
-        $remove_jquery_migrate = $this->config->get('javascript.remove_jquery_migrate', false);
-        $deployment_status = $this->config->get('deployment.status', 'live');
-        $auto_degrade = $this->config->get('deployment.auto_degrade', true);
-        $degrade_state = get_option(AutoDegrade::OPTION, []);
-        $health = HealthCheck::get_latest();
-        $cache_status = CacheIntegration::get_status();
+        $domain = wp_parse_url(home_url(), PHP_URL_HOST) ?: '';
 
-        // View mode: embedded SaaS dashboard (default) or local controls.
-        $user_id = get_current_user_id();
-        if (isset($_GET['tp_view']) && in_array($_GET['tp_view'], ['dashboard', 'local'], true)) {
-            update_user_meta($user_id, 'turbopress_view_mode', sanitize_key($_GET['tp_view']));
-            wp_safe_redirect(remove_query_arg('tp_view'));
-            exit;
-        }
-        $view_mode = get_user_meta($user_id, 'turbopress_view_mode', true);
-        if ($view_mode !== 'local') {
-            $view_mode = 'dashboard';
-        }
-
-        // Signed embed token: siteId.expiry.hmac(callback_secret). The edge
-        // verifies it, so the iframe needs no Clerk session and no API key
-        // exposure in the browser.
-        $embed_url = '';
-        if ($is_connected && $site_id) {
-            $exp = time() + HOUR_IN_SECONDS;
-            $sig = hash_hmac('sha256', $site_id . '.' . $exp, Config::get_callback_secret_static());
-            $embed_url = rtrim($this->config->get_api_url(), '/') . '/embed/sites/' . rawurlencode($site_id) . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
-        }
-        $switch_url = add_query_arg(['page' => 'turbopress', 'tp_view' => $view_mode === 'dashboard' ? 'local' : 'dashboard'], admin_url('admin.php'));
-
+        // Signed embed token: siteId.expiry.hmac(callback_secret). The
+        // edge verifies it, so the iframe needs no Clerk session and no
+        // API key exposure in the browser.
+        $exp = time() + HOUR_IN_SECONDS;
+        $sig = hash_hmac('sha256', $site_id . '.' . $exp, Config::get_callback_secret_static());
+        $embed_url = rtrim($this->config->get_api_url(), '/')
+            . '/embed/sites/' . rawurlencode($site_id)
+            . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
         ?>
-        <div class="wrap turbopress-admin-wrap">
-            <div class="tp-header">
-                <div class="tp-logo-block">
-                    <span class="tp-badge">SpeedForge Engine</span>
-                    <h1>⚡ Turbopress Optimizer</h1>
-                    <p class="tp-subtitle">High-performance zero-DNS edge optimization & dynamic DOM transformation</p>
+        <div class="wrap turbopress-admin-wrap tp-dashboard-wrap">
+            <header class="tp-dashboard-bar">
+                <div class="tp-dashboard-brand">
+                    <span class="dashicons dashicons-performance tp-brand-icon"></span>
+                    <div>
+                        <strong>Turbopress Control Panel</strong>
+                        <span class="tp-dashboard-domain"><?php echo esc_html($domain); ?></span>
+                    </div>
                 </div>
-                <div class="tp-header-actions">
-                    <?php if ($is_connected && $view_mode === 'local'): ?>
-                        <a href="<?php echo esc_url($switch_url); ?>" class="button button-secondary">🚀 Open Cloud Dashboard</a>
+                <div class="tp-dashboard-actions">
+                    <?php if (!empty($_GET['connected'])): ?>
+                        <span class="tp-notice-ok"><span class="dashicons dashicons-yes-alt"></span> Connected — optimization started in the background.</span>
                     <?php endif; ?>
                     <button type="button" id="tp-purge-cache-btn" class="button button-secondary">
-                        🧹 Purge Static Cache
+                        <span class="dashicons dashicons-trash"></span> Purge Cache
+                    </button>
+                    <button type="button" id="tp-disconnect-btn" class="button button-link-delete">
+                        <span class="dashicons dashicons-editor-unlink"></span> Disconnect
                     </button>
                 </div>
+            </header>
+
+            <div class="tp-embed-frame">
+                <iframe
+                    src="<?php echo esc_url($embed_url); ?>"
+                    title="Turbopress Control Panel"
+                    loading="lazy"
+                ></iframe>
             </div>
 
-            <!-- Connection Status Banner -->
-            <div class="tp-card tp-status-card <?php echo $is_connected ? 'connected' : 'disconnected'; ?>">
-                <div class="tp-card-content">
-                    <div class="tp-status-indicator">
-                        <span class="tp-dot"></span>
-                        <div class="tp-status-text">
-                            <h3><?php echo $is_connected ? 'Connected to Cloudflare Edge' : 'Edge Pipeline Disconnected'; ?></h3>
-                            <p><?php echo $is_connected ? 'Site ID: <code>' . esc_html($site_id) . '</code> | API Key: <code>' . esc_html(substr($api_key, 0, 12)) . '...</code>' : 'Connect to the Turbopress SaaS Control Plane for automated Critical CSS, LCP preloading, and Edge Workers.'; ?></p>
-                        </div>
-                    </div>
-                    <div class="tp-status-action">
-                        <?php if ($is_connected): ?>
-                            <button type="button" id="tp-disconnect-btn" class="button button-link-delete">Disconnect</button>
-                        <?php else: ?>
-                            <a href="<?php echo esc_url($connect_url); ?>" class="button button-primary tp-connect-btn">
-                                🔗 1-Click Connect to Turbopress
-                            </a>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-
-            <?php if ($is_connected && $view_mode === 'dashboard' && $embed_url !== ''): ?>
-                <!-- Embedded SaaS control panel: every optimization control,
-                     live jobs, deploy/purge — pushed to the plugin instantly
-                     through the signed command channel. -->
-                <div class="tp-card" style="padding:0;overflow:hidden;">
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #e4e4e7;background:#fafafa;">
-                        <strong style="font-size:13px;">🚀 Turbopress Control Panel</strong>
-                        <a href="<?php echo esc_url($switch_url); ?>" class="button button-small" style="text-decoration:none;">Use local controls instead</a>
-                    </div>
-                    <iframe
-                        src="<?php echo esc_url($embed_url); ?>"
-                        style="width:100%;height:1600px;border:0;display:block;background:#fafafa;"
-                        loading="lazy"
-                        title="Turbopress Control Panel"
-                    ></iframe>
-                </div>
-                <p class="description" style="margin:8px 4px 24px;">
-                    The embedded panel is the full web-app experience for this site. Changes you save there are applied to this WordPress site instantly.
-                </p>
-                </div><?php // close .wrap early — dashboard view ?>
-                <?php return; ?>
-            <?php endif; ?>
-
-            <!-- Master Preset Selector -->
-            <div class="tp-card">
-                <h2>🎯 Master Performance Preset</h2>
-                <p class="tp-desc">Choose a pre-tuned configuration profile or customize granular rules below.</p>
-
-                <div class="tp-presets-grid">
-                    <label class="tp-preset-box <?php echo $current_preset === 'safe' ? 'active' : ''; ?>">
-                        <input type="radio" name="tp_preset" value="safe" <?php checked($current_preset, 'safe'); ?>>
-                        <div class="tp-preset-content">
-                            <span class="tp-preset-tag">Safe Mode</span>
-                            <h4>Standard Cache & Defer</h4>
-                            <p>Sub-15ms page caching, basic script deferral, image dimensions, and instant prerendering. 100% theme compatibility guarantee.</p>
-                        </div>
-                    </label>
-
-                    <label class="tp-preset-box <?php echo $current_preset === 'aggressive' ? 'active' : ''; ?>">
-                        <input type="radio" name="tp_preset" value="aggressive" <?php checked($current_preset, 'aggressive'); ?>>
-                        <div class="tp-preset-content">
-                            <span class="tp-preset-tag">Aggressive (90+ Score)</span>
-                            <h4>Critical CSS + Next-Gen Media</h4>
-                            <p>Edge Critical CSS inlining, automatic LCP image priority preload, Next-Gen image negotiation, and speculative prerender.</p>
-                        </div>
-                    </label>
-
-                    <label class="tp-preset-box <?php echo $current_preset === 'ludicrous' ? 'active' : ''; ?>">
-                        <input type="radio" name="tp_preset" value="ludicrous" <?php checked($current_preset, 'ludicrous'); ?>>
-                        <div class="tp-preset-content">
-                            <span class="tp-preset-tag tp-tag-gold">Ludicrous Speed (98-100 Score)</span>
-                            <h4>3-Tier JS Delay + Micro-Hydration</h4>
-                            <p>Interaction-based JavaScript execution with jQuery queueing, zero-breakage nonce hydration, and full edge optimization.</p>
-                        </div>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Deployment: Test Mode -> Live -->
-            <div class="tp-card">
-                <h2>🚀 Deployment</h2>
-                <?php if ($deployment_status === 'test'): ?>
-                    <p class="tp-desc">
-                        <span class="tp-status-pill" style="background:#f59e0b;color:#fff;padding:2px 10px;border-radius:12px;font-weight:600;">TEST MODE</span>
-                        Visitors currently see the <strong>unoptimized</strong> page. Verify the optimized version first, then deploy.
-                    </p>
-                    <p>
-                        <a href="<?php echo esc_url(add_query_arg('tp_preview', '1', home_url('/'))); ?>" target="_blank" class="button button-secondary">
-                            👁 Preview Optimized Homepage
-                        </a>
-                        <button type="button" id="tp-deploy-btn" class="button button-primary" style="margin-left:6px;">
-                            ✅ Deploy to Visitors
-                        </button>
-                        <span id="tp-deploy-status" class="tp-status-msg"></span>
-                    </p>
-                    <p class="tp-desc">Check the browser console for errors on the preview page before deploying.</p>
-                <?php else: ?>
-                    <p class="tp-desc">
-                        <span class="tp-status-pill" style="background:#10b981;color:#fff;padding:2px 10px;border-radius:12px;font-weight:600;">LIVE</span>
-                        All visitors receive the optimized page.
-                        <button type="button" id="tp-testmode-btn" class="button button-secondary" style="margin-left:10px;">
-                            ↩ Enter Test Mode
-                        </button>
-                        <span id="tp-deploy-status" class="tp-status-msg"></span>
-                    </p>
-                <?php endif; ?>
-                <?php if (is_array($degrade_state) && !empty($degrade_state['at'])): ?>
-                    <p class="tp-desc" style="color:#b45309;">
-                        🛡 Auto-Protect last action <?php echo esc_html(human_time_diff((int) $degrade_state['at'], time())); ?> ago:
-                        stepped <code><?php echo esc_html((string) $degrade_state['from']); ?></code> →
-                        <code><?php echo esc_html((string) $degrade_state['to']); ?></code>
-                        (error rate <?php echo esc_html(number_format((float) $degrade_state['rate'] * 100, 1)); ?>% over
-                        <?php echo (int) $degrade_state['views']; ?> views).
-                    </p>
-                <?php endif; ?>
-            </div>
-
-            <!-- Granular Feature Switches -->
-            <div class="tp-card">
-                <h2>⚙️ Optimization Modules</h2>
-                <form id="tp-settings-form">
-                    <table class="form-table tp-table">
-                        <tr>
-                            <th scope="row">Drop-In Page Caching</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="caching_enabled" value="1" <?php checked($caching_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Sub-15ms TTFB delivery via <code>advanced-cache.php</code> bypassing WordPress core.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Edge Critical CSS</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="critical_css_enabled" value="1" <?php checked($critical_css_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Extract above-the-fold CSS via Cloudflare Browser Rendering and defer non-critical styles.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">JavaScript Execution</th>
-                            <td>
-                                <select name="js_execution_mode" id="tp-js-mode" style="min-width:260px">
-                                    <option value="none" <?php selected($js_execution_mode, 'none'); ?>>Off — scripts load normally</option>
-                                    <option value="defer" <?php selected($js_execution_mode, 'defer'); ?>>Safe Defer (recommended) — order-preserving, zero breakage</option>
-                                    <option value="interaction_delay" <?php selected($js_execution_mode, 'interaction_delay'); ?>>Smart Delay (advanced) — hold scripts until first interaction / 3.5s</option>
-                                </select>
-                                <p class="tp-label-desc">Safe Defer keeps document order (jQuery → plugins → inline configs). Smart Delay maximizes Lighthouse scores; auto-protect steps it down automatically if real-user errors spike.</p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Offload Images to Edge CDN (R2)</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="offload_images" value="1" <?php checked($offload_images); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Serves images from the Turbopress edge worker (R2, webp derivatives, immutable caching). Falls back to a redirect to the original image until the derivative is ready — images can never break.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Offload Videos to Edge CDN (R2)</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="offload_video" value="1" <?php checked($offload_video); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Routes <code>&lt;video&gt;</code>/<code>&lt;source&gt;</code> sources through the edge worker with R2 caching and range-request support (files up to 100&nbsp;MB).</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Remove jQuery Migrate</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="remove_jquery_migrate" value="1" <?php checked($remove_jquery_migrate); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Drops <code>jquery-migrate</code> entirely (most modern themes/plugins no longer need it).</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">CSS Combine + Minify</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="css_combine" value="1" <?php checked($css_combine); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Merges render-blocking stylesheets into one disk-cached, minified bundle with a single async load. Requires Critical CSS.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Inline Full CSS (Recommended)</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="css_inline_all" value="1" <?php checked($css_inline_all); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">When the site's combined CSS fits under 150&nbsp;KB, the entire stylesheet is inlined into the HTML — zero render-blocking CSS requests, zero FOUC, and pseudo-element/overlay styles can never go missing. Larger sites automatically fall back to Critical CSS + async bundle.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">3rd-Party Asset Proxy (R2)</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="assets_proxy" value="1" <?php checked($assets_proxy); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Serves foreign CSS/JS (unpkg, code.jquery.com, other CDNs) through the Turbopress edge worker — removes their DNS/TLS cost and caches them immutably. Consent banners &amp; payment SDKs are never proxied. Falls back to a redirect to the original URL, so assets can never break.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">.htaccess Delivery Optimization</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="htaccess_enabled" value="1" <?php checked($htaccess_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Long-cache immutable TTLs for optimized assets, pre-compressed <code>.br</code>/<code>.gz</code> serving, and Brotli output filters (Apache/LiteSpeed). Verified with a loopback healthcheck after every write; auto-restores the backup on any failure.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Localize Google Fonts</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="fonts_enabled" value="1" <?php checked($fonts_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Serves Google Fonts (woff2 + CSS) from your own domain with <code>font-display:swap</code> and preloads LCP-critical fonts.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Auto Resource Hints</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="hints_enabled" value="1" <?php checked($hints_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Injects <code>preconnect</code>/<code>dns-prefetch</code> for detected 3rd-party origins (fonts, CDNs, trackers).</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Auto-Protect (Auto-Degrade)</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="auto_degrade" value="1" <?php checked($auto_degrade); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">When visitors see elevated JS error rates, automatically step JS execution down (<code>interaction_delay → defer → none</code>) and purge caches. Max one step per 6h.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Speculation Rules API</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="speculation_enabled" value="1" <?php checked($speculation_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">W3C browser prerendering for instantaneous &lt;50ms link transitions.</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Dynamic Nonce & Cart Micro-Hydration</th>
-                            <td>
-                                <label class="tp-switch">
-                                    <input type="checkbox" name="nonce_refresh_enabled" value="1" <?php checked($nonce_refresh_enabled); ?>>
-                                    <span class="tp-slider"></span>
-                                </label>
-                                <span class="tp-label-desc">Asynchronously refreshes WordPress nonces and WooCommerce cart badges client-side, preventing expired form errors.</span>
-                            </td>
-                        </tr>
-                    </table>
-
-                    <div class="tp-form-footer">
-                        <button type="submit" class="button button-primary button-large" id="tp-save-btn">
-                            Save Changes
-                        </button>
-                        <span id="tp-save-status" class="tp-status-msg"></span>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Health & Compatibility -->
-            <div class="tp-card">
-                <h2>🩺 Health &amp; Compatibility</h2>
-                <?php if (!empty($health['checks'])): ?>
-                    <p class="tp-desc">
-                        Last checked: <?php echo esc_html(human_time_diff((int) $health['checked_at'], time()) . ' ago'); ?>
-                        <button type="button" id="tp-health-recheck" class="button button-small" style="margin-left:8px;">
-                            Re-run checks
-                        </button>
-                        <span id="tp-health-status" class="tp-status-msg"></span>
-                    </p>
-                    <table class="widefat striped tp-health-table">
-                        <thead>
-                            <tr><th>Check</th><th>Status</th><th>Detail</th></tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($health['checks'] as $check): ?>
-                            <tr>
-                                <td><strong><?php echo esc_html($check['label']); ?></strong></td>
-                                <td>
-                                    <?php
-                                    $icon = $check['status'] === 'ok' ? '✅' : ($check['status'] === 'warning' ? '⚠️' : ($check['status'] === 'info' ? 'ℹ️' : '❌'));
-                                    echo $icon . ' <code>' . esc_html($check['status']) . '</code>';
-                                    ?>
-                                </td>
-                                <td><?php echo esc_html($check['detail']); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                    <?php if (!empty($cache_status['foreign_owner'])): ?>
-                        <p style="margin-top:10px;">
-                            ⚠️ <strong><?php echo esc_html($cache_status['foreign_owner']); ?></strong> owns <code>advanced-cache.php</code>.
-                            Turbopress DOM optimizations (Critical CSS, deferral, fonts, hints) are fully active — only Turbopress page caching is paused.
-                        </p>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <p class="tp-desc">Health checks have not run yet.
-                        <button type="button" id="tp-health-recheck" class="button button-small">Run checks now</button>
-                        <span id="tp-health-status" class="tp-status-msg"></span>
-                    </p>
-                <?php endif; ?>
-            </div>
+            <p class="tp-embed-footnote">
+                Every optimization control for this site lives in the panel above — presets, critical CSS,
+                JavaScript engine, media offload, fonts, deployment. Changes apply instantly through the
+                signed command channel.
+            </p>
         </div>
 
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('tp-settings-form');
-            const saveBtn = document.getElementById('tp-save-btn');
-            const saveStatus = document.getElementById('tp-save-status');
             const purgeBtn = document.getElementById('tp-purge-cache-btn');
             const disconnectBtn = document.getElementById('tp-disconnect-btn');
 
-            // Preset Switcher
-            document.querySelectorAll('input[name="tp_preset"]').forEach(radio => {
-                radio.addEventListener('change', function() {
-                    document.querySelectorAll('.tp-preset-box').forEach(b => b.classList.remove('active'));
-                    this.closest('.tp-preset-box').classList.add('active');
-                });
-            });
-
-            // Save Settings
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
-                saveBtn.disabled = true;
-                saveStatus.textContent = 'Saving...';
-                saveStatus.style.color = '#666';
-
-                const preset = document.querySelector('input[name="tp_preset"]:checked').value;
-                const caching = document.querySelector('input[name="caching_enabled"]').checked;
-                const criticalCss = document.querySelector('input[name="critical_css_enabled"]').checked;
-                const jsMode = document.querySelector('select[name="js_execution_mode"]').value;
-                const speculation = document.querySelector('input[name="speculation_enabled"]').checked;
-                const nonceRefresh = document.querySelector('input[name="nonce_refresh_enabled"]').checked;
-                const cssCombine = document.querySelector('input[name="css_combine"]').checked;
-                const cssInlineAll = document.querySelector('input[name="css_inline_all"]').checked;
-                const assetsProxy = document.querySelector('input[name="assets_proxy"]').checked;
-                const htaccessEnabled = document.querySelector('input[name="htaccess_enabled"]').checked;
-                const fontsEnabled = document.querySelector('input[name="fonts_enabled"]').checked;
-                const hintsEnabled = document.querySelector('input[name="hints_enabled"]').checked;
-                const removeMigrate = document.querySelector('input[name="remove_jquery_migrate"]').checked;
-                const autoDegrade = document.querySelector('input[name="auto_degrade"]').checked;
-                const offloadImages = document.querySelector('input[name="offload_images"]').checked;
-                const offloadVideo = document.querySelector('input[name="offload_video"]').checked;
-
-                const data = new FormData();
-                data.append('action', 'turbopress_save_settings');
-                data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
-                data.append('preset', preset);
-                data.append('caching_enabled', caching ? '1' : '0');
-                data.append('critical_css_enabled', criticalCss ? '1' : '0');
-                data.append('js_execution_mode', jsMode);
-                data.append('speculation_enabled', speculation ? '1' : '0');
-                data.append('nonce_refresh_enabled', nonceRefresh ? '1' : '0');
-                data.append('css_combine', cssCombine ? '1' : '0');
-                data.append('css_inline_all', cssInlineAll ? '1' : '0');
-                data.append('assets_proxy', assetsProxy ? '1' : '0');
-                data.append('htaccess_enabled', htaccessEnabled ? '1' : '0');
-                data.append('fonts_enabled', fontsEnabled ? '1' : '0');
-                data.append('hints_enabled', hintsEnabled ? '1' : '0');
-                data.append('remove_jquery_migrate', removeMigrate ? '1' : '0');
-                data.append('auto_degrade', autoDegrade ? '1' : '0');
-                data.append('offload_images', offloadImages ? '1' : '0');
-                data.append('offload_video', offloadVideo ? '1' : '0');
-
-                fetch(ajaxurl, {
-                    method: 'POST',
-                    body: data
-                })
-                .then(r => r.json())
-                .then(res => {
-                    saveBtn.disabled = false;
-                    if (res.success) {
-                        saveStatus.textContent = '✓ Saved successfully';
-                        saveStatus.style.color = '#10b981';
-                        setTimeout(() => { saveStatus.textContent = ''; }, 3000);
-                    } else {
-                        saveStatus.textContent = '✗ Error: ' + (res.data || 'Failed to save');
-                        saveStatus.style.color = '#ef4444';
-                    }
-                })
-                .catch(() => {
-                    saveBtn.disabled = false;
-                    saveStatus.textContent = '✗ Request failed';
-                    saveStatus.style.color = '#ef4444';
-                });
-            });
-
-            // Purge Cache
             if (purgeBtn) {
                 purgeBtn.addEventListener('click', function() {
                     purgeBtn.disabled = true;
-                    purgeBtn.textContent = 'Purging...';
+                    const label = purgeBtn.innerHTML;
+                    purgeBtn.innerHTML = '<span class="dashicons dashicons-update spin"></span> Purging…';
 
                     const data = new FormData();
                     data.append('action', 'turbopress_purge_cache');
                     data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
 
-                    fetch(ajaxurl, {
-                        method: 'POST',
-                        body: data
-                    })
-                    .then(r => r.json())
-                    .then(res => {
-                        purgeBtn.disabled = false;
-                        purgeBtn.textContent = '🧹 Purge Static Cache';
-                        alert(res.success ? 'Static cache purged successfully!' : 'Error purging cache.');
-                    });
+                    fetch(ajaxurl, { method: 'POST', body: data })
+                        .then(r => r.json())
+                        .then(() => { purgeBtn.innerHTML = label; purgeBtn.disabled = false; })
+                        .catch(() => { purgeBtn.innerHTML = label; purgeBtn.disabled = false; });
                 });
             }
 
-            // Health re-check
-            const healthBtn = document.getElementById('tp-health-recheck');
-            if (healthBtn) {
-                healthBtn.addEventListener('click', function() {
-                    healthBtn.disabled = true;
-                    const statusEl = document.getElementById('tp-health-status');
-                    if (statusEl) { statusEl.textContent = 'Running...'; statusEl.style.color = '#666'; }
-
-                    const data = new FormData();
-                    data.append('action', 'turbopress_health_recheck');
-                    data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
-
-                    fetch(ajaxurl, { method: 'POST', body: data })
-                        .then(r => r.json())
-                        .then(() => { location.reload(); })
-                        .catch(() => {
-                            healthBtn.disabled = false;
-                            if (statusEl) { statusEl.textContent = '✗ Request failed'; statusEl.style.color = '#ef4444'; }
-                        });
-                });
-            }
-
-            // Deploy / Test Mode toggle
-            const deployBtn = document.getElementById('tp-deploy-btn');
-            const testModeBtn = document.getElementById('tp-testmode-btn');
-            [deployBtn, testModeBtn].forEach(btn => {
-                if (!btn) return;
-                btn.addEventListener('click', function() {
-                    const goingLive = btn.id === 'tp-deploy-btn';
-                    if (goingLive && !confirm('Deploy optimizations to all visitors now?')) return;
-                    btn.disabled = true;
-                    const statusEl = document.getElementById('tp-deploy-status');
-                    if (statusEl) { statusEl.textContent = 'Working...'; statusEl.style.color = '#666'; }
-
-                    const data = new FormData();
-                    data.append('action', 'turbopress_deploy');
-                    data.append('status', goingLive ? 'live' : 'test');
-                    data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
-
-                    fetch(ajaxurl, { method: 'POST', body: data })
-                        .then(r => r.json())
-                        .then(() => { location.reload(); })
-                        .catch(() => {
-                            btn.disabled = false;
-                            if (statusEl) { statusEl.textContent = '✗ Request failed'; statusEl.style.color = '#ef4444'; }
-                        });
-                });
-            });
-
-            // Disconnect
             if (disconnectBtn) {
                 disconnectBtn.addEventListener('click', function() {
-                    if (!confirm('Are you sure you want to disconnect from Turbopress SaaS?')) return;
-
+                    if (!confirm('Disconnect from Turbopress? The site keeps working; optimization stops until you reconnect.')) {
+                        return;
+                    }
                     const data = new FormData();
                     data.append('action', 'turbopress_disconnect');
                     data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
 
-                    fetch(ajaxurl, {
-                        method: 'POST',
-                        body: data
-                    })
-                    .then(r => r.json())
-                    .then(() => {
-                        location.reload();
-                    });
+                    fetch(ajaxurl, { method: 'POST', body: data })
+                        .then(r => r.json())
+                        .then(() => { window.location = '<?php echo esc_url(add_query_arg(['page' => self::PAGE_CONNECT], admin_url('admin.php'))); ?>'; });
                 });
             }
         });
@@ -639,105 +248,165 @@ class AdminPage {
         <?php
     }
 
-    public function ajax_save_settings(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
+    /* ------------------------------------------------------------------ */
+    /* Connect page (local)                                                 */
+    /* ------------------------------------------------------------------ */
 
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
+    public function render_connect_page(): void {
+        $connect_url = Handshake::generate_connect_url();
+        ?>
+        <div class="wrap turbopress-admin-wrap tp-connect-wrap">
+            <div class="tp-connect-card">
+                <div class="tp-connect-head">
+                    <span class="dashicons dashicons-performance tp-connect-logo"></span>
+                    <h1>Connect to Turbopress</h1>
+                    <p>
+                        Link this site to the Turbopress edge to unlock automated critical CSS, JavaScript
+                        optimization, R2 media delivery and the cloud control panel.
+                    </p>
+                </div>
 
-        $preset = sanitize_text_field($_POST['preset'] ?? 'ludicrous');
-        $caching_enabled = !empty($_POST['caching_enabled']);
-        $critical_css_enabled = !empty($_POST['critical_css_enabled']);
-        $js_execution_mode = sanitize_text_field($_POST['js_execution_mode'] ?? 'defer');
-        if (!in_array($js_execution_mode, ['none', 'defer', 'interaction_delay'], true)) {
-            $js_execution_mode = 'defer';
-        }
-        $speculation_enabled = !empty($_POST['speculation_enabled']);
-        $nonce_refresh_enabled = !empty($_POST['nonce_refresh_enabled']);
-        $css_combine = !empty($_POST['css_combine']);
-        $css_inline_all = !empty($_POST['css_inline_all']);
-        $assets_proxy = !empty($_POST['assets_proxy']);
-        $htaccess_enabled = !empty($_POST['htaccess_enabled']);
-        $fonts_enabled = !empty($_POST['fonts_enabled']);
-        $hints_enabled = !empty($_POST['hints_enabled']);
-        $remove_jquery_migrate = !empty($_POST['remove_jquery_migrate']);
-        $auto_degrade = !empty($_POST['auto_degrade']);
-        $offload_images = !empty($_POST['offload_images']);
-        $offload_video = !empty($_POST['offload_video']);
+                <ul class="tp-connect-benefits">
+                    <li>
+                        <span class="dashicons dashicons-dashboard"></span>
+                        <div><strong>Cloud control panel</strong><span>Every optimization setting, job status and deploy control — embedded right in your dashboard.</span></div>
+                    </li>
+                    <li>
+                        <span class="dashicons dashicons-media-code"></span>
+                        <div><strong>Edge Critical CSS</strong><span>Real-browser extraction per page, inlined for zero render-blocking CSS.</span></div>
+                    </li>
+                    <li>
+                        <span class="dashicons dashicons-images-alt2"></span>
+                        <div><strong>R2 media offload</strong><span>Images and video served from the edge with webp derivatives and immutable caching.</span></div>
+                    </li>
+                    <li>
+                        <span class="dashicons dashicons-shield-alt"></span>
+                        <div><strong>Auto-Protect safety net</strong><span>Real-user error monitoring steps aggressiveness down automatically — never a broken page.</span></div>
+                    </li>
+                </ul>
 
-        $config_data = $this->config->get_all();
-        $config_data['preset'] = $preset;
-        $config_data['caching']['enabled'] = $caching_enabled;
-        $config_data['critical_css']['enabled'] = $critical_css_enabled;
-        $config_data['javascript']['execution_mode'] = $js_execution_mode;
-        $config_data['javascript']['remove_jquery_migrate'] = $remove_jquery_migrate;
-        $config_data['css']['combine'] = $css_combine;
-        $config_data['css']['inline_all'] = $css_inline_all;
-        $config_data['assets']['proxy_enabled'] = $assets_proxy;
+                <div class="tp-connect-cta">
+                    <a href="<?php echo esc_url($connect_url); ?>" class="button button-primary button-hero">
+                        <span class="dashicons dashicons-admin-links"></span> Connect this site
+                    </a>
+                    <p class="tp-connect-note">
+                        One click — you will be returned here automatically once the handshake completes.
+                        A free Turbopress account is created on first connect.
+                    </p>
+                </div>
 
-        $htaccess_was_enabled = (bool) $this->config->get('htaccess.enabled', true);
-        $config_data['htaccess']['enabled'] = $htaccess_enabled;
-
-        $config_data['fonts']['localize_google'] = $fonts_enabled;
-        $config_data['hints']['resource_hints'] = $hints_enabled;
-        $config_data['dynamic']['speculation_rules_prerender'] = $speculation_enabled;
-        $config_data['dynamic']['nonce_ajax_refresh'] = $nonce_refresh_enabled;
-        $config_data['deployment']['auto_degrade'] = $auto_degrade;
-        $config_data['media']['offload_images'] = $offload_images;
-        $config_data['media']['offload_video'] = $offload_video;
-
-        $this->config->save($config_data);
-
-        // Apply/remove .htaccess rules when the toggle changed.
-        if ($htaccess_enabled !== $htaccess_was_enabled) {
-            if ($htaccess_enabled) {
-                Htaccess_Manager::install();
-            } else {
-                Htaccess_Manager::remove();
-            }
-        }
-
-        CacheManager::purge_all_static();
-        CacheIntegration::purge_foreign_caches('all');
-
-        wp_send_json_success();
+                <div class="tp-connect-secure">
+                    <span class="dashicons dashicons-lock"></span>
+                    The connection uses a scoped site key and signed callbacks only — no credentials are
+                    stored in the browser.
+                </div>
+            </div>
+        </div>
+        <?php
     }
 
-    public function ajax_deploy(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
+    /* ------------------------------------------------------------------ */
+    /* Admin bar: quick actions while browsing the site                     */
+    /* ------------------------------------------------------------------ */
 
+    public function register_admin_bar(\WP_Admin_Bar $wp_admin_bar): void {
         if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
+            return;
         }
 
-        $status = sanitize_text_field($_POST['status'] ?? 'live');
-        if (!in_array($status, ['test', 'live'], true)) {
-            wp_send_json_error('Invalid status');
+        $wp_admin_bar->add_node([
+            'id' => 'turbopress',
+            'title' => '<span class="ab-icon dashicons dashicons-performance"></span> Turbopress',
+            'href' => add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php')),
+        ]);
+
+        // Page-scoped actions only make sense on the front end.
+        if (!is_admin() && $this->config->is_connected()) {
+            $current = home_url(esc_url_raw($_SERVER['REQUEST_URI'] ?? '/'));
+
+            $wp_admin_bar->add_node([
+                'id' => 'turbopress-purge-page',
+                'parent' => 'turbopress',
+                'title' => '<span class="dashicons dashicons-trash"></span> Purge this page',
+                'href' => wp_nonce_url(
+                    add_query_arg(['turbopress_action' => 'purge_page', 'tp_url' => $current], $current),
+                    'turbopress_bar'
+                ),
+            ]);
+
+            $wp_admin_bar->add_node([
+                'id' => 'turbopress-reoptimize-page',
+                'parent' => 'turbopress',
+                'title' => '<span class="dashicons dashicons-update"></span> Re-optimize this page',
+                'href' => wp_nonce_url(
+                    add_query_arg(['turbopress_action' => 'reoptimize', 'tp_url' => $current], $current),
+                    'turbopress_bar'
+                ),
+            ]);
         }
 
-        $this->config->set('deployment.status', $status);
-
-        // Switching either way invalidates every cached variant.
-        CacheManager::purge_all_static();
-        CacheIntegration::purge_foreign_caches('all');
-
-        wp_send_json_success(['status' => $status]);
+        $wp_admin_bar->add_node([
+            'id' => 'turbopress-purge-all',
+            'parent' => 'turbopress',
+            'title' => '<span class="dashicons dashicons-editor-removeformatting"></span> Purge all caches',
+            'href' => wp_nonce_url(
+                add_query_arg(['turbopress_action' => 'purge_all', 'tp_url' => home_url('/')], home_url('/')),
+                'turbopress_bar'
+            ),
+        ]);
     }
 
-    public function ajax_health_recheck(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
-
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
+    /**
+     * Admin-bar action endpoint: runs on init (before any output) so it can
+     * redirect back to the page the user was viewing.
+     */
+    public function handle_admin_bar_action(): void {
+        $action = isset($_GET['turbopress_action']) ? sanitize_key($_GET['turbopress_action']) : '';
+        if (!in_array($action, ['purge_page', 'reoptimize', 'purge_all'], true)) {
+            return;
         }
 
-        delete_transient('turbopress_health_loopback');
-        delete_transient('turbopress_health_edge');
-        $this->health_check->run();
+        if (!current_user_can('manage_options') || !check_admin_referer('turbopress_bar')) {
+            return;
+        }
 
-        wp_send_json_success();
+        $url = isset($_GET['tp_url']) ? esc_url_raw(wp_unslash($_GET['tp_url'])) : '';
+        $back = wp_get_referer() ?: home_url('/');
+        $back = remove_query_arg(['turbopress_action', '_wpnonce', 'tp_url'], $back);
+
+        switch ($action) {
+            case 'purge_page':
+                if ($url) {
+                    CacheManager::purge_url($url);
+                    CacheIntegration::purge_foreign_caches('url', $url);
+                } else {
+                    CacheManager::purge_all_static();
+                    CacheIntegration::purge_foreign_caches('all');
+                }
+                break;
+
+            case 'reoptimize':
+                if ($url && $this->config->is_connected()) {
+                    wp_schedule_single_event(time() + 10, 'turbopress_async_optimize', ['url' => $url, 'attempt' => 1]);
+                    spawn_cron();
+                    CacheManager::purge_url($url);
+                    CacheIntegration::purge_foreign_caches('url', $url);
+                }
+                break;
+
+            case 'purge_all':
+                CacheManager::purge_all_static();
+                CacheIntegration::purge_foreign_caches('all');
+                break;
+        }
+
+        wp_safe_redirect($back);
+        exit;
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Ajax handlers used by the dashboard bar                              */
+    /* ------------------------------------------------------------------ */
 
     public function ajax_purge_cache(): void {
         check_ajax_referer('turbopress_admin', 'nonce');

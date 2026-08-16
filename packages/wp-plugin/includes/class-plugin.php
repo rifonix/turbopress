@@ -313,6 +313,10 @@ class Plugin {
 
         // Stale host-cache entries from before activation must not survive.
         CacheIntegration::purge_foreign_caches('all');
+
+        // Land the user on the Connect page after activation (Dashboard
+        // instead when a connection already exists).
+        update_option(AdminPage::ACTIVATION_REDIRECT_OPTION, true);
     }
 
     public static function deactivate(): void {
