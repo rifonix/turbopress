@@ -383,25 +383,6 @@ function EmbedPanel() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Auto-size the WP dashboard iframe: report content height to the
-  // parent page whenever the layout grows or shrinks.
-  useEffect(() => {
-    const post = () => {
-      try {
-        const h = Math.ceil(document.documentElement.scrollHeight);
-        window.parent.postMessage({ type: 'tp-embed-height', h }, '*');
-      } catch { /* cross-origin guard */ }
-    };
-    post();
-    const ro = new ResizeObserver(post);
-    ro.observe(document.body);
-    window.addEventListener('resize', post);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', post);
-    };
-  }, []);
-
   // Poll jobs while any are in flight.
   const activeJobs = useMemo(
     () => (data?.jobs || []).some((j) => j.status === 'queued' || j.status === 'processing'),

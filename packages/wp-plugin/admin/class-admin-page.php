@@ -229,35 +229,14 @@ class AdminPage {
             . '/embed/sites/' . rawurlencode($site_id)
             . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
 
-        // Origin of the embed panel — the only source we accept
-        // auto-height messages from.
-        $parts = wp_parse_url($config->get_api_url());
-        $embed_origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '');
         ?>
         <div class="wrap turbopress-admin-wrap tp-dashboard-wrap">
             <div class="tp-embed-frame">
                 <iframe
-                    id="turbopress-embed"
                     src="<?php echo esc_url($embed_url); ?>"
                     title="Turbopress Control Panel"
                 ></iframe>
             </div>
-
-            <script>
-            (function () {
-                var iframe = document.getElementById('turbopress-embed');
-                if (!iframe) { return; }
-                var expectedOrigin = <?php echo wp_json_encode($embed_origin); ?>;
-                window.addEventListener('message', function (e) {
-                    if (expectedOrigin && e.origin !== expectedOrigin) { return; }
-                    if (!e.data || e.data.type !== 'tp-embed-height') { return; }
-                    var h = parseInt(e.data.h, 10);
-                    if (isNaN(h) || h < 400 || h > 30000) { return; }
-                    // Small buffer so rounding never produces an inner scrollbar.
-                    iframe.style.height = (h + 24) + 'px';
-                });
-            })();
-            </script>
 
             <p class="tp-embed-footnote">
                 <?php if (!empty($_GET['connected'])): ?>
@@ -275,111 +254,238 @@ class AdminPage {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Plugin Asset Control metabox (every post type, after the editor)     */
+    /* Page optimization controls (every post type, editor sidebar)         */
     /* ------------------------------------------------------------------ */
 
     /**
-     * Register the "unload this plugin's CSS/JS on this post type"
-     * metabox on every public post type's edit screen. The
-     * 'after_editor' context places it directly below the content
-     * field in both the classic and the block editor.
+     * Register page status and per-post asset controls for every post type
+     * that has an editor. The side context is supported by both the classic
+     * editor and Gutenberg's document sidebar.
      */
     public function register_meta_boxes(): void {
         if (!current_user_can('manage_options')) {
             return;
         }
 
-        foreach (get_post_types(['public' => true, 'show_ui' => true], 'names') as $pt) {
-            if ($pt === 'attachment') {
+        foreach (get_post_types(['show_ui' => true], 'objects') as $post_type) {
+            if (in_array($post_type->name, ['attachment', 'revision', 'nav_menu_item', 'custom_css'], true)) {
                 continue;
             }
+
             add_meta_box(
-                'turbopress_plugin_assets',
-                'Turbopress · Plugin Asset Control',
+                'turbopress_page_optimization',
+                'Turbopress Optimization',
+                [$this, 'render_page_optimization_metabox'],
+                $post_type->name,
+                'side',
+                'high'
+            );
+            add_meta_box(
+                'turbopress_page_assets',
+                'Turbopress Asset Exclusions',
                 [$this, 'render_plugin_assets_metabox'],
-                $pt,
-                'after_editor',
-                'default'
+                $post_type->name,
+                'side',
+                'high'
             );
         }
     }
 
+    public function render_page_optimization_metabox(\WP_Post $post): void {
+        $url = get_permalink($post);
+        $status = $this->get_page_optimization_status($post, $url);
+        $rules = $this->get_post_asset_rules($post->ID);
+        $status_colors = [
+            'optimized' => '#027a48',
+            'optimizing' => '#b54708',
+            'test' => '#b54708',
+            'not_connected' => '#b42318',
+            'pending' => '#52525b',
+        ];
+        $color = $status_colors[$status['key']] ?? '#52525b';
+        ?>
+        <div style="font-size:12px;line-height:1.45;">
+            <div style="display:flex;align-items:center;gap:7px;margin:0 0 10px;">
+                <span style="width:8px;height:8px;border-radius:50%;background:<?php echo esc_attr($color); ?>;display:inline-block;"></span>
+                <strong><?php echo esc_html($status['label']); ?></strong>
+            </div>
+            <dl style="margin:0;">
+                <div style="display:flex;justify-content:space-between;gap:8px;margin:0 0 5px;">
+                    <dt style="color:#646970;">Publish status</dt>
+                    <dd style="margin:0;font-weight:600;"><?php echo esc_html($status['post_status']); ?></dd>
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:8px;margin:0 0 5px;">
+                    <dt style="color:#646970;">Critical CSS</dt>
+                    <dd style="margin:0;font-weight:600;"><?php echo esc_html($status['css']); ?></dd>
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:8px;margin:0 0 5px;">
+                    <dt style="color:#646970;">Featured image</dt>
+                    <dd style="margin:0;font-weight:600;"><?php echo esc_html($status['featured_image']); ?></dd>
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:8px;margin:0 0 5px;">
+                    <dt style="color:#646970;">Page exclusions</dt>
+                    <dd style="margin:0;font-weight:600;"><?php echo esc_html((string) (count($rules['plugins']) + count($rules['assets']))); ?></dd>
+                </div>
+            </dl>
+            <?php if ($url): ?>
+                <p style="margin:9px 0 0;word-break:break-all;color:#646970;">
+                    <a href="<?php echo esc_url($url); ?>" target="_blank" rel="noreferrer">View optimized page</a>
+                </p>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
     public function render_plugin_assets_metabox(\WP_Post $post): void {
-        wp_nonce_field('turbopress_plugin_assets', 'turbopress_pa_nonce');
+        wp_nonce_field('turbopress_page_assets', 'turbopress_page_assets_nonce');
 
-        $rules = $this->config->get('plugins.unload_rules', []);
-        $current = is_array($rules) && isset($rules[$post->post_type]) && is_array($rules[$post->post_type])
-            ? array_map('strval', $rules[$post->post_type])
-            : [];
-
+        $current = $this->get_post_asset_rules($post->ID);
         $pto = get_post_type_object($post->post_type);
-        $label = $pto->labels->name ?? $post->post_type;
+        $label = $pto->labels->singular_name ?? $post->post_type;
         $plugins = self::active_plugin_catalog();
         ?>
-        <p class="description" style="margin:0 0 12px;">
-            Checked plugins will <strong>not load their CSS &amp; JS</strong> on
-            <strong><?php echo esc_html($label); ?></strong> pages — every <?php echo esc_html(strtolower($label)); ?> page,
-            not just this one. Useful when a plugin is active site-wide but not used here.
-            Click <strong>Save/Update</strong> to apply and purge the cache.
+        <p class="description" style="margin:0 0 10px;">
+            Exclude assets from this <?php echo esc_html(strtolower($label)); ?> only. Selected plugins lose all matching CSS/JS on this page.
         </p>
 
         <?php if ($plugins === []): ?>
             <p class="description">No other active plugins detected.</p>
         <?php else: ?>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 18px;margin:4px 0 6px;">
+            <div style="max-height:190px;overflow:auto;border:1px solid #dcdcde;border-radius:4px;padding:7px;background:#fff;">
                 <?php foreach ($plugins as $slug => $name): ?>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+                    <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:0 0 7px;">
                         <input type="checkbox"
-                            name="turbopress_unload_plugins[]"
+                            name="turbopress_page_plugins[]"
                             value="<?php echo esc_attr($slug); ?>"
-                            <?php checked(in_array($slug, $current, true)); ?>>
+                            <?php checked(in_array($slug, $current['plugins'], true)); ?> />
                         <span><?php echo esc_html($name); ?></span>
                     </label>
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
 
+        <label for="turbopress-page-assets" style="display:block;font-size:12px;font-weight:600;margin:12px 0 4px;">
+            Specific CSS/JS asset matches
+        </label>
+        <textarea id="turbopress-page-assets" name="turbopress_page_assets" rows="5" spellcheck="false"
+            placeholder="swiper.js\n/wp-content/plugins/example/assets/\nregex:/leaflet|mapbox/i"
+            style="width:100%;font:11px/1.4 monospace;resize:vertical;"><?php echo esc_textarea(implode("\n", $current['assets'])); ?></textarea>
+        <p class="description" style="margin:5px 0 0;">
+            One per line. Use a keyword or URL fragment, or prefix a PHP-compatible pattern with <code>regex:</code>.
+            Rules target script/link tags on this page.
+        </p>
         <p class="description" style="margin-top:8px;">
-            Also manageable per post type and for “All pages” in the
+            For reusable rules across this post type or “All pages”, use the
             <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::PAGE_DASHBOARD)); ?>">Turbopress dashboard</a>
-            (Plugin Asset Control card).
+            Plugin Asset Control card.
         </p>
         <?php
     }
 
     /**
-     * Persist the metabox selection into plugins.unload_rules and purge.
-     * The nonce check doubles as the "this save came from the editor
-     * form (not REST/autosave)" gate, so rules are never wiped by
-     * background saves.
+     * Persist per-post plugin and custom asset rules and purge the affected
+     * page. The nonce check prevents REST/autosave requests from wiping them.
      */
     public function save_plugin_assets_metabox(int $post_id, \WP_Post $post): void {
         if (!current_user_can('manage_options')
             || wp_is_post_revision($post_id)
             || wp_is_post_autosave($post_id)
-            || !isset($_POST['turbopress_pa_nonce'])
-            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['turbopress_pa_nonce'])), 'turbopress_plugin_assets')) {
+            || !isset($_POST['turbopress_page_assets_nonce'])
+            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['turbopress_page_assets_nonce'])), 'turbopress_page_assets')) {
             return;
         }
 
-        $slugs = array_values(array_unique(array_filter(
-            array_map('sanitize_key', (array) ($_POST['turbopress_unload_plugins'] ?? [])),
+        $plugins = array_values(array_unique(array_filter(
+            array_map('sanitize_key', (array) ($_POST['turbopress_page_plugins'] ?? [])),
             static fn (string $s): bool => $s !== '' && $s !== 'turbopress'
         )));
+        $assets = self::sanitize_asset_patterns(wp_unslash((string) ($_POST['turbopress_page_assets'] ?? '')));
 
-        $rules = $this->config->get('plugins.unload_rules', []);
-        if (!is_array($rules)) {
-            $rules = [];
-        }
-        if ($slugs === []) {
-            unset($rules[$post->post_type]);
+        if ($plugins === [] && $assets === []) {
+            delete_post_meta($post_id, PluginAssets::POST_META_KEY);
         } else {
-            $rules[$post->post_type] = $slugs;
+            update_post_meta($post_id, PluginAssets::POST_META_KEY, [
+                'plugins' => $plugins,
+                'assets' => $assets,
+            ]);
         }
-        $this->config->set('plugins.unload_rules', $rules);
 
-        CacheManager::purge_all_static();
-        CacheIntegration::purge_foreign_caches('all');
+        $url = get_permalink($post_id);
+        if ($url) {
+            CacheManager::purge_url($url);
+            CacheIntegration::purge_foreign_caches('url', $url);
+        } else {
+            CacheManager::purge_all_static();
+            CacheIntegration::purge_foreign_caches('all');
+        }
+    }
+
+    /** @return array{plugins: string[], assets: string[]} */
+    private function get_post_asset_rules(int $post_id): array {
+        $raw = get_post_meta($post_id, PluginAssets::POST_META_KEY, true);
+        if (!is_array($raw)) {
+            return ['plugins' => [], 'assets' => []];
+        }
+
+        return [
+            'plugins' => array_values(array_filter(array_map('sanitize_key', (array) ($raw['plugins'] ?? [])))),
+            'assets' => self::sanitize_asset_patterns(implode("\n", (array) ($raw['assets'] ?? []))),
+        ];
+    }
+
+    private static function sanitize_asset_patterns(string $raw): array {
+        $patterns = [];
+        foreach (preg_split('/\R/u', $raw) ?: [] as $pattern) {
+            $pattern = trim(wp_check_invalid_utf8((string) $pattern));
+            $pattern = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $pattern) ?? '';
+            if ($pattern !== '' && strlen($pattern) <= 512) {
+                $patterns[] = $pattern;
+            }
+        }
+        return array_values(array_unique($patterns));
+    }
+
+    /** @return array{key: string, label: string, post_status: string, css: string, featured_image: string} */
+    private function get_page_optimization_status(\WP_Post $post, string|false $url): array {
+        $status_object = get_post_status_object($post->post_status);
+        $post_status = $status_object ? (string) $status_object->label : ucfirst($post->post_status);
+        $featured = post_type_supports($post->post_type, 'thumbnail')
+            ? (has_post_thumbnail($post) ? 'Present' : 'None')
+            : 'Not supported';
+
+        if (!$this->config->is_connected()) {
+            return ['key' => 'not_connected', 'label' => 'Connect to optimize', 'post_status' => $post_status, 'css' => 'Unavailable', 'featured_image' => $featured];
+        }
+        if ($this->config->get('deployment.status', 'live') === 'test') {
+            return ['key' => 'test', 'label' => 'Test mode', 'post_status' => $post_status, 'css' => 'Preview only', 'featured_image' => $featured];
+        }
+        if (!$url) {
+            return ['key' => 'pending', 'label' => 'Needs a permalink', 'post_status' => $post_status, 'css' => 'Waiting', 'featured_image' => $featured];
+        }
+
+        $jobs = get_transient('tp_jobs_' . md5($url));
+        if (is_array($jobs) && $jobs !== []) {
+            return ['key' => 'optimizing', 'label' => 'Optimization in progress', 'post_status' => $post_status, 'css' => 'Generating', 'featured_image' => $featured];
+        }
+
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?: '/');
+        $css_dir = TURBOPRESS_CACHE_DIR . '/' . md5($host) . '/css';
+        $ready = false;
+        foreach (['mobile', 'desktop'] as $viewport) {
+            if (is_readable($css_dir . '/' . md5($path . '_' . $viewport) . '.css')) {
+                $ready = true;
+                break;
+            }
+        }
+
+        return [
+            'key' => $ready ? 'optimized' : 'pending',
+            'label' => $ready ? 'Optimized' : 'Ready to optimize',
+            'post_status' => $post_status,
+            'css' => $ready ? 'Available' : 'Waiting',
+            'featured_image' => $featured,
+        ];
     }
 
     /**

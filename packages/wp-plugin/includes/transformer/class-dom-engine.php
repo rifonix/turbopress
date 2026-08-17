@@ -94,8 +94,7 @@ class DomEngine {
             //    before everything so downstream stages never see (or
             //    re-inject hints for) the removed assets. Script parity is
             //    intentionally relaxed here — removal is the whole point.
-            $unload_rules = $this->config->get('plugins.unload_rules', []);
-            if (is_array($unload_rules) && $unload_rules !== []) {
+            if ($this->plugin_assets->has_rules()) {
                 $html = $this->stage($html, fn(string $h): string => $this->plugin_assets->transform($h), 'plugin_assets', -200);
             }
 
