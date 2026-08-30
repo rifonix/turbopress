@@ -3,7 +3,7 @@
  * Plugin Name: Turbopress - Next-Gen Page Optimizer
  * Plugin URI: https://turbopress.io
  * Description: Ultra-high performance WordPress page speed optimization engine powered by Cloudflare Edge & Browser Rendering.
- * Version: 1.10.2
+ * Version: 1.12.1
  * Author: Turbopress Team
  * Author URI: https://turbopress.io
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('TURBOPRESS_VERSION', '1.10.2');
+define('TURBOPRESS_VERSION', '1.12.1');
 define('TURBOPRESS_PLUGIN_FILE', __FILE__);
 define('TURBOPRESS_PATH', plugin_dir_path(__FILE__));
 define('TURBOPRESS_URL', plugin_dir_url(__FILE__));
@@ -45,6 +45,9 @@ require_once TURBOPRESS_PATH . 'includes/transformer/class-media-optimizer.php';
 require_once TURBOPRESS_PATH . 'includes/transformer/class-font-optimizer.php';
 require_once TURBOPRESS_PATH . 'includes/transformer/class-resource-hints.php';
 require_once TURBOPRESS_PATH . 'includes/transformer/class-speculation.php';
+require_once TURBOPRESS_PATH . 'includes/transformer/class-bg-lazyloader.php';
+require_once TURBOPRESS_PATH . 'includes/transformer/class-video-facade.php';
+require_once TURBOPRESS_PATH . 'includes/transformer/class-html-optimizer.php';
 require_once TURBOPRESS_PATH . 'includes/dynamic/class-nonce-refresher.php';
 require_once TURBOPRESS_PATH . 'includes/dynamic/class-cart-fragment.php';
 require_once TURBOPRESS_PATH . 'includes/compatibility/class-preset-engine.php';

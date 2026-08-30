@@ -13,7 +13,7 @@ Turbopress consists of three primary tiers:
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                                   SAAS CONTROL PLANE                                    │
 │                                                                                         │
-│  React 19 + Vite SPA (Clerk Auth) ──► Hono Edge API (Cloudflare Worker) ──► Polar.sh   │
+│  Next.js 15 (OpenNext + Clerk) ──► Hono Edge API (Cloudflare Worker) ──► Polar.sh       │
 │                                                 │                                       │
 │                                                 ▼                                       │
 │                                      Cloudflare D1 + KV Store                           │
@@ -74,8 +74,8 @@ Subscriptions, checkout flows, and customer portals are powered by the official 
 
 ## 🔐 Clerk Authentication
 
-* The SaaS dashboard (`packages/saas-app`) integrates `@clerk/clerk-react` with `<ClerkProvider>`, `<SignedIn>`, `<SignedOut>`, and `<UserButton>`.
-* User session JWTs are passed to the Edge API via `Authorization: Bearer <token>` for protected site operations.
+* The SaaS dashboard (`packages/saas-app`) integrates `@clerk/nextjs` with `<ClerkProvider>`, `<SignedIn>`, `<SignedOut>`, and `clerkMiddleware`.
+* User session JWTs are cryptographically verified by the Edge API via RS256 JWKS public keys.
 
 ---
 
@@ -126,24 +126,20 @@ npm run dev:saas
 
 ## 🚢 Deployment Guide
 
-### A. Deploy Edge API to Cloudflare Workers
+### A. Deploy Unified Worker (Edge API + OpenNext Next.js 15 SaaS App)
 ```bash
-cd packages/edge-api
+# 1. Build shared library & Next.js worker bundle
+npm run build
 
-# Set Secrets (Interactive Prompt)
+# 2. Set Secrets (Interactive Prompt)
+cd packages/edge-api
 npx wrangler secret put POLAR_ACCESS_TOKEN
 npx wrangler secret put POLAR_WEBHOOK_SECRET
 npx wrangler secret put CLERK_SECRET_KEY
+npx wrangler secret put CLERK_WEBHOOK_SIGNING_SECRET
 
-# Deploy Worker
+# 3. Deploy Unified Worker to Cloudflare
 npx wrangler deploy
-```
-
-### B. Deploy SaaS Control Plane to Cloudflare Pages
-```bash
-cd packages/saas-app
-npm run build
-npx wrangler pages deploy dist --project-name=turbopress-app
 ```
 
 ### C. Install WordPress Client Plugin

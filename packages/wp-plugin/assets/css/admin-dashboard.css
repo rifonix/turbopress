@@ -85,8 +85,10 @@
 
 .tp-embed-frame {
   width: 100%;
+  /* Fallback only — the dashboard page sets an exact pixel height via JS
+     (fits the remaining viewport below any admin notices). */
   height: calc(100vh - 52px);
-  min-height: 520px;
+  min-height: 320px;
   background: #fafafa;
   overflow: hidden;
 }

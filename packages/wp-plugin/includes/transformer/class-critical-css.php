@@ -51,6 +51,16 @@ class CriticalCssTransformer {
             // theme-uploaded woff2 inside Elementor post-*.css) render
             // immediately with swap instead of waiting for the async bundle.
             $font_faces = $optimizer->extract_font_faces($html);
+
+            // Route critical-CSS background images through R2 (optimized
+            // webp derivatives) — same offload as <img> and the combined
+            // bundle; the LCP preload maps to the exact same worker URL.
+            if ((bool) $this->config->get('media.offload_images', false)) {
+                $offloader = new MediaOffloader($this->config);
+                $critical_css = $offloader->rewrite_css_urls($critical_css);
+                $font_faces = $offloader->rewrite_css_urls($font_faces);
+            }
+
             $style_id = $used_local_fallback ? 'turbopress-critical-css tp-fallback' : 'turbopress-critical-css';
             $style_tag = sprintf(
                 '<style id="%s">%s%s</style>',
@@ -58,7 +68,12 @@ class CriticalCssTransformer {
                 $font_faces,
                 $critical_css
             );
-            $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $style_tag, $html, 1);
+            $html = preg_replace_callback(
+                '/(<head[^>]*>)/i',
+                static fn(array $m): string => $m[1] . "\n" . $style_tag,
+                $html,
+                1
+            ) ?? $html;
 
             // Combine + async-load the remaining stylesheets — ONLY with
             // verified edge CSS. The local heuristic fallback is truncated

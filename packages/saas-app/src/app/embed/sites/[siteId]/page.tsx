@@ -291,7 +291,12 @@ function PluginControlCard({
                         className="accent-[#f03e2f] w-3.5 h-3.5"
                       />
                       <span className="min-w-0">
-                        <span className="block text-[12px] text-[#18181b] truncate">{name}</span>
+                        <span className="block text-[12px] text-[#18181b] truncate">
+                          {name}
+                          {slug.startsWith('theme:') && (
+                            <span className="ml-1.5 px-1 py-px rounded bg-[#eff8ff] text-[#175cd3] text-[9px] font-bold align-middle">THEME</span>
+                          )}
+                        </span>
                         <span className="block text-[10px] text-[#a1a1aa] font-mono truncate">{slug}</span>
                       </span>
                     </label>
@@ -356,6 +361,9 @@ function EmbedPanel() {
   const [logTab, setLogTab] = useState<'pages' | 'jobs' | 'offload'>('pages');
   const [pageBusy, setPageBusy] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirror of dirty for the polling path (stale-closure safe).
+  const dirtyRef = useRef(false);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -372,7 +380,12 @@ function EmbedPanel() {
         return;
       }
       setData(json.data);
-      setConfig(json.data.config);
+      // Never clobber unsaved edits: the 8s job poll refreshes jobs/health
+      // only. Replacing config here reverted in-flight toggles every poll —
+      // the exact "the save bar/save doesn't work" behavior.
+      if (!dirtyRef.current) {
+        setConfig(json.data.config);
+      }
       setError('');
     } catch {
       setError('Network error — check your connection.');
@@ -475,6 +488,41 @@ function EmbedPanel() {
       }
     } catch {
       showToast('Network error while saving');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * One-click "Save & Deploy now": persists the pending config AND flips
+   * deployment to live in the same signed PUT (the deploy command rides
+   * the same channel, so the plugin purges + goes live immediately).
+   */
+  const saveAndDeploy = async () => {
+    if (!config) return;
+    const ok = window.confirm(
+      'Save these changes and deploy the optimized website to ALL visitors now?\n\n' +
+      'Make sure you have tested the optimized site with "Preview" — pages, styling, menus, forms and checkout — before deploying.'
+    );
+    if (!ok) return;
+    const next = setPath(setPath(config, 'deployment.status', 'live'), 'deployment.source', 'dashboard');
+    setConfig(next);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/v1/embed/site/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Embed-Token': token },
+        body: JSON.stringify(next),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        showToast(json.error || 'Deploy failed');
+      } else {
+        setDirty(false);
+        showToast('Saved & deployed — visitors now get the optimized site');
+      }
+    } catch {
+      showToast('Network error while deploying');
     } finally {
       setSaving(false);
     }
@@ -776,8 +824,24 @@ function EmbedPanel() {
             <Toggle label="Offload videos to R2" checked={!!getPath(config, 'media.offload_video')} onChange={(v) => upsert('media.offload_video', v)} />
             <Toggle label="Lazy-load images" checked={!!getPath(config, 'media.lazyload_images')} onChange={(v) => upsert('media.lazyload_images', v)} />
             <Toggle label="Lazy-load iframes" checked={!!getPath(config, 'media.lazyload_iframes')} onChange={(v) => upsert('media.lazyload_iframes', v)} />
+            <Toggle label="Lazy-load CSS backgrounds" hint="Below-the-fold inline background images load on scroll" checked={!!getPath(config, 'media.lazyload_backgrounds')} onChange={(v) => upsert('media.lazyload_backgrounds', v)} />
+            <Toggle label="Video facades" hint="YouTube embeds load the player only after a click" checked={!!getPath(config, 'media.video_facades')} onChange={(v) => upsert('media.video_facades', v)} />
+            <Toggle label="Self-hosted video lazy" hint="preload=none on non-autoplay videos" checked={!!getPath(config, 'media.video_lazyload_selfhosted')} onChange={(v) => upsert('media.video_lazyload_selfhosted', v)} />
             <Toggle label="Preload LCP image" checked={!!getPath(config, 'media.preload_lcp_image')} onChange={(v) => upsert('media.preload_lcp_image', v)} />
             <Toggle label="fetchpriority on LCP" checked={!!getPath(config, 'media.auto_fetchpriority_lcp')} onChange={(v) => upsert('media.auto_fetchpriority_lcp', v)} />
+            <div className="py-2.5">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[13px] font-medium">Image quality</span>
+                <span className="text-[11px] text-[#71717a] font-mono">{getPath(config, 'media.image_quality') ?? 82}</span>
+              </div>
+              <input
+                type="range" min={60} max={100} step={1}
+                value={getPath(config, 'media.image_quality') ?? 82}
+                onChange={(e) => upsert('media.image_quality', parseInt(e.target.value, 10))}
+                className="w-full accent-[#f03e2f]"
+              />
+              <p className="text-[10px] text-[#a1a1aa] mt-0.5">~82 lossy · 100 ≈ lossless (applies to webp/edge derivatives)</p>
+            </div>
             <ListField
               label="Excluded images"
               hint="Image URLs never offload/lazy-load (one per line)"
@@ -799,11 +863,37 @@ function EmbedPanel() {
             <Toggle label="Manage .htaccess" hint="Brotli precompressed twins + immutable cache TTLs" checked={!!getPath(config, 'htaccess.enabled')} onChange={(v) => upsert('htaccess.enabled', v)} />
           </Card>
 
+          <Card title="HTML & Output" icon={<Activity className="w-4 h-4" />}>
+            <Toggle label="Minify HTML" hint="Collapse redundant whitespace (scripts/styles/pre untouched)" checked={!!getPath(config, 'html.minify')} onChange={(v) => upsert('html.minify', v)} />
+            <Toggle label="Minify JSON-LD" hint="Compact structured-data blocks" checked={!!getPath(config, 'html.minify_jsonld')} onChange={(v) => upsert('html.minify_jsonld', v)} />
+            <Toggle label="Remove HTML comments" hint="IE conditional comments are always kept" checked={!!getPath(config, 'html.remove_html_comments')} onChange={(v) => upsert('html.remove_html_comments', v)} />
+            <div className="py-2.5">
+              <label className="block text-[13px] font-medium mb-1.5">Custom CSS</label>
+              <textarea
+                rows={4}
+                spellCheck={false}
+                placeholder={'.hero-title { text-wrap: balance; }'}
+                value={getPath(config, 'custom_css') || ''}
+                onChange={(e) => upsert('custom_css', e.target.value)}
+                className="w-full rounded-lg border border-[#e4e4e7] px-2.5 py-2 text-[11px] font-mono focus:outline-none focus:border-[#f03e2f]"
+              />
+              <p className="text-[10px] text-[#a1a1aa] mt-0.5">Injected last in &lt;head&gt; — wins the cascade.</p>
+            </div>
+          </Card>
+
           <Card title="Page Cache" icon={<ShieldCheck className="w-4 h-4" />}>
             <Toggle label="Page caching" checked={!!getPath(config, 'caching.enabled')} onChange={(v) => upsert('caching.enabled', v)} />
             <Toggle label="Separate mobile cache" checked={!!getPath(config, 'caching.mobile_cache')} onChange={(v) => upsert('caching.mobile_cache', v)} />
             <Toggle label="Purge on post update" checked={!!getPath(config, 'caching.purge_on_post_update')} onChange={(v) => upsert('caching.purge_on_post_update', v)} />
             <Toggle label="Purge on new comment" checked={!!getPath(config, 'caching.purge_on_comment')} onChange={(v) => upsert('caching.purge_on_comment', v)} />
+            <ListField
+              label="Optimize-only URLs"
+              hint="When set, ONLY these paths are optimized (wildcards ok, one per line). Leave empty to optimize everything."
+              placeholder={'/landing/*\n/'}
+              plugins={sitePlugins}
+              value={getPath(config, 'caching.optimize_only_urls') || []}
+              onChange={(v) => upsert('caching.optimize_only_urls', v)}
+            />
           </Card>
 
           <Card title="Dynamic & Safety" icon={<FlaskConical className="w-4 h-4" />}>
@@ -949,9 +1039,12 @@ function EmbedPanel() {
 
       {/* Save bar */}
       {dirty && (
-        <div className="fixed bottom-0 inset-x-0 z-30 border-t border-[#e4e4e7] bg-white/95 backdrop-blur">
+        <div className="fixed bottom-0 inset-x-0 z-30 border-t border-[#e4e4e7] bg-white/95 backdrop-blur shadow-[0_-6px_24px_rgba(0,0,0,0.10)] animate-fade-in">
           <div className="max-w-5xl mx-auto px-5 py-3 flex items-center justify-between gap-3">
-            <span className="text-xs text-[#71717a]">Unsaved changes — saving pushes them to your site instantly.</span>
+            <span className="text-xs font-medium text-[#b54708] flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#f03e2f] animate-pulse shrink-0" />
+              Unsaved changes — saving pushes them to your site instantly.
+            </span>
             <div className="flex items-center gap-2">
               <button onClick={() => { setConfig(data.config); setDirty(false); }} className="px-3 py-2 rounded-lg border border-[#e4e4e7] text-xs font-semibold hover:bg-[#fafafa]">
                 Discard
@@ -959,11 +1052,33 @@ function EmbedPanel() {
               <button
                 onClick={save}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#f03e2f] hover:bg-[#d93628] text-white text-xs font-semibold disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#f03e2f] text-[#f03e2f] hover:bg-[#fff8f7] text-xs font-semibold disabled:opacity-50"
               >
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 Save & Apply
               </button>
+              {isTest && (
+                <button
+                  onClick={saveAndDeploy}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#027a48] hover:bg-[#026939] text-white text-xs font-semibold disabled:opacity-50"
+                  title="Save these changes and deploy the optimized site to all visitors"
+                >
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                  Save & Deploy now
+                </button>
+              )}
+              {!isTest && (
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#f03e2f] hover:bg-[#d93628] text-white text-xs font-semibold disabled:opacity-50"
+                  title="Site is live — saved changes apply to visitors immediately"
+                >
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                  Save (live)
+                </button>
+              )}
             </div>
           </div>
         </div>

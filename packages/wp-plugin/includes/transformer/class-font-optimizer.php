@@ -89,7 +89,12 @@ class FontOptimizer {
                 '<link rel="preload" as="font" type="font/woff2" href="%s" crossorigin>',
                 esc_url($preload_font)
             );
-            $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $preload, $html, 1);
+            $html = preg_replace_callback(
+                '/(<head[^>]*>)/i',
+                static fn(array $m): string => $m[1] . "\n" . $preload,
+                $html,
+                1
+            ) ?? $html;
         }
 
         return $html;

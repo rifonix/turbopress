@@ -12,9 +12,21 @@ export interface CachingConfig {
   mobile_cache: boolean; // separate mobile & desktop cache
   purge_on_post_update: boolean;
   purge_on_comment: boolean;
+  relational_auto_purge?: boolean; // purge related categories, tags, author, shop on post update
   strip_query_params: string[];
   excluded_urls: string[];
   excluded_cookies: string[];
+  /** when non-empty, ONLY these paths are optimized (inverse of excluded_urls) */
+  optimize_only_urls: string[];
+}
+
+export interface BloatConfig {
+  disable_emojis: boolean;
+  disable_dashicons_guest: boolean;
+  disable_xmlrpc: boolean;
+  disable_oembeds: boolean;
+  heartbeat_control: boolean;
+  post_revisions_limit: number;
 }
 
 export interface CriticalCssConfig {
@@ -91,6 +103,24 @@ export interface MediaConfig {
   offload_images: boolean;
   offload_video: boolean;
   offload_widths: number[];
+  /** derivative quality 40-100 (82 ≈ lossy, 100 ≈ lossless) */
+  image_quality: number;
+  /** IntersectionObserver lazy-load of inline CSS background images */
+  lazyload_backgrounds: boolean;
+  /** YouTube click-to-play facades */
+  video_facades: boolean;
+  youtube_facades?: boolean;
+  vimeo_facades?: boolean;
+  self_host_gravatars?: boolean;
+  /** preload="none" on non-autoplay self-hosted videos */
+  video_lazyload_selfhosted: boolean;
+}
+
+export interface HtmlConfig {
+  minify: boolean;
+  minify_jsonld: boolean;
+  remove_html_comments: boolean;
+  normalize: boolean;
 }
 
 export interface DynamicConfig {
@@ -106,6 +136,7 @@ export interface SiteConfig {
   preset: PresetType;
   caching: CachingConfig;
   critical_css: CriticalCssConfig;
+  bloat?: BloatConfig;
   css?: CssConfig;
   assets?: AssetsConfig;
   htaccess?: HtaccessConfig;
@@ -116,6 +147,8 @@ export interface SiteConfig {
   deployment?: DeploymentConfig;
   media: MediaConfig;
   dynamic: DynamicConfig;
+  html?: HtmlConfig;
+  custom_css?: string;
 }
 
 export interface User {

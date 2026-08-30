@@ -8,6 +8,9 @@ if (!defined('ABSPATH')) {
 class MediaOptimizer {
     private Config $config;
 
+    /** Per-request cache of local image dimension lookups. */
+    private array $dimension_cache = [];
+
     public function __construct(Config $config) {
         $this->config = $config;
     }
@@ -57,10 +60,16 @@ class MediaOptimizer {
                 $full_tag = $matches[0];
                 $attributes = $matches[1];
 
-                // Extract src
+                // Extract src (and the pre-offload original when present —
+                // the media offload stage runs before this one, so src may
+                // already be a signed worker URL).
                 $src = '';
                 if (preg_match('/src=[\'"]([^\'"]+)[\'"]/i', $attributes, $src_match)) {
                     $src = $src_match[1];
+                }
+                $orig_src = '';
+                if (preg_match('/data-tp-orig-src=[\'"]([^\'"]+)[\'"]/i', $attributes, $om)) {
+                    $orig_src = $om[1];
                 }
 
                 // Exclude tiny tracking pixels and data URIs
@@ -71,6 +80,22 @@ class MediaOptimizer {
                 $is_lazy = (bool) preg_match('/loading\s*=\s*[\'"]lazy[\'"]/i', $attributes);
                 $is_tiny = $this->is_tiny_image($attributes);
 
+                // CLS: inject missing width/height from the local file so the
+                // browser reserves layout space before the image loads.
+                if ($this->config->get('media.inject_missing_dimensions', true)) {
+                    $attributes = $this->maybe_inject_dimensions($attributes, $orig_src !== '' ? $orig_src : $src);
+                }
+
+                // The edge-verified LCP <img>: never lazy-load it — force
+                // eager, high-priority fetch. Matching works against both the
+                // (rewritten) src and the original origin URL.
+                if ($verified_lcp !== null && $this->img_matches_lcp($src, $orig_src, $verified_lcp)) {
+                    $clean = preg_replace('/loading=[\'"][^\'"]*[\'"]/i', '', $attributes);
+                    $clean = preg_replace('/fetchpriority=[\'"][^\'"]*[\'"]/i', '', (string) $clean);
+                    $clean = preg_replace('/decoding=[\'"][^\'"]*[\'"]/i', '', (string) $clean);
+                    return '<img ' . trim((string) $clean) . ' fetchpriority="high" decoding="sync">';
+                }
+
                 // LCP candidate heuristic: first eager, non-tiny image in the document.
                 // Skipped when the edge already verified a (possibly background) LCP.
                 if (
@@ -79,11 +104,13 @@ class MediaOptimizer {
                 ) {
                     $lcp_image = $attributes;
 
-                    // Remove lazyload and add fetchpriority="high"
+                    // Remove lazyload + any prior priority/decoding hints,
+                    // then force the LCP fetch profile.
                     $clean_attrs = preg_replace('/loading=[\'"]lazy[\'"]/i', '', $attributes);
-                    $clean_attrs = preg_replace('/fetchpriority=[\'"][^\'"]*[\'"]/i', '', $clean_attrs);
+                    $clean_attrs = preg_replace('/fetchpriority=[\'"][^\'"]*[\'"]/i', '', (string) $clean_attrs);
+                    $clean_attrs = preg_replace('/decoding=[\'"][^\'"]*[\'"]/i', '', (string) $clean_attrs);
 
-                    return sprintf('<img %s fetchpriority="high" decoding="sync">', trim($clean_attrs));
+                    return sprintf('<img %s fetchpriority="high" decoding="sync">', trim((string) $clean_attrs));
                 }
 
                 // Below the fold images: ensure lazy loading and async decoding
@@ -109,14 +136,19 @@ class MediaOptimizer {
             if ($verified_lcp !== null) {
                 $preload = sprintf(
                     '<link rel="preload" as="image" href="%s" fetchpriority="high">',
-                    esc_url($verified_lcp)
+                    esc_url($this->lcp_fetch_url($verified_lcp))
                 );
             } elseif ($lcp_image !== null) {
                 $preload = $this->build_lcp_preload($lcp_image);
             }
             // Avoid duplicate image preloads if the theme already has one.
             if ($preload && stripos($html, 'rel="preload" as="image"') === false && stripos($html, "rel='preload' as='image'") === false) {
-                $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $preload, $html, 1);
+                $html = preg_replace_callback(
+                    '/(<head[^>]*>)/i',
+                    static fn(array $m): string => $m[1] . "\n" . $preload,
+                    $html,
+                    1
+                ) ?? $html;
             }
         }
 
@@ -136,6 +168,126 @@ class MediaOptimizer {
         }
 
         return $html;
+    }
+
+    /**
+     * The URL the browser will actually fetch for the verified LCP image.
+     * When R2 offload is active the MediaOffloader already rewrote the
+     * matching <img>/url() to a signed worker URL — the preload must point
+     * at the SAME URL or it is a wasted (double) fetch. For CSS-background
+     * LCPs the offloader uses the max configured width + webp, so mirror
+     * exactly that.
+     */
+    private function lcp_fetch_url(string $verified_lcp): string {
+        if (!(bool) $this->config->get('media.offload_images', false)) {
+            return $verified_lcp;
+        }
+        $own = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
+        $host = strtolower((string) parse_url($verified_lcp, PHP_URL_HOST));
+        if ($own === '' || ($host !== $own && !str_ends_with($host, '.' . $own))) {
+            return $verified_lcp; // third-party LCP: nothing was rewritten
+        }
+        foreach ((array) $this->config->get('media.excluded_images', []) as $ex) {
+            if ($ex !== '' && stripos($verified_lcp, $ex) !== false) {
+                return $verified_lcp; // excluded from offload: original stayed
+            }
+        }
+        $offloader = new MediaOffloader($this->config);
+        $widths = $offloader->usable_widths();
+        $worker = $offloader->media_url($verified_lcp, max($widths), 'webp');
+        return $worker !== null ? $worker : $verified_lcp;
+    }
+
+    /** Match an <img> against the edge-verified LCP URL (host+path compare). */
+    private function img_matches_lcp(string $src, string $orig_src, string $verified_lcp): bool {
+        foreach ([$src, $orig_src] as $candidate) {
+            if ($candidate !== '' && $this->same_image($candidate, $verified_lcp)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function same_image(string $a, string $b): bool {
+        $pa = parse_url($a);
+        $pb = parse_url($b);
+        if (empty($pa['path']) || empty($pb['path'])) {
+            return false;
+        }
+        $ha = strtolower((string) ($pa['host'] ?? ''));
+        $hb = strtolower((string) ($pb['host'] ?? ''));
+        // Host may legitimately differ (worker URL vs origin URL) — path is
+        // the stable identity for own-host images.
+        if ($pa['path'] !== $pb['path']) {
+            return false;
+        }
+        if ($ha !== '' && $hb !== '' && $ha !== $hb) {
+            $own = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
+            $api = strtolower((string) parse_url($this->config->get_api_url(), PHP_URL_HOST));
+            $allowed = array_filter([$own, $api]);
+            if (!in_array($ha, $allowed, true) || !in_array($hb, $allowed, true)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Inject width/height attributes on <img> tags missing them, resolved
+     * from the local file (same-origin only). Prevents CLS on images whose
+     * dimensions the theme/plugin never declared.
+     */
+    private function maybe_inject_dimensions(string $attributes, string $resolve_src): string {
+        $has_w = (bool) preg_match('/\swidth\s*=\s*[\'"]?\d+/i', $attributes);
+        $has_h = (bool) preg_match('/\sheight\s*=\s*[\'"]?\d+/i', $attributes);
+        if ($has_w && $has_h) {
+            return $attributes;
+        }
+        if ($resolve_src === '' || str_starts_with($resolve_src, 'data:')) {
+            return $attributes;
+        }
+        if (preg_match('~\.svg(?:[?#]|$)~i', $resolve_src)) {
+            return $attributes; // vector: intrinsic size is scale-independent
+        }
+
+        $dims = $this->local_dimensions($resolve_src);
+        if ($dims === null) {
+            return $attributes;
+        }
+
+        // Inject only the missing dimension(s) — the existing one constrains
+        // the aspect ratio the browser computes.
+        if (!$has_w) {
+            $attributes .= ' width="' . $dims[0] . '"';
+        }
+        if (!$has_h) {
+            $attributes .= ' height="' . $dims[1] . '"';
+        }
+        return $attributes;
+    }
+
+    /** @return array{0:int,1:int}|null */
+    private function local_dimensions(string $src): ?array {
+        if (isset($this->dimension_cache[$src])) {
+            return $this->dimension_cache[$src];
+        }
+        $result = null;
+        $home = parse_url(home_url());
+        $parsed = parse_url($src);
+        if (
+            !empty($home['host']) && !empty($parsed['host'])
+            && strtolower((string) $home['host']) === strtolower((string) $parsed['host'])
+        ) {
+            $file = wp_normalize_path(ABSPATH . ltrim((string) ($parsed['path'] ?? '/'), '/'));
+            if (str_starts_with($file, wp_normalize_path(ABSPATH)) && is_file($file)) {
+                $size = @getimagesize($file);
+                if (is_array($size) && !empty($size[0]) && !empty($size[1])) {
+                    $result = [(int) $size[0], (int) $size[1]];
+                }
+            }
+        }
+        $this->dimension_cache[$src] = $result;
+        return $result;
     }
 
     private function is_tiny_image(string $attributes): bool {

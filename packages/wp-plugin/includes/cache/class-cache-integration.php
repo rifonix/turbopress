@@ -281,6 +281,39 @@ class CacheIntegration {
                     ? 'flying_press_purge_url'
                     : 'flying_press_purge_everything', $url);
             }
+
+            // WP Engine integration
+            if (class_exists('\WPeCommon')) {
+                if (method_exists('\WPeCommon', 'purge_memcached')) {
+                    \WPeCommon::purge_memcached();
+                }
+                if (method_exists('\WPeCommon', 'purge_varnish_cache')) {
+                    \WPeCommon::purge_varnish_cache();
+                }
+            }
+
+            // Kinsta Hosting integration
+            if (class_exists('\Kinsta\KMP') || isset($_SERVER['KINSTA_CACHE_ZONE'])) {
+                if ($scope === 'url' && $url !== '') {
+                    do_action('kinsta_clear_cache_url', $url);
+                } else {
+                    do_action('kinsta_clear_cache_all');
+                }
+            }
+
+            // Varnish proxy cache loopback purge
+            if (isset($_SERVER['HTTP_X_VARNISH']) || isset($_SERVER['HTTP_X_APPLICATION'])) {
+                $path = ($scope === 'url' && $url !== '') ? (string) parse_url($url, PHP_URL_PATH) : '/.*';
+                $method = ($scope === 'url' && $url !== '') ? 'URLPURGE' : 'PURGE';
+                wp_remote_request('http://127.0.0.1' . $path, [
+                    'method' => $method,
+                    'blocking' => false,
+                    'timeout' => 0.5,
+                    'headers' => [
+                        'Host' => $_SERVER['HTTP_HOST'] ?? parse_url(home_url(), PHP_URL_HOST),
+                    ],
+                ]);
+            }
         } catch (\Throwable $e) {
             // Best-effort by design: a foreign purge failure must never
             // abort the caller's own purge path.

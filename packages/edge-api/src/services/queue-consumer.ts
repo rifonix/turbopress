@@ -177,6 +177,19 @@ export async function processOptimizationQueue(
     return;
   }
 
+  async function getActiveBrowser(): Promise<Browser> {
+    if (browser && typeof (browser as any).isConnected === 'function' && !(browser as any).isConnected()) {
+      try {
+        await browser.close();
+      } catch {}
+      browser = null;
+    }
+    if (!browser) {
+      browser = await puppeteer.launch(env.BROWSER as any);
+    }
+    return browser;
+  }
+
   try {
     for (const msg of batch.messages) {
       const { jobId, siteId, url, viewport } = msg.body;
@@ -189,10 +202,13 @@ export async function processOptimizationQueue(
           .bind(jobId)
           .run();
 
+        // Ensure browser instance is active / re-connect if previous run crashed
+        const activeBrowser = await getActiveBrowser();
+
         // Run Critical CSS, LCP & real-metrics extractor (UA rotates per
         // delivery attempt so WAF catches don't repeat identically).
         const result = await extractCriticalCssAndLcp(
-          browser,
+          activeBrowser,
           env,
           jobId,
           siteId,
@@ -253,6 +269,25 @@ export async function processOptimizationQueue(
           }),
           { expirationTtl: 3600 }
         );
+
+        // Cache in Cloudflare KV under template structure hash for instant deduplication
+        if (msg.body.structureHash) {
+          try {
+            await env.KV.put(
+              `template:${siteId}:${msg.body.structureHash}:${viewport}`,
+              JSON.stringify({
+                criticalCssR2Key: result.r2Key,
+                criticalCssBytes: result.criticalCssBytes,
+                lcpSelector: result.lcpSelector,
+                lcpImageUrl: result.lcpImageUrl,
+                createdAt: Math.floor(Date.now() / 1000),
+              }),
+              { expirationTtl: 30 * 86400 }
+            );
+          } catch (kvErr) {
+            console.warn('[Template KV Cache Save Error]', kvErr);
+          }
+        }
 
         // Multi-page optimization: crawl internal links from root pages.
         await enqueueCrawlJobs(env, siteId, url, result.internalLinks);

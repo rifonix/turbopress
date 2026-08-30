@@ -7,6 +7,7 @@ export interface OptimizationQueueMessage {
   url: string;
   viewport: ViewportMode;
   attempt: number;
+  structureHash?: string;
 }
 
 export interface Env {
@@ -25,6 +26,8 @@ export interface Env {
   POLAR_SANDBOX_DISCOUNT_ID?: string;
   CLERK_SECRET_KEY?: string;
   CLERK_WEBHOOK_SIGNING_SECRET?: string;
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string;
+  CLERK_JWT_KEY?: string;
 }
 
 export interface AppVariables {

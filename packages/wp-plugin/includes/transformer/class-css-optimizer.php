@@ -52,7 +52,7 @@ class CssOptimizer {
         }
         [$combinable, ] = $links;
 
-        $main_keys = array_keys(array_filter($combinable, fn($c) => $c['media'] === 'all'));
+        $main_keys = array_keys(array_filter($combinable, fn($c) => $this->is_main_media($c['media'])));
         if (empty($main_keys)) {
             return null;
         }
@@ -106,7 +106,12 @@ class CssOptimizer {
                         '<link rel="preload" as="font" type="font/woff2" href="%s" crossorigin>',
                         esc_url($font_url)
                     );
-                    $out = preg_replace('/(<head[^>]*>)/i', "$1\n" . $preload, $out, 1) ?? $out;
+                    $out = preg_replace_callback(
+                        '/(<head[^>]*>)/i',
+                        static fn(array $m): string => $m[1] . "\n" . $preload,
+                        $out,
+                        1
+                    ) ?? $out;
                 }
             }
         }
@@ -137,7 +142,7 @@ class CssOptimizer {
         $combined_idx = null;
         $main_keys = [];
         if ($combine_enabled) {
-            $main_keys = array_keys(array_filter($combinable, fn($c) => $c['media'] === 'all'));
+            $main_keys = array_keys(array_filter($combinable, fn($c) => $this->is_main_media($c['media'])));
             if (count($main_keys) >= 2) {
                 $info = $this->build_bundle(array_map(fn($k) => $combinable[$k]['href'], $main_keys));
                 if ($info !== null) {
@@ -177,7 +182,7 @@ class CssOptimizer {
                         esc_url($combined_url)
                     );
                 }
-                if ($combined_url !== null && $entry['media'] === 'all') {
+                if ($combined_url !== null && $this->is_main_media($entry['media'])) {
                     return ''; // consumed by the bundle
                 }
 
@@ -217,7 +222,12 @@ class CssOptimizer {
                 . 'function chk(){setTimeout(function(){' . $scan . '},2500);setTimeout(function(){' . $scan . '},6000);}'
                 . 'if(document.readyState!==\'loading\')chk();else document.addEventListener(\'DOMContentLoaded\',chk);'
                 . '})();</script>';
-            $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $rescue, (string) $html, 1) ?? (string) $html;
+            $html = preg_replace_callback(
+                '/(<head[^>]*>)/i',
+                static fn(array $m): string => $m[1] . "\n" . $rescue,
+                (string) $html,
+                1
+            ) ?? (string) $html;
         }
 
         return is_string($html) ? $html : '';
@@ -353,6 +363,17 @@ class CssOptimizer {
         return 'all';
     }
 
+    /**
+     * Main (render-blocking) media group: bare/all/screen stylesheets share
+     * the combine+inline bundle. media="screen" sheets block first paint
+     * exactly like media="all" ones — leaving them out kept them render-
+     * blocking under Tier 1 and un-bundled under Tier 2.
+     */
+    private function is_main_media(string $media): bool {
+        $media = strtolower(trim($media));
+        return $media === '' || $media === 'all' || $media === 'screen';
+    }
+
     private function absolutize(string $href): string {
         if (preg_match('#^(https?:)?//#i', $href)) {
             if (str_starts_with($href, '//')) {
@@ -388,6 +409,9 @@ class CssOptimizer {
 
             // Cache key from hrefs + local mtimes so edits invalidate bundles.
             $key_parts = [TURBOPRESS_VERSION];
+            // The R2 offload state changes the bundle's url() targets — a
+            // bundle built pre-offload must never be reused post-toggle.
+            $key_parts[] = 'offload:' . ((bool) $this->config->get('media.offload_images', false) ? '1' : '0');
             foreach ($hrefs as $href) {
                 $key_parts[] = $href . '@' . $this->sheet_version($href);
             }
@@ -408,6 +432,12 @@ class CssOptimizer {
                     $css = $this->rebase_urls($css, $href);
                     $css = preg_replace('/@charset[^;]+;/i', '', $css);
                     $css = $this->inject_font_display($css);
+
+                    // Route CSS background images through R2 (optimized webp
+                    // derivatives) — the same offload <img> sources get.
+                    if ((bool) $this->config->get('media.offload_images', false)) {
+                        $css = (new MediaOffloader($this->config))->rewrite_css_urls($css);
+                    }
 
                     if ((bool) $this->config->get('css.minify', true)) {
                         $css = self::safe_minify($css);

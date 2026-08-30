@@ -198,7 +198,12 @@ class ScriptDelayer {
                 esc_url($loader_url)
             );
 
-            $html = preg_replace('/(<head[^>]*>)/i', "$1\n" . $loader_tag, $html, 1) ?? $html;
+            $html = preg_replace_callback(
+                '/(<head[^>]*>)/i',
+                static fn(array $m): string => $m[1] . "\n" . $loader_tag,
+                $html,
+                1
+            ) ?? $html;
         }
 
         return $html;

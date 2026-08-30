@@ -78,9 +78,19 @@ export const PRESET_SAFE: SiteConfig = {
     mobile_cache: false,
     purge_on_post_update: true,
     purge_on_comment: false,
+    relational_auto_purge: true,
     strip_query_params: DEFAULT_QUERY_PARAMS_STRIP,
     excluded_urls: DEFAULT_EXCLUDED_URLS,
-    excluded_cookies: DEFAULT_EXCLUDED_COOKIES
+    excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
+    optimize_only_urls: []
+  },
+  bloat: {
+    disable_emojis: true,
+    disable_dashicons_guest: false,
+    disable_xmlrpc: false,
+    disable_oembeds: false,
+    heartbeat_control: false,
+    post_revisions_limit: 5
   },
   critical_css: {
     enabled: false,
@@ -138,7 +148,14 @@ export const PRESET_SAFE: SiteConfig = {
     excluded_images: [],
     offload_images: false,
     offload_video: false,
-    offload_widths: [320, 480, 768, 1200, 1600]
+    offload_widths: [320, 480, 768, 1200, 1600],
+    image_quality: 82,
+    lazyload_backgrounds: true,
+    video_facades: true,
+    youtube_facades: true,
+    vimeo_facades: true,
+    self_host_gravatars: false,
+    video_lazyload_selfhosted: true
   },
   dynamic: {
     speculation_rules_prerender: true,
@@ -158,9 +175,19 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     mobile_cache: true,
     purge_on_post_update: true,
     purge_on_comment: false,
+    relational_auto_purge: true,
     strip_query_params: DEFAULT_QUERY_PARAMS_STRIP,
     excluded_urls: DEFAULT_EXCLUDED_URLS,
-    excluded_cookies: DEFAULT_EXCLUDED_COOKIES
+    excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
+    optimize_only_urls: []
+  },
+  bloat: {
+    disable_emojis: true,
+    disable_dashicons_guest: true,
+    disable_xmlrpc: true,
+    disable_oembeds: false,
+    heartbeat_control: true,
+    post_revisions_limit: 3
   },
   critical_css: {
     enabled: true,
@@ -218,7 +245,14 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     excluded_images: [],
     offload_images: false,
     offload_video: false,
-    offload_widths: [320, 480, 768, 1200, 1600]
+    offload_widths: [320, 480, 768, 1200, 1600],
+    image_quality: 82,
+    lazyload_backgrounds: true,
+    video_facades: true,
+    youtube_facades: true,
+    vimeo_facades: true,
+    self_host_gravatars: true,
+    video_lazyload_selfhosted: true
   },
   dynamic: {
     speculation_rules_prerender: true,
@@ -238,9 +272,19 @@ export const PRESET_LUDICROUS: SiteConfig = {
     mobile_cache: true,
     purge_on_post_update: true,
     purge_on_comment: false,
+    relational_auto_purge: true,
     strip_query_params: DEFAULT_QUERY_PARAMS_STRIP,
     excluded_urls: DEFAULT_EXCLUDED_URLS,
-    excluded_cookies: DEFAULT_EXCLUDED_COOKIES
+    excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
+    optimize_only_urls: []
+  },
+  bloat: {
+    disable_emojis: true,
+    disable_dashicons_guest: true,
+    disable_xmlrpc: true,
+    disable_oembeds: true,
+    heartbeat_control: true,
+    post_revisions_limit: 3
   },
   critical_css: {
     enabled: true,
@@ -298,7 +342,14 @@ export const PRESET_LUDICROUS: SiteConfig = {
     excluded_images: [],
     offload_images: false,
     offload_video: false,
-    offload_widths: [320, 480, 768, 1200, 1600]
+    offload_widths: [320, 480, 768, 1200, 1600],
+    image_quality: 82,
+    lazyload_backgrounds: true,
+    video_facades: true,
+    youtube_facades: true,
+    vimeo_facades: true,
+    self_host_gravatars: true,
+    video_lazyload_selfhosted: true
   },
   dynamic: {
     speculation_rules_prerender: true,

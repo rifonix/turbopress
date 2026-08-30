@@ -41,3 +41,11 @@ wp-content/cache/
 # Reference plugin sources (local only, never commit)
 packages/nitropack/
 packages/airlift/
+packages/flying-press/
+packages/flying-press-example/
+
+# Plugin release artifacts (built in CI)
+*.zip
+
+# TypeScript incremental build info
+*.tsbuildinfo

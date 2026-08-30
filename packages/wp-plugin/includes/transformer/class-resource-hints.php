@@ -157,6 +157,11 @@ class ResourceHints {
             return $html;
         }
 
-        return preg_replace('/(<head[^>]*>)/i', "$1\n" . $tags, $html, 1) ?? $html;
+        return preg_replace_callback(
+            '/(<head[^>]*>)/i',
+            static fn(array $m): string => $m[1] . "\n" . $tags,
+            $html,
+            1
+        ) ?? $html;
     }
 }

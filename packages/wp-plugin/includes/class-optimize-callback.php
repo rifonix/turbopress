@@ -63,10 +63,12 @@ class OptimizeCallback {
             return ['success' => true, 'command' => 'deploy', 'status' => $status];
         }
 
-        // Config push from the dashboard (embed or web app): merge the
-        // validated SiteConfig over the stored one so a dashboard save
-        // reaches the plugin instantly (verify/heartbeat remain the
-        // convergence fallbacks).
+        // Config push from the dashboard (embed or web app): the dashboard
+        // always sends the COMPLETE validated config, so each section it
+        // contains is authoritative — rebuild it from defaults + pushed
+        // values, never by merging over stored state. (Recursive merging
+        // resurrected deleted list entries — unload rules, exclusions — and
+        // was the root cause of "asset exclusion doesn't work".)
         if (($payload['command'] ?? '') === 'config') {
             $incoming = $payload['config'] ?? null;
             if (!is_array($incoming)) {
@@ -87,9 +89,19 @@ class OptimizeCallback {
             $widths_changed = ($current['media']['offload_widths'] ?? null) !== ($incoming['media']['offload_widths'] ?? null)
                 && $now_offloading;
 
-            // Recursive merge keeps keys the dashboard payload omits;
-            // save() re-applies defaults + bumps the version.
-            $config->save(array_replace_recursive($current, $incoming));
+            // Rebuild pushed sections over that preset's defaults; keep
+            // unpushed sections from the stored config (older dashboards).
+            $preset = (string) ($incoming['preset'] ?? $current['preset'] ?? 'ludicrous');
+            $defaults = $config->get_default_config($preset);
+            $merged = $current;
+            foreach ($incoming as $section => $value) {
+                if (is_array($value) && isset($defaults[$section]) && is_array($defaults[$section])) {
+                    $merged[$section] = Config::merge_config($defaults[$section], $value);
+                } else {
+                    $merged[$section] = $value;
+                }
+            }
+            $config->save($merged);
 
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');

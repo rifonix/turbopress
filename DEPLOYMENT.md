@@ -37,28 +37,26 @@ npx wrangler queues create turbopress-dlq
 
 ---
 
-## 2. Deploy Edge API Worker (Hono)
+## 2. Deploy Unified Cloudflare Worker (Next.js 15 SaaS App + Edge API + Queue Consumer)
 
-### Set Environment Secrets
+### A. Build Applications & OpenNext Bundle
+```bash
+npm run build
+```
+
+### B. Set Production Secrets
 ```bash
 cd packages/edge-api
+npx wrangler secret put POLAR_ACCESS_TOKEN
 npx wrangler secret put POLAR_WEBHOOK_SECRET
 npx wrangler secret put CLERK_SECRET_KEY
+npx wrangler secret put CLERK_WEBHOOK_SIGNING_SECRET
 ```
 
-### Deploy to Cloudflare Network
+### C. Deploy to Cloudflare Workers
 ```bash
+cd packages/edge-api
 npx wrangler deploy
-```
-
----
-
-## 3. Deploy SaaS Control Plane (Cloudflare Pages)
-
-```bash
-cd packages/saas-app
-npm run build
-npx wrangler pages deploy dist --project-name=turbopress-app
 ```
 
 ---

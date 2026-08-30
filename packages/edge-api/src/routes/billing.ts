@@ -547,6 +547,11 @@ billingRoutes.post('/polar-webhook', async (c) => {
       return c.json({ received: false, error: 'Invalid webhook payload' }, 400);
     }
   } else {
+    // In production, unverified webhook calls MUST fail closed.
+    if (c.env.ENVIRONMENT === 'production') {
+      console.error('[Polar Webhook] Missing POLAR_WEBHOOK_SECRET in production');
+      return c.json({ received: false, error: 'Webhook secret not configured' }, 403);
+    }
     // Development / fallback parser
     try {
       event = JSON.parse(rawBody);

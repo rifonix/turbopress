@@ -95,7 +95,7 @@ class MediaOffloader {
             $html = preg_replace_callback(
                 '/url\((["\']?)(https?:\/\/[^"\')\s]+)\1\)/i',
                 function ($m) use ($excluded, $widths, $max_w, &$queued) {
-                    if (!preg_match('#\.(?:png|jpe?g|webp|gif|svg|avif)(?:[?#]|$)#i', $m[2])) {
+                    if (!preg_match('~\.(?:png|jpe?g|webp|gif|svg|avif)(?:[?#]|$)~i', $m[2])) {
                         return $m[0]; // fonts, icons-as-font, video posters, etc.
                     }
                     $new = $this->rewrite_source($m[2], $max_w, 'webp', $excluded, $queued);
@@ -235,6 +235,47 @@ class MediaOffloader {
     }
 
     /**
+     * Rewrite image url()s inside CSS text to signed worker URLs and queue
+     * the derivatives. Used for combined stylesheets (Elementor post-*.css
+     * section/hero backgrounds) and inlined edge critical CSS, so CSS
+     * background images are optimized and served from R2 exactly like <img>
+     * sources. Fonts, data URIs, fragment URLs and third-party URLs are
+     * untouched; SVG routes through R2 as ORIGINAL bytes (no webp attempt).
+     */
+    public function rewrite_css_urls(string $css): string {
+        if ($this->config->get_site_id() === '' || $this->config->get_api_key() === '') {
+            return $css;
+        }
+
+        $excluded = (array) $this->config->get('media.excluded_images', []);
+        $max_w = max($this->usable_widths());
+        $queued = [];
+
+        $out = preg_replace_callback(
+            '/url\((["\']?)(https?:\/\/[^"\')\s]+)\1\)/i',
+            function ($m) use ($excluded, $max_w, &$queued) {
+                $url = html_entity_decode($m[2], ENT_QUOTES);
+                if (preg_match('~\.svg(?:[?#]|$)~i', $url)) {
+                    $new = $this->rewrite_source($url, 0, 'orig', $excluded, $queued);
+                    return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
+                }
+                if (!preg_match('~\.(?:png|jpe?g|webp|gif|avif)(?:[?#]|$)~i', $url)) {
+                    return $m[0]; // fonts, masks, etc.
+                }
+                $new = $this->rewrite_source($url, $max_w, 'webp', $excluded, $queued);
+                return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
+            },
+            $css
+        );
+
+        if ($queued !== []) {
+            $this->enqueue($queued);
+        }
+
+        return is_string($out) ? $out : $css;
+    }
+
+    /**
      * Build the signed worker URL for a media source, or null when the
      * source must not be rewritten.
      */
@@ -250,6 +291,13 @@ class MediaOffloader {
             if ($ex !== '' && stripos($src, $ex) !== false) {
                 return null;
             }
+        }
+
+        // SVG is vector: a webp derivative is meaningless and GD cannot
+        // rasterize it — route original bytes through R2 instead.
+        if ($f === 'webp' && preg_match('~\.svg(?:[?#]|$)~i', $src)) {
+            $f = 'orig';
+            $w = 0;
         }
 
         $url = $this->media_url($src, $w, $f);
@@ -271,20 +319,23 @@ class MediaOffloader {
         $u = rtrim(strtr(base64_encode($src), '+/', '-_'), '=');
         $sig = substr(hash_hmac('sha256', $u . '|' . $w . '|' . $f . '|' . $site_id, Config::get_callback_secret_static()), 0, 32);
         $hash = substr(hash('sha256', $src), 0, 24);
+        $q = max(40, min(100, (int) $this->config->get('media.image_quality', 82)));
 
         return sprintf(
-            '%s/api/v1/assets/media/%s/%s?u=%s&w=%d&f=%s&s=%s',
+            '%s/api/v1/assets/media/%s/%s?u=%s&w=%d&f=%s&q=%d&s=%s',
             $api_base,
             rawurlencode($site_id),
             $hash,
             $u,
             $w,
             rawurlencode($f),
+            $q,
             $sig
         );
     }
 
-    private function usable_widths(): array {
+    /** Configured derivative widths (validated, sorted, defaults applied). */
+    public function usable_widths(): array {
         $widths = (array) $this->config->get('media.offload_widths', []);
         $widths = array_values(array_unique(array_filter(array_map('intval', $widths), fn($w) => $w >= 16 && $w <= 4000)));
         if (empty($widths)) {
@@ -299,17 +350,31 @@ class MediaOffloader {
         if (!is_array($queue)) {
             $queue = [];
         }
+        $added = 0;
         foreach ($items as $key => $item) {
             if (isset($queue[$key])) {
                 continue;
             }
             $item['attempts'] = 0;
             $queue[$key] = $item;
+            $added++;
         }
         if (count($queue) > self::MAX_QUEUE) {
             $queue = array_slice($queue, -self::MAX_QUEUE, null, true);
         }
         update_option(self::QUEUE_OPTION, $queue, false);
+
+        // Eager processing: newly-queued derivatives must reach R2 within
+        // seconds, not at the next hourly cron tick. Kick a due-now worker
+        // (spawn_cron fires the loopback without delaying this request).
+        // Throttled: one pending kick at a time.
+        if ($added > 0 && !get_transient('tp_media_kick')) {
+            set_transient('tp_media_kick', 1, 2 * MINUTE_IN_SECONDS);
+            wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+            if (function_exists('spawn_cron')) {
+                spawn_cron();
+            }
+        }
     }
 
     /**
@@ -394,6 +459,18 @@ class MediaOffloader {
             return false;
         }
 
+        // SVG / explicit orig: upload the original bytes untouched (vector
+        // formats are already optimal; webp conversion would be a loss).
+        if ($f === 'orig' || preg_match('~\.svg(?:[?#]|$)~i', $src)) {
+            $mime = 'application/octet-stream';
+            if (preg_match('~\.svg(?:[?#]|$)~i', $src)) {
+                $mime = 'image/svg+xml';
+            } elseif (($info = @getimagesizefromstring($bytes)) !== false && !empty($info['mime'])) {
+                $mime = $info['mime'];
+            }
+            return $this->upload($src, $w, 'orig', $bytes, $mime);
+        }
+
         $info = @getimagesizefromstring($bytes);
         if ($info === false || empty($info[2])) {
             return false; // not a raster image — leave on the 302 path
@@ -423,8 +500,9 @@ class MediaOffloader {
             }
         }
 
+        $quality = max(40, min(100, (int) $this->config->get('media.image_quality', 82)));
         ob_start();
-        $ok = imagewebp($img, null, 82);
+        $ok = imagewebp($img, null, $quality);
         imagedestroy($img);
         $webp = (string) ob_get_clean();
         if (!$ok || $webp === '') {

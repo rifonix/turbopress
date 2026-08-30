@@ -6,17 +6,18 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Per-page and per-post-type plugin asset control.
+ * Per-page and per-post-type plugin & theme asset control.
  *
  * Config shape (plugins.unload_rules):
- *   { '<post_type>': ['plugin-folder', ...], '*': ['plugin-folder', ...] }
+ *   { '<post_type>': ['plugin-folder', 'theme:stylesheet', ...], '*': [...] }
  *
  * Per-post meta shape (_turbopress_asset_exclusions):
- *   { 'plugins': ['plugin-folder'], 'assets': ['keyword', 'regex:/…/i'] }
+ *   { 'plugins': ['plugin-folder'], 'themes': ['stylesheet'], 'assets': ['keyword', 'regex:/…/i'] }
  *
- * A page can therefore exclude an entire installed plugin, or individual
- * CSS/JS tags by a URL fragment, tag attribute, or explicit regex. Rules are
- * applied only to the current document and never disable the WP plugin.
+ * A page can therefore exclude an entire installed plugin or theme, or
+ * individual CSS/JS tags by a URL fragment, tag attribute/id, or explicit
+ * regex. Rules are applied only to the current document and never disable
+ * the WP plugin or theme itself.
  *
  * Runs as the FIRST DomEngine stage: removed tags must not be counted,
  * deferred, combined or offloaded by later stages.
@@ -42,7 +43,7 @@ class PluginAssets {
         }
 
         $post_rules = $this->get_post_rules($this->current_post_id());
-        return $post_rules['plugins'] !== [] || $post_rules['assets'] !== [];
+        return $post_rules['plugins'] !== [] || $post_rules['themes'] !== [] || $post_rules['assets'] !== [];
     }
 
     public function transform(string $html): string {
@@ -57,40 +58,89 @@ class PluginAssets {
             foreach (['*', $post_type] as $key) {
                 if ($key !== null && $key !== '' && isset($global_rules[$key]) && is_array($global_rules[$key])) {
                     foreach ($global_rules[$key] as $slug) {
-                        $slugs[sanitize_key((string) $slug)] = true;
+                        $slugs[(string) $slug] = true;
                     }
                 }
             }
         }
 
         foreach ($post_rules['plugins'] as $slug) {
-            $slugs[sanitize_key((string) $slug)] = true;
+            $slugs[(string) $slug] = true;
+        }
+        foreach ($post_rules['themes'] as $slug) {
+            $slugs['theme:' . (string) $slug] = true;
         }
 
+        // Handle keywords: WP prints inline CSS/JS with ids like
+        // "woocommerce-inline-inline-css" / "astra-theme-css" — no URL for a
+        // path pattern to hit. Matching the slug against the tag id lets
+        // exclusions reach inline assets too.
+        $id_keywords = [];
         foreach (array_keys($slugs) as $slug) {
+            $slug = trim(strtolower($slug));
+            if ($slug === '' || $slug === 'turbopress') {
+                continue;
+            }
+            if (str_starts_with($slug, 'theme:')) {
+                $theme = sanitize_key(substr($slug, 6));
+                if ($theme !== '') {
+                    // Match the stable theme directory segment.
+                    $patterns[] = '/themes/' . $theme . '/';
+                    $id_keywords[] = $theme;
+                }
+                continue;
+            }
+            $slug = sanitize_key($slug);
             if ($slug === '' || $slug === 'turbopress') {
                 continue;
             }
             // Match the stable WordPress plugin directory segment rather
             // than a bare slug, which could hit an unrelated asset name.
             $patterns[] = '/plugins/' . $slug . '/';
+            $id_keywords[] = $slug;
         }
 
         $patterns = array_values(array_unique(array_filter(array_map('trim', $patterns))));
-        if ($patterns === []) {
+        if ($patterns === [] && $id_keywords === []) {
             return $html;
         }
 
-        // Remove complete external script tags (including inline bodies) and
-        // link tags. Matching the complete tag also allows custom exclusions
-        // to target an id, handle, URL, or other asset attribute.
+        // Remove complete script tags (external + inline bodies) and link
+        // tags. Matching the complete tag also allows custom exclusions to
+        // target an id, handle, URL, or other asset attribute.
         $result = preg_replace_callback(
             '#<script\b[^>]*>[\s\S]*?</script\s*>|<link\b[^>]*>#i',
-            function (array $match) use ($patterns): string {
+            function (array $match) use ($patterns, $id_keywords): string {
                 foreach ($patterns as $pattern) {
                     if ($this->matches_pattern($match[0], $pattern)) {
                         return '';
                     }
+                }
+                if ($id_keywords !== [] && $this->matches_handle_id($match[0], $id_keywords)) {
+                    return '';
+                }
+                return $match[0];
+            },
+            $html
+        );
+        if (is_string($result)) {
+            $html = $result;
+        }
+
+        // Inline <style> blocks: reachable via custom keyword/regex patterns
+        // and via slug-derived handle ids ("elementor-frontend-inline-css").
+        // Turbopress' own injected styles are never matched (they carry no
+        // plugin/theme handle and ship after this stage anyway).
+        $result = preg_replace_callback(
+            '#<style\b[^>]*>[\s\S]*?</style\s*>#i',
+            function (array $match) use ($patterns, $id_keywords): string {
+                foreach ($patterns as $pattern) {
+                    if ($this->matches_pattern($match[0], $pattern)) {
+                        return '';
+                    }
+                }
+                if ($id_keywords !== [] && $this->matches_handle_id($match[0], $id_keywords)) {
+                    return '';
                 }
                 return $match[0];
             },
@@ -100,18 +150,42 @@ class PluginAssets {
         return is_string($result) ? $result : $html;
     }
 
-    /** @return array{plugins: string[], assets: string[]} */
+    /**
+     * Does the tag carry an id attribute (or handle-style class) containing
+     * one of the excluded slugs? Bounded to the attribute area so a keyword
+     * in the tag body cannot false-positive.
+     */
+    private function matches_handle_id(string $tag, array $id_keywords): bool {
+        $header = $tag;
+        $gt = strpos($tag, '>');
+        if ($gt !== false) {
+            $header = substr($tag, 0, $gt + 1);
+        }
+        if (!preg_match('/\sid=([\'"])([^\'"]+)\1/i', $header, $m)) {
+            return false;
+        }
+        $id = strtolower($m[2]);
+        foreach ($id_keywords as $kw) {
+            if ($kw !== '' && strpos($id, $kw) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return array{plugins: string[], themes: string[], assets: string[]} */
     private function get_post_rules(?int $post_id): array {
         if (!$post_id) {
-            return ['plugins' => [], 'assets' => []];
+            return ['plugins' => [], 'themes' => [], 'assets' => []];
         }
 
         $raw = get_post_meta($post_id, self::POST_META_KEY, true);
         if (!is_array($raw)) {
-            return ['plugins' => [], 'assets' => []];
+            return ['plugins' => [], 'themes' => [], 'assets' => []];
         }
 
         $plugins = array_values(array_filter(array_map('sanitize_key', (array) ($raw['plugins'] ?? []))));
+        $themes = array_values(array_filter(array_map('sanitize_key', (array) ($raw['themes'] ?? []))));
         $assets = [];
         foreach ((array) ($raw['assets'] ?? []) as $asset) {
             $asset = trim((string) $asset);
@@ -120,7 +194,11 @@ class PluginAssets {
             }
         }
 
-        return ['plugins' => array_values(array_unique($plugins)), 'assets' => array_values(array_unique($assets))];
+        return [
+            'plugins' => array_values(array_unique($plugins)),
+            'themes' => array_values(array_unique($themes)),
+            'assets' => array_values(array_unique($assets)),
+        ];
     }
 
     private function matches_pattern(string $tag, string $pattern): bool {

@@ -219,7 +219,23 @@ class HealthCheck {
             }
         }
 
-        return ['post_types' => $post_types, 'plugins' => $plugins];
+        // Active theme (+ parent): the unload UI offers them with a
+        // 'theme:' prefix so the plugin can build /themes/<slug>/ patterns.
+        $themes = [];
+        $stylesheet = get_stylesheet();
+        $template = get_template();
+        $current = wp_get_theme($stylesheet);
+        if ($current->exists()) {
+            $themes['theme:' . $stylesheet] = (string) ($current->get('Name') ?: $stylesheet) . ' (theme)';
+        }
+        if ($template !== $stylesheet) {
+            $parent = wp_get_theme($template);
+            if ($parent->exists()) {
+                $themes['theme:' . $template] = (string) ($parent->get('Name') ?: $template) . ' (parent theme)';
+            }
+        }
+
+        return ['post_types' => $post_types, 'plugins' => array_merge($plugins, $themes)];
     }
 
     /**

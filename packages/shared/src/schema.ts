@@ -11,9 +11,20 @@ export const CachingConfigSchema = z.object({
   mobile_cache: z.boolean().default(true),
   purge_on_post_update: z.boolean().default(true),
   purge_on_comment: z.boolean().default(false),
+  relational_auto_purge: z.boolean().default(true),
   strip_query_params: z.array(z.string()).default([]),
   excluded_urls: z.array(z.string()).default([]),
-  excluded_cookies: z.array(z.string()).default([])
+  excluded_cookies: z.array(z.string()).default([]),
+  optimize_only_urls: z.array(z.string()).default([])
+});
+
+export const BloatConfigSchema = z.object({
+  disable_emojis: z.boolean().default(true),
+  disable_dashicons_guest: z.boolean().default(true),
+  disable_xmlrpc: z.boolean().default(true),
+  disable_oembeds: z.boolean().default(false),
+  heartbeat_control: z.boolean().default(true),
+  post_revisions_limit: z.number().int().min(0).max(100).default(3)
 });
 
 export const CriticalCssConfigSchema = z.object({
@@ -88,7 +99,21 @@ export const MediaConfigSchema = z.object({
   excluded_images: z.array(z.string()).default([]),
   offload_images: z.boolean().default(false),
   offload_video: z.boolean().default(false),
-  offload_widths: z.array(z.number().int().min(16).max(4000)).default([320, 480, 768, 1200, 1600])
+  offload_widths: z.array(z.number().int().min(16).max(4000)).default([320, 480, 768, 1200, 1600]),
+  image_quality: z.number().int().min(40).max(100).default(82),
+  lazyload_backgrounds: z.boolean().default(true),
+  video_facades: z.boolean().default(true),
+  youtube_facades: z.boolean().default(true),
+  vimeo_facades: z.boolean().default(true),
+  self_host_gravatars: z.boolean().default(true),
+  video_lazyload_selfhosted: z.boolean().default(true)
+});
+
+export const HtmlConfigSchema = z.object({
+  minify: z.boolean().default(true),
+  minify_jsonld: z.boolean().default(true),
+  remove_html_comments: z.boolean().default(false),
+  normalize: z.boolean().default(true)
 });
 
 export const DynamicConfigSchema = z.object({
@@ -107,13 +132,16 @@ export const SiteConfigSchema = z.object({
   javascript: JavascriptConfigSchema,
   media: MediaConfigSchema,
   dynamic: DynamicConfigSchema,
+  bloat: BloatConfigSchema.optional(),
   css: CssConfigSchema.optional(),
   assets: AssetsConfigSchema.optional(),
   htaccess: HtaccessConfigSchema.optional(),
   plugins: PluginsConfigSchema.optional(),
   fonts: FontsConfigSchema.optional(),
   hints: HintsConfigSchema.optional(),
-  deployment: DeploymentConfigSchema.optional()
+  deployment: DeploymentConfigSchema.optional(),
+  html: HtmlConfigSchema.optional(),
+  custom_css: z.string().max(50000).optional()
 });
 
 export const HandshakeRequestSchema = z
@@ -143,7 +171,9 @@ export const HandshakeRequestSchema = z
 
 export const OptimizationDispatchSchema = z.object({
   url: z.string().url(),
-  viewports: z.array(ViewportModeSchema).optional().default(['mobile', 'desktop'])
+  viewports: z.array(ViewportModeSchema).optional().default(['mobile', 'desktop']),
+  structure_hash: z.string().optional(),
+  priority: z.enum(['high', 'normal', 'low']).optional().default('normal')
 });
 
 export const PurgeCacheRequestSchema = z.object({

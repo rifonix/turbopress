@@ -222,8 +222,9 @@ class AdminPage {
 
         // Signed embed token: siteId.expiry.hmac(callback_secret). The
         // edge verifies it, so the iframe needs no Clerk session and no
-        // API key exposure in the browser.
-        $exp = time() + HOUR_IN_SECONDS;
+        // API key exposure in the browser. 12h TTL: a 1h token expired
+        // mid-session and every subsequent save silently failed with 401.
+        $exp = time() + 12 * HOUR_IN_SECONDS;
         $sig = hash_hmac('sha256', $site_id . '.' . $exp, Config::get_callback_secret_static());
         $embed_url = rtrim($config->get_api_url(), '/')
             . '/embed/sites/' . rawurlencode($site_id)
@@ -248,6 +249,36 @@ class AdminPage {
                 <a href="<?php echo esc_url(add_query_arg(['page' => self::PAGE_CONNECT], admin_url('admin.php'))); ?>">Connect page</a>.
             </p>
         </div>
+
+        <script>
+        // Fit the embed frame to the ACTUAL remaining viewport space.
+        // The static CSS height (100vh - 52px) breaks whenever wp-admin
+        // notices (update nags, other plugins) push the frame down — the
+        // iframe's bottom (and the panel's fixed save bar) then lands below
+        // the fold. Re-fit on load, resize, and whenever notices are
+        // added/dismissed so the save bar is always pinned to the visible
+        // page bottom.
+        (function () {
+            var frame = document.querySelector('.tp-embed-frame');
+            if (!frame) { return; }
+            var last = 0;
+            var fit = function () {
+                var rect = frame.getBoundingClientRect();
+                var h = Math.max(320, window.innerHeight - rect.top - 12);
+                if (h !== last) {
+                    last = h;
+                    frame.style.height = h + 'px';
+                }
+            };
+            fit();
+            window.addEventListener('resize', fit);
+            window.addEventListener('load', fit);
+            if ('MutationObserver' in window) {
+                var target = document.getElementById('wpbody-content') || document.body;
+                new MutationObserver(fit).observe(target, { childList: true, subtree: true });
+            }
+        })();
+        </script>
 
         <?php $this->render_toast_shell(); ?>
         <?php
@@ -324,7 +355,7 @@ class AdminPage {
                 </div>
                 <div style="display:flex;justify-content:space-between;gap:8px;margin:0 0 5px;">
                     <dt style="color:#646970;">Page exclusions</dt>
-                    <dd style="margin:0;font-weight:600;"><?php echo esc_html((string) (count($rules['plugins']) + count($rules['assets']))); ?></dd>
+                    <dd style="margin:0;font-weight:600;"><?php echo esc_html((string) (count($rules['plugins']) + count($rules['themes'] ?? []) + count($rules['assets']))); ?></dd>
                 </div>
             </dl>
             <?php if ($url): ?>
@@ -343,9 +374,10 @@ class AdminPage {
         $pto = get_post_type_object($post->post_type);
         $label = $pto->labels->singular_name ?? $post->post_type;
         $plugins = self::active_plugin_catalog();
+        $themes = self::active_theme_catalog();
         ?>
         <p class="description" style="margin:0 0 10px;">
-            Exclude assets from this <?php echo esc_html(strtolower($label)); ?> only. Selected plugins lose all matching CSS/JS on this page.
+            Exclude assets from this <?php echo esc_html(strtolower($label)); ?> only. Selected plugins/themes lose all matching CSS/JS on this page.
         </p>
 
         <?php if ($plugins === []): ?>
@@ -359,6 +391,21 @@ class AdminPage {
                             value="<?php echo esc_attr($slug); ?>"
                             <?php checked(in_array($slug, $current['plugins'], true)); ?> />
                         <span><?php echo esc_html($name); ?></span>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($themes !== []): ?>
+            <label style="display:block;font-size:12px;font-weight:600;margin:12px 0 4px;">Themes</label>
+            <div style="border:1px solid #dcdcde;border-radius:4px;padding:7px;background:#fff;">
+                <?php foreach ($themes as $slug => $name): ?>
+                    <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:0 0 7px;">
+                        <input type="checkbox"
+                            name="turbopress_page_themes[]"
+                            value="<?php echo esc_attr($slug); ?>"
+                            <?php checked(in_array($slug, $current['themes'], true)); ?> />
+                        <span><?php echo esc_html($name); ?> <em style="color:#a1a1aa;">(theme)</em></span>
                     </label>
                 <?php endforeach; ?>
             </div>
@@ -399,13 +446,18 @@ class AdminPage {
             array_map('sanitize_key', (array) ($_POST['turbopress_page_plugins'] ?? [])),
             static fn (string $s): bool => $s !== '' && $s !== 'turbopress'
         )));
+        $themes = array_values(array_unique(array_filter(
+            array_map('sanitize_key', (array) ($_POST['turbopress_page_themes'] ?? [])),
+            static fn (string $s): bool => $s !== ''
+        )));
         $assets = self::sanitize_asset_patterns(wp_unslash((string) ($_POST['turbopress_page_assets'] ?? '')));
 
-        if ($plugins === [] && $assets === []) {
+        if ($plugins === [] && $themes === [] && $assets === []) {
             delete_post_meta($post_id, PluginAssets::POST_META_KEY);
         } else {
             update_post_meta($post_id, PluginAssets::POST_META_KEY, [
                 'plugins' => $plugins,
+                'themes' => $themes,
                 'assets' => $assets,
             ]);
         }
@@ -420,15 +472,16 @@ class AdminPage {
         }
     }
 
-    /** @return array{plugins: string[], assets: string[]} */
+    /** @return array{plugins: string[], themes: string[], assets: string[]} */
     private function get_post_asset_rules(int $post_id): array {
         $raw = get_post_meta($post_id, PluginAssets::POST_META_KEY, true);
         if (!is_array($raw)) {
-            return ['plugins' => [], 'assets' => []];
+            return ['plugins' => [], 'themes' => [], 'assets' => []];
         }
 
         return [
             'plugins' => array_values(array_filter(array_map('sanitize_key', (array) ($raw['plugins'] ?? [])))),
+            'themes' => array_values(array_filter(array_map('sanitize_key', (array) ($raw['themes'] ?? [])))),
             'assets' => self::sanitize_asset_patterns(implode("\n", (array) ($raw['assets'] ?? []))),
         ];
     }
@@ -504,6 +557,29 @@ class AdminPage {
             }
         }
         return $plugins;
+    }
+
+    /**
+     * Active theme catalog (stylesheet => Name): the current theme plus its
+     * parent when a child theme is in use. Only these can realistically
+     * print assets on the front end.
+     */
+    private static function active_theme_catalog(): array {
+        $themes = [];
+        $stylesheet = get_stylesheet();
+        $template = get_template();
+
+        $current = wp_get_theme($stylesheet);
+        if ($current->exists()) {
+            $themes[$stylesheet] = (string) ($current->get('Name') ?: $stylesheet);
+        }
+        if ($template !== $stylesheet) {
+            $parent = wp_get_theme($template);
+            if ($parent->exists()) {
+                $themes[$template] = (string) ($parent->get('Name') ?: $template) . ' (parent)';
+            }
+        }
+        return $themes;
     }
 
     /* ------------------------------------------------------------------ */

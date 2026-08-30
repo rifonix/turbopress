@@ -17,6 +17,8 @@ class Plugin {
     public PresetEngine $preset_engine;
     public CacheIntegration $cache_integration;
     public HealthCheck $health_check;
+    public BloatRemover $bloat_remover;
+    public AutoPurge $auto_purge;
 
     public static function get_instance(): Plugin {
         if (self::$instance === null) {
@@ -36,6 +38,8 @@ class Plugin {
         $this->preset_engine = new PresetEngine($this->config);
         $this->cache_integration = new CacheIntegration();
         $this->health_check = new HealthCheck($this->config, $this->api_client);
+        $this->bloat_remover = new BloatRemover($this->config);
+        $this->auto_purge = new AutoPurge($this->config);
     }
 
     public function init(): void {
@@ -64,6 +68,9 @@ class Plugin {
                     @unlink($file);
                 }
             }
+            // v1.11.0: LCP URLs measured pre-extraction-bypass pointed at the
+            // optimized page (possibly worker-rewritten); re-measure fresh.
+            delete_option('turbopress_lcp_images');
         }
 
         // Initialize Cache Purger hooks
@@ -73,13 +80,25 @@ class Plugin {
         // visitor-facing request (generation and verification stay
         // consistent — cached pages keep working even when the hydrator
         // can't run, e.g. JS disabled).
-        if (!is_admin()) {
+        //
+        // CRITICAL: the extension must NOT cover core REST/AJAX traffic.
+        // is_admin() is false for /wp-json/, so the filter otherwise alters
+        // the nonce tick during REST verification: nonces minted in
+        // wp-admin (default tick) then fail hash-equality in REST and every
+        // editor save (POST /wp-json/wp/v2/pages/<id>) returns 403.
+        // Our own /turbopress/v1/ namespace keeps the extension — its
+        // endpoints mint nonces for FRONTEND verification.
+        if (!is_admin() && !$this->is_core_rest_or_ajax()) {
             $nonce_ttl = max(DAY_IN_SECONDS, (int) $this->config->get('caching.ttl', 604800));
             add_filter('nonce_life', static fn(int $life): int => max($life, $nonce_ttl));
         }
 
         // Drop-in conflict detection + foreign purge mirroring
         $this->cache_integration->init();
+
+        // Bloat Remover & Relational Auto-Purge
+        $this->bloat_remover->init();
+        $this->auto_purge->init();
 
         // Async optimization pipeline: dispatch to edge, poll, download critical CSS
         add_action('turbopress_async_optimize', [$this, 'run_async_optimize'], 10, 1);
@@ -97,11 +116,23 @@ class Plugin {
             wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'turbopress_rum_heartbeat');
         }
 
-        // Hourly media derivative generation (R2 offload queue: webp
+        // Frequent media derivative generation (R2 offload queue: webp
         // derivatives + edge uploads; nothing runs when the queue is empty).
+        // Newly enqueued items also kick a due-now run from enqueue(), so
+        // derivatives normally land in R2 within seconds — this recurring
+        // event is only the backstop for drained-failure leftovers.
+        add_filter('cron_schedules', static function (array $schedules): array {
+            if (!isset($schedules['turbopress_5min'])) {
+                $schedules['turbopress_5min'] = [
+                    'interval' => 5 * MINUTE_IN_SECONDS,
+                    'display' => 'Every 5 Minutes (Turbopress)',
+                ];
+            }
+            return $schedules;
+        });
         add_action('turbopress_media_offload', [MediaOffloader::class, 'process_queue']);
         if (!wp_next_scheduled('turbopress_media_offload')) {
-            wp_schedule_event(time() + 15 * MINUTE_IN_SECONDS, 'hourly', 'turbopress_media_offload');
+            wp_schedule_event(time() + 2 * MINUTE_IN_SECONDS, 'turbopress_5min', 'turbopress_media_offload');
         }
 
         // Edge push callback (HMAC-verified REST route)
@@ -137,17 +168,55 @@ class Plugin {
         }
     }
 
+    /**
+     * True for core REST (/wp-json/wp/v2/…) and AJAX/cron requests, where
+     * core's nonce TTL must stay untouched. Detectable at plugins_loaded
+     * time via the request URI (REST_REQUEST constant isn't defined yet).
+     */
+    private function is_core_rest_or_ajax(): bool {
+        if (wp_doing_ajax() || wp_doing_cron()) {
+            return true;
+        }
+
+        $route = '';
+        $path = (string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?: '');
+        $rest_prefix = function_exists('rest_get_url_prefix') ? rest_get_url_prefix() : 'wp-json';
+        if (preg_match('#/' . preg_quote($rest_prefix, '#') . '(/[^?]*)#i', $path, $m)) {
+            $route = $m[1];
+        } elseif (isset($_GET['rest_route'])) {
+            $route = (string) wp_unslash($_GET['rest_route']);
+        }
+
+        if ($route === '') {
+            return false;
+        }
+
+        // Our own namespace mints nonces for frontend verification — it
+        // needs the SAME extended TTL as the front end, not core's.
+        return !str_starts_with(strtolower($route), '/turbopress/');
+    }
+
     public function start_output_buffer(): void {
+        // Edge extractor bypass: serve the RAW origin page. Circular
+        // extraction (parsing our own optimized output) was the root cause
+        // of critical CSS missing JS-rendered elements and their
+        // ::before/::after rules, and of skewed LCP measurements.
+        if (isset($_GET['turbopress_extract'])) {
+            return;
+        }
+
         $preview = false;
 
-        // Test Mode: visitors get the untouched origin page; only admins
-        // carrying the preview flag see (and verify) the optimized page.
-        if (($this->config->get('deployment.status', 'live')) === 'test') {
-            $can_preview = current_user_can('manage_options') && isset($_GET['tp_preview']);
-            if (!$can_preview) {
-                return;
-            }
+        // Preview flag: an admin carrying ?tp_preview=1 always sees (and
+        // verifies) the optimized page — mandatory in Test Mode, and the
+        // verification tool in Live mode (logged-in requests otherwise
+        // bypass the pipeline entirely, which made features like per-page
+        // asset exclusion look "broken" to the admin testing them).
+        if (current_user_can('manage_options') && isset($_GET['tp_preview'])) {
             $preview = true;
+        } elseif (($this->config->get('deployment.status', 'live')) === 'test') {
+            // Test Mode without the flag: visitors get the untouched origin.
+            return;
         }
 
         if (!$preview && !CacheRules::should_cache_request($this->config)) {
@@ -200,9 +269,9 @@ class Plugin {
     }
 
     private function is_preview_request(): bool {
-        return ($this->config->get('deployment.status', 'live')) === 'test'
-            && current_user_can('manage_options')
-            && isset($_GET['tp_preview']);
+        // Any admin carrying the preview flag (Test or Live mode): preview
+        // output is never written to the static page cache.
+        return current_user_can('manage_options') && isset($_GET['tp_preview']);
     }
 
     /**

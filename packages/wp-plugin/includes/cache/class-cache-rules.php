@@ -30,6 +30,27 @@ class CacheRules {
 
         // 5. Check URL exclusions
         $uri = $_SERVER['REQUEST_URI'] ?? '/';
+
+        // 5b. Optimize-only URLs: when the allowlist is non-empty, ONLY
+        // matching paths are optimized/cached (inverse of excluded_urls).
+        $only = (array) $config->get('caching.optimize_only_urls', []);
+        if ($only !== []) {
+            $allowed = false;
+            foreach ($only as $pattern) {
+                if ($pattern === '') {
+                    continue;
+                }
+                $pattern_regex = '#^' . str_replace('\\*', '.*', preg_quote((string) $pattern, '#')) . '$#i';
+                if (preg_match($pattern_regex, $uri)) {
+                    $allowed = true;
+                    break;
+                }
+            }
+            if (!$allowed) {
+                return false;
+            }
+        }
+
         $excluded_urls = (array) $config->get('caching.excluded_urls', []);
         foreach ($excluded_urls as $pattern) {
             $pattern_regex = '#^' . str_replace('\*', '.*', preg_quote($pattern, '#')) . '$#i';

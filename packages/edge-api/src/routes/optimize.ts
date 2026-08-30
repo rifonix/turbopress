@@ -150,6 +150,60 @@ optimizeRoutes.post('/dispatch', async (c) => {
   for (const viewport of viewports) {
     const jobId = generateJobId();
 
+    // Cloudflare KV Template Structure Hash Deduplication:
+    // If structure_hash is supplied and already cached in KV for this site/template/viewport,
+    // fulfill the job instantly from edge KV without launching Chromium Puppeteer.
+    if (payload.structure_hash) {
+      try {
+        const templateKey = `template:${siteId}:${payload.structure_hash}:${viewport}`;
+        const cachedTemplate = await c.env.KV.get<{
+          criticalCssR2Key: string;
+          criticalCssBytes: number;
+          lcpSelector?: string;
+          lcpImageUrl?: string;
+        }>(templateKey, 'json');
+
+        if (cachedTemplate?.criticalCssR2Key) {
+          // Instant completion from Cloudflare KV template cache
+          await c.env.DB.prepare(`
+            INSERT INTO optimization_jobs (id, site_id, url, viewport, status, critical_css_r2_key, critical_css_bytes, lcp_selector, lcp_image_url, attempts, created_at, completed_at)
+            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, 1, unixepoch(), unixepoch())
+          `)
+            .bind(
+              jobId,
+              siteId,
+              payload.url,
+              viewport,
+              cachedTemplate.criticalCssR2Key,
+              cachedTemplate.criticalCssBytes,
+              cachedTemplate.lcpSelector || null,
+              cachedTemplate.lcpImageUrl || null
+            )
+            .run();
+
+          await c.env.KV.put(
+            `job:${jobId}`,
+            JSON.stringify({
+              status: 'completed',
+              url: payload.url,
+              viewport,
+              siteId,
+              criticalCssR2Key: cachedTemplate.criticalCssR2Key,
+              criticalCssBytes: cachedTemplate.criticalCssBytes,
+              lcpImageUrl: cachedTemplate.lcpImageUrl,
+              fromTemplateCache: true,
+            }),
+            { expirationTtl: 86400 }
+          );
+
+          createdJobs.push({ jobId, viewport, status: 'completed' });
+          continue;
+        }
+      } catch (kvErr) {
+        console.warn('[Template KV lookup warning]', kvErr);
+      }
+    }
+
     // Insert into D1
     await c.env.DB.prepare(`
       INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, created_at)
@@ -161,7 +215,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
     // Cache initial status in KV
     await c.env.KV.put(
       `job:${jobId}`,
-      JSON.stringify({ status: 'queued', url: payload.url, viewport, siteId, targetDomain }),
+      JSON.stringify({ status: 'queued', url: payload.url, viewport, siteId, targetDomain, structureHash: payload.structure_hash }),
       { expirationTtl: 3600 }
     );
 
@@ -174,6 +228,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
           url: payload.url,
           viewport,
           attempt: 1,
+          structureHash: payload.structure_hash,
         });
       } catch (err) {
         console.warn('[Optimization Queue Warning]', err);

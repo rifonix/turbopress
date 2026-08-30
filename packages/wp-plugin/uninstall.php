@@ -64,6 +64,9 @@ foreach ($turbopress_transient_patterns as $turbopress_pattern) {
 // User preferences.
 delete_metadata('user', 0, 'turbopress_view_mode', '', true);
 
+// Per-page asset exclusion rules (post meta, every post type).
+delete_metadata('post', 0, '_turbopress_asset_exclusions', '', true);
+
 // Cache artifacts: pages, critical CSS, combined bundles, fonts, media, RUM.
 $turbopress_cache_dir = WP_CONTENT_DIR . '/cache/turbopress';
 if (is_dir($turbopress_cache_dir)) {

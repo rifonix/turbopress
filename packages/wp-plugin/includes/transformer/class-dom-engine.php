@@ -20,6 +20,10 @@ class DomEngine {
     private ResourceHints $resource_hints;
     private SpeculationRules $speculation_rules;
     private PluginAssets $plugin_assets;
+    private BgLazyLoader $bg_lazy_loader;
+    private VideoFacade $video_facade;
+    private GravatarLocalizer $gravatar_localizer;
+    private HtmlOptimizer $html_optimizer;
 
     /** Set by Plugin when the RUM beacon should ship (live mode or preview). */
     private bool $rum_enabled = false;
@@ -37,6 +41,10 @@ class DomEngine {
         $this->resource_hints = new ResourceHints($config);
         $this->speculation_rules = new SpeculationRules($config);
         $this->plugin_assets = new PluginAssets($config);
+        $this->bg_lazy_loader = new BgLazyLoader($config);
+        $this->video_facade = new VideoFacade($config);
+        $this->gravatar_localizer = new GravatarLocalizer($config);
+        $this->html_optimizer = new HtmlOptimizer($config);
     }
 
     public function enable_rum(bool $preview = false): void {
@@ -124,6 +132,18 @@ class DomEngine {
                 $html = $this->stage($html, fn(string $h): string => $this->media_optimizer->transform($h), 'media');
             }
 
+            // 3b. Lazy-load below-the-fold CSS background images (hero +
+            //     verified LCP stay eager inside the loader).
+            $html = $this->stage($html, fn(string $h): string => $this->bg_lazy_loader->transform($h), 'bg_lazyload');
+
+            // 3c. Video facades (YouTube/Vimeo) + self-hosted video preload=none.
+            $html = $this->stage($html, fn(string $h): string => $this->video_facade->transform($h), 'video');
+
+            // 3d. Gravatar localizer: self-host Gravatar avatars to eliminate 3rd-party handshakes.
+            if ($this->config->get('media.self_host_gravatars', true)) {
+                $html = $this->stage($html, fn(string $h): string => $this->gravatar_localizer->transform($h), 'gravatars');
+            }
+
             // 4. Critical CSS Inlining + Combined/Async Stylesheets
             if ($this->config->get('critical_css.enabled', true)) {
                 $html = $this->stage($html, fn(string $h): string => $this->critical_css_transformer->transform($h), 'critical_css');
@@ -143,6 +163,13 @@ class DomEngine {
                 $html = $this->stage($html, fn(string $h): string => $this->speculation_rules->transform($h), 'speculation');
             }
 
+            // 6b. Custom CSS from the dashboard (verbatim site-owner rules,
+            //     injected last in <head> so they win the cascade).
+            $custom_css = trim((string) $this->config->get('custom_css', ''));
+            if ($custom_css !== '') {
+                $html = $this->stage($html, fn(string $h): string => $this->inject_custom_css($h, $custom_css), 'custom_css');
+            }
+
             // 7. Inject Dynamic Nonce Hydrator Script
             if ($this->config->get('dynamic.nonce_ajax_refresh', true)) {
                 $html = $this->stage($html, fn(string $h): string => $this->inject_hydrator_scripts($h), 'hydrator');
@@ -160,6 +187,10 @@ class DomEngine {
             if (stripos($html, '</body>') !== false) {
                 $html = str_ireplace('</body>', $signature . '</body>', $html);
             }
+
+            // 10. HTML minification LAST: every earlier injection (critical
+            //     CSS, loaders, facades, RUM) is minified with the page.
+            $html = $this->stage($html, fn(string $h): string => $this->html_optimizer->transform($h), 'html_minify');
 
             // Final integrity gate: the pipeline must never emit a document
             // that lost its skeleton or implausibly shrank vs the input.
@@ -278,6 +309,26 @@ class DomEngine {
         return $stamped;
     }
 
+    /**
+     * Inject the site owner's custom CSS last in <head> (wins the cascade).
+     * The payload is sanitized minimally — it is CSS by design, but a stray
+     * </style> could break the document, so it is neutralized.
+     */
+    private function inject_custom_css(string $html, string $css): string {
+        $css = str_ireplace('</style', '<\/style', $css);
+        if (trim($css) === '') {
+            return $html;
+        }
+        $tag = '<style id="turbopress-custom-css">' . $css . '</style>';
+        $result = preg_replace_callback(
+            '/(<\/head>)/i',
+            static fn(array $m): string => $tag . "\n" . $m[1],
+            $html,
+            1
+        );
+        return is_string($result) ? $result : $html;
+    }
+
     private function inject_hydrator_scripts(string $html): string {
         $hydrator_url = TURBOPRESS_URL . 'assets/js/hydrator.min.js';
         $nonce_endpoint = esc_url_raw(rest_url('turbopress/v1/nonces'));
@@ -313,5 +364,45 @@ class DomEngine {
         $tag = '<script tp-exclude id="turbopress-rum">' . $js . '</script>';
 
         return str_ireplace('</body>', $tag . '</body>', $html);
+    }
+
+    /**
+     * Computes a normalized structural MD5 hash of the DOM (tags, IDs, classes,
+     * stylesheets, and scripts) stripped of dynamic numeric digits.
+     * Pages sharing the same layout structure (e.g. WooCommerce product templates)
+     * share the same hash, allowing edge Cloudflare KV to deduplicate Critical CSS.
+     */
+    public static function compute_structure_hash(string $html): string {
+        $html = html_entity_decode($html);
+        preg_match_all('/<\s*([a-zA-Z][\w:-]*)\b[^>]*>/i', $html, $tags);
+        preg_match_all('/\bid\s*=\s*["\']([^"\']+)["\']/i', $html, $ids);
+        preg_match_all('/\bclass\s*=\s*["\']([^"\']+)["\']/i', $html, $classes);
+        preg_match_all('/<link[^>]*rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\']/i', $html, $stylesheets);
+        preg_match_all('/<script[^>]*src=["\']([^"\']+)["\']/i', $html, $scripts);
+
+        $clean_classes = [];
+        foreach ($classes[1] ?? [] as $cls_str) {
+            foreach (preg_split('/\s+/', trim($cls_str)) as $cls) {
+                $cls = preg_replace('/\d.*$/', '', trim($cls));
+                if ($cls !== '') {
+                    $clean_classes[] = $cls;
+                }
+            }
+        }
+
+        $clean_ids = array_map(static fn(string $id): string => preg_replace('/\d.*$/', '', $id), $ids[1] ?? []);
+        $clean_tags = array_map(static fn(string $t): string => '<' . strtolower($t) . '>', $tags[1] ?? []);
+
+        $all = array_merge(
+            $clean_ids,
+            $clean_classes,
+            $stylesheets[1] ?? [],
+            $scripts[1] ?? [],
+            $clean_tags
+        );
+        $all = array_unique(array_filter($all));
+        sort($all);
+
+        return md5(implode(' ', $all));
     }
 }

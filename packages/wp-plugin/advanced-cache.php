@@ -26,6 +26,14 @@ if (!empty($_SERVER['HTTP_X_TURBOPRESS_REVALIDATE'])) {
     return;
 }
 
+// 1c. Edge extractor bypass: the optimization pipeline must see the RAW
+// origin page, never our own transformed/cached output (circular extraction
+// drops JS-rendered elements and their ::before/::after rules, and skews
+// LCP). The flag is appended by the edge extractor since v1.11.0.
+if (isset($_GET['turbopress_extract'])) {
+    return;
+}
+
 // 2. Bypass for Logged-In Users & Password-Protected Posts
 if (!empty($_COOKIE)) {
     foreach ($_COOKIE as $key => $val) {
@@ -95,6 +103,18 @@ if (preg_match('/mobile|android|iphone|ipod|windows phone/i', $user_agent)) {
 $cache_dir = WP_CONTENT_DIR . '/cache/turbopress/pages/' . md5($http_host);
 $url_hash = md5($path . $clean_query . ($is_mobile ? '_mobile' : '_desktop'));
 $cache_file = $cache_dir . '/' . substr($url_hash, 0, 2) . '/' . $url_hash . '.html';
+
+// Mobile fallback: when caching.mobile_cache is disabled, CacheManager writes
+// unified pages under '_desktop'. If '_mobile' does not exist, fallback to '_desktop'
+// so mobile visitors hit the unified cache instead of suffering 100% cache misses.
+if (!file_exists($cache_file) && !file_exists($cache_file . '.stale') && $is_mobile) {
+    $desktop_hash = md5($path . $clean_query . '_desktop');
+    $desktop_file = $cache_dir . '/' . substr($desktop_hash, 0, 2) . '/' . $desktop_hash . '.html';
+    if (file_exists($desktop_file) || file_exists($desktop_file . '.stale')) {
+        $url_hash = $desktop_hash;
+        $cache_file = $desktop_file;
+    }
+}
 
 // 6. Check if Cache File Exists and is Fresh (e.g. 7 days TTL)
 if (file_exists($cache_file)) {

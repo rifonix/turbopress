@@ -27,10 +27,15 @@ clerkWebhookRoutes.post('/clerk-webhook', async (c) => {
       event = wh.verify(rawBody, svixHeaders);
     } catch (err) {
       console.warn('[Clerk Webhook] Signature verification failed:', err);
-      return c.json({ success: false, error: 'Signature verification failed' }, 400);
+      return c.json({ success: false, error: 'Signature verification failed' }, 403);
     }
   } else {
-    // Development / fallback parser
+    // In production, unverified webhook calls MUST fail closed.
+    if (c.env.ENVIRONMENT === 'production') {
+      console.error('[Clerk Webhook] Missing or invalid CLERK_WEBHOOK_SIGNING_SECRET in production');
+      return c.json({ success: false, error: 'Webhook signing secret not configured' }, 403);
+    }
+    // Development / test fallback parser
     try {
       event = JSON.parse(rawBody);
     } catch {

@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { optimizeImage } from 'wasm-image-optimization';
 import { Env, AppVariables } from '../types/env.js';
 import { siteAuthMiddleware } from '../middleware/auth.js';
 
@@ -114,11 +115,12 @@ async function verifyMediaSignature(
 }
 
 /**
- * Serve a media derivative from R2; redirect to the origin URL on miss so
- * media can never break. Videos (f=raw) are cache-filled from the origin
- * in the background (≤100MB).
+ * Serve a media derivative from R2; on miss, optimize AT THE EDGE (WASM
+ * resize/convert) and fill R2 — images never redirect to the origin except
+ * as a last-resort fallback. Videos (f=raw) are cache-filled from the
+ * origin in the background (≤100MB).
  *
- * GET /api/v1/assets/media/:site_id/:url_hash?u=<b64url src>&w=&f=&s=<hmac>
+ * GET /api/v1/assets/media/:site_id/:url_hash?u=<b64url src>&w=&f=&q=&s=<hmac>
  */
 assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const siteId = c.req.param('site_id');
@@ -126,12 +128,29 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const u = c.req.query('u') || '';
   const w = c.req.query('w') || '0';
   const f = c.req.query('f') || 'webp';
+  const q = c.req.query('q') || '82';
   const s = c.req.query('s') || '';
 
   const verified = await verifyMediaSignature(c, siteId, u, w, f, s);
   if (!verified.ok) return verified.response;
 
-  const r2Key = `sites/${siteId}/media/${urlHash}_${w}.${f}`;
+  const width = Math.max(0, Math.min(4000, parseInt(w, 10) || 0));
+  const quality = Math.max(40, Math.min(100, parseInt(q, 10) || 82));
+  const r2Key = `sites/${siteId}/media/${urlHash}_${width}_${quality}.${f}`;
+
+  // AVIF upgrade: when the browser accepts it we can serve an even smaller
+  // variant — but the R2 key implies the requested format, so AVIF lives
+  // only in the Cache API as a per-client variant.
+  const accept = c.req.header('accept') || '';
+  const wantsAvif = f === 'webp' && /image\/avif/i.test(accept);
+
+  // Cache API fast path (per URL + format variant).
+  const cache = await caches.open('tp-media-v1');
+  const cacheKey = new Request(c.req.url + (wantsAvif ? '&fmt=avif' : ''));
+  const cachedHit = await cache.match(cacheKey).catch(() => null);
+  if (cachedHit && cachedHit.ok) {
+    return cachedHit;
+  }
 
   // Range request support (video seeking) against an R2 hit.
   const rangeHeader = c.req.header('range');
@@ -162,15 +181,22 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
 
   const object = await c.env.ASSETS_BUCKET.get(r2Key);
   if (object) {
-    c.header('Content-Type', object.httpMetadata?.contentType || MEDIA_TYPES[f] || 'application/octet-stream');
-    c.header('Cache-Control', 'public, max-age=31536000, immutable');
-    c.header('Accept-Ranges', 'bytes');
-    c.header('Access-Control-Allow-Origin', '*');
-    c.header('X-Turbopress-Media', 'HIT');
-    return c.body(object.body as any);
+    const hit = new Response(object.body as any, {
+      headers: {
+        'Content-Type': object.httpMetadata?.contentType || MEDIA_TYPES[f] || 'application/octet-stream',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+        'X-Turbopress-Media': 'HIT',
+      },
+    });
+    c.executionCtx.waitUntil(cache.put(cacheKey, hit.clone()).catch(() => {}));
+    return hit;
   }
 
-  // MISS: fill in the background when worthwhile, redirect meanwhile.
+  /* ------------------------- MISS path ------------------------- */
+
+  // Videos: fill in the background, redirect meanwhile (unchanged).
   if (f === 'raw') {
     try {
       c.executionCtx.waitUntil(
@@ -192,13 +218,118 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     } catch {
       // best effort
     }
+    c.header('Cache-Control', 'public, max-age=60');
+    c.header('X-Turbopress-Media', 'MISS');
+    return c.redirect(verified.src, 302);
   }
 
-  // MISS: briefly cacheable redirect to the origin while derivatives
-  // generate / video fills happen in the background.
-  c.header('Cache-Control', 'public, max-age=60');
-  c.header('X-Turbopress-Media', 'MISS');
-  return c.redirect(verified.src, 302);
+  // Images: fetch the origin bytes once, then optimize AT THE EDGE.
+  const srcRes = await fetch(verified.src, {
+    headers: { Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
+    cf: { cacheKey: verified.src } as any,
+  }).catch(() => null);
+
+  if (!srcRes || !srcRes.ok) {
+    // Origin unreachable: last-resort redirect (kept from the old design —
+    // a rewrite can never permanently break an image).
+    c.header('Cache-Control', 'public, max-age=60');
+    c.header('X-Turbopress-Media', 'MISS');
+    return c.redirect(verified.src, 302);
+  }
+
+  // Guard against Worker OOM: origin files > 5MB skip synchronous edge WASM transcoding
+  const contentLength = Number(srcRes.headers.get('content-length') || '0');
+  if (contentLength > 5 * 1024 * 1024) {
+    c.header('Cache-Control', 'public, max-age=300');
+    c.header('X-Turbopress-Media', 'PASS-OVERSIZE');
+    return c.redirect(verified.src, 302);
+  }
+
+  const srcBytes = await srcRes.arrayBuffer();
+  if (srcBytes.byteLength > 5 * 1024 * 1024) {
+    c.header('Cache-Control', 'public, max-age=300');
+    c.header('X-Turbopress-Media', 'PASS-OVERSIZE');
+    return c.redirect(verified.src, 302);
+  }
+
+  const srcType = srcRes.headers.get('content-type') || '';
+
+  // Vector/animated formats are already optimal: store + serve untouched.
+  const isVectorOrGif = /image\/(svg\+xml|gif)/i.test(srcType) || /\.svg(?:[?#]|$)/i.test(verified.src);
+  if (isVectorOrGif || f === 'orig') {
+    const ct = isVectorOrGif && srcType ? srcType : srcType || 'application/octet-stream';
+    c.executionCtx.waitUntil(
+      c.env.ASSETS_BUCKET.put(r2Key, srcBytes, { httpMetadata: { contentType: ct } }).catch(() => {})
+    );
+    const passthrough = new Response(srcBytes, {
+      headers: {
+        'Content-Type': ct,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Access-Control-Allow-Origin': '*',
+        'X-Turbopress-Media': 'EDGE-FILL',
+      },
+    });
+    c.executionCtx.waitUntil(cache.put(cacheKey, passthrough.clone()).catch(() => {}));
+    return passthrough;
+  }
+
+  // Raster images: WASM resize/convert at the edge. AVIF when accepted,
+  // otherwise the requested format (webp). speed 8 = fast encode, fine for
+  // an on-demand pipeline (the plugin's GD path converges to the same key).
+  const outFormat = wantsAvif ? 'avif' : 'webp';
+  try {
+    const optimized = await optimizeImage({
+      image: new Uint8Array(srcBytes),
+      width: width > 0 ? width : undefined,
+      quality,
+      format: outFormat as 'avif' | 'webp',
+      speed: 8,
+    });
+
+    if (optimized?.data && optimized.data.byteLength > 0) {
+      const body: ArrayBuffer = optimized.data.buffer.slice(
+        optimized.data.byteOffset,
+        optimized.data.byteOffset + optimized.data.byteLength
+      ) as ArrayBuffer;
+      // Persist the requested-format derivative in R2 (the canonical,
+      // plugin-compatible artifact). The AVIF variant stays cache-only.
+      if (outFormat === f) {
+        c.executionCtx.waitUntil(
+          c.env.ASSETS_BUCKET.put(r2Key, body, {
+            httpMetadata: { contentType: `image/${outFormat}` },
+          }).catch(() => {})
+        );
+      }
+      const response = new Response(body, {
+        headers: {
+          'Content-Type': `image/${outFormat}`,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Access-Control-Allow-Origin': '*',
+          'X-Turbopress-Media': 'EDGE-OPT',
+        },
+      });
+      c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => {}));
+      return response;
+    }
+  } catch (err) {
+    console.warn('[Media] WASM optimize failed, serving original:', err);
+  }
+
+  // Optimization failed: store + serve the original bytes (self-heals when
+  // the plugin's derivative PUT lands — it overwrites the same R2 key).
+  c.executionCtx.waitUntil(
+    c.env.ASSETS_BUCKET.put(r2Key, srcBytes, {
+      httpMetadata: { contentType: srcType || 'application/octet-stream' },
+    }).catch(() => {})
+  );
+  return new Response(srcBytes, {
+    headers: {
+      'Content-Type': srcType || 'application/octet-stream',
+      'Cache-Control': 'public, max-age=300',
+      'Access-Control-Allow-Origin': '*',
+      'X-Turbopress-Media': 'ORIGINAL',
+    },
+  });
 });
 
 /**
@@ -212,6 +343,7 @@ assetRoutes.put('/media/:site_id/:url_hash', siteAuthMiddleware, async (c) => {
   const u = c.req.query('u') || '';
   const w = c.req.query('w') || '0';
   const f = c.req.query('f') || 'webp';
+  const q = c.req.query('q') || '82';
   const s = c.req.query('s') || '';
 
   const verified = await verifyMediaSignature(c, site.id, u, w, f, s);
@@ -231,7 +363,9 @@ assetRoutes.put('/media/:site_id/:url_hash', siteAuthMiddleware, async (c) => {
     return c.json({ success: false, error: 'Invalid content type' }, 400);
   }
 
-  const r2Key = `sites/${site.id}/media/${urlHash}_${w}.${f}`;
+  const width = Math.max(0, Math.min(4000, parseInt(w, 10) || 0));
+  const quality = Math.max(40, Math.min(100, parseInt(q, 10) || 82));
+  const r2Key = `sites/${site.id}/media/${urlHash}_${width}_${quality}.${f}`;
   await c.env.ASSETS_BUCKET.put(r2Key, body, {
     httpMetadata: { contentType },
   });

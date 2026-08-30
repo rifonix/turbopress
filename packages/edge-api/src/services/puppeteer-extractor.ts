@@ -139,32 +139,66 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
   // defined" in the page context. String sources are left untouched.
   const src = `
     (() => {
-      const MAX_RULES = 25000;
-      const MAX_OUTPUT_BYTES = 256 * 1024;
+      const MAX_RULES = 60000;
+      const MAX_OUTPUT_BYTES = 512 * 1024;
+      // Second, larger envelope for rules that must never be dropped even
+      // when the budget is exhausted: pseudo-element rules (::before/::after
+      // carry icons/overlays), custom-property definitions and font/keyframes
+      // foundations. These are byte-small but visually critical.
+      const MAX_PROTECTED_BYTES = 768 * 1024;
       const out = [];
       const crossOrigin = [];
       let ruleCount = 0;
       let outputBytes = 0;
+      let protectedBytes = 0;
+
+      // Strip ONLY what cannot match in a static, untouched headless page:
+      //  - pseudo-elements (::before, ::after, ::marker, …) incl. legacy
+      //    single-colon forms (:before, :after, :first-letter, :first-line)
+      //  - interaction/state pseudo-classes that are never active at
+      //    extraction time (:hover, :focus, :focus-within, :checked, …)
+      // Structural pseudos (:not, :is, :where, :has, :nth-*, :first-child…)
+      // are KEPT — querySelector evaluates them against the live DOM.
+      // Order matters: longer names (focus-within/-visible) must precede
+      // their prefixes (focus), otherwise ":focus-within" degrades to
+      // "-within" and the rule is dropped by a false querySelector miss.
+      const STATE_PSEUDOS = /::?(?:before|after|first-letter|first-line|selection|marker|placeholder-shown|placeholder|backdrop|file-selector-button|spelling-error|grammar-error|highlight|target-text|cue-region|cue|part\\([^)]*\\)|slotted\\([^)]*\\))(?![\\w-])|:(?:hover|focus-within|focus-visible|focus|active|visited|link|target-within|target|checked|indeterminate|disabled|enabled|required|optional|valid|invalid|in-range|out-of-range|read-only|read-write|autofill|user-valid|user-invalid|placeholder-shown|playing|paused|seeking|buffering|stalled|fullscreen|picture-in-picture|modal|popover-open|open|defined)(?![\\w-])/g;
 
       function selectorMatches(sel) {
         try {
-          const test = sel.replace(/::?(before|after|first-line|first-letter|selection|hover|focus|active|visited|link|marker|placeholder|backdrop|file-selector-button|focus-visible|focus-within)\\b/g, '');
-          if (!test.trim()) return true;
+          const test = sel.replace(STATE_PSEUDOS, '');
+          if (!test.trim() || !test.replace(/[\\s>+~*,]/g, '').trim()) return true;
           return document.querySelector(test) !== null;
         } catch (e) {
           return true; // Old/unknown selector syntax: keep conservatively.
         }
       }
 
+      // Rules too important to lose when the output cap hits.
+      function isProtectedRule(cssText) {
+        return /::|:(?:before|after)\\b|@font-face|@keyframes|@property|--[\\w-]+\\s*:/.test(cssText);
+      }
+
       function push(text) {
-        outputBytes += text.length;
-        if (outputBytes <= MAX_OUTPUT_BYTES) out.push(text);
+        if (outputBytes + text.length <= MAX_OUTPUT_BYTES) {
+          outputBytes += text.length;
+          out.push(text);
+          return;
+        }
+        // Over budget: still keep visually-critical rules (bounded by the
+        // larger protected envelope) so icons/overlays never go missing.
+        if (isProtectedRule(text) && protectedBytes + text.length <= MAX_PROTECTED_BYTES) {
+          protectedBytes += text.length;
+          out.push(text);
+        }
       }
 
       function collectRules(rules) {
         const parts = [];
         for (let i = 0; i < rules.length; i++) {
-          if (ruleCount++ > MAX_RULES || outputBytes > MAX_OUTPUT_BYTES) return parts.join('\\n');
+          // Stop only when even the protected envelope is full — pseudo/
+          // foundation rules keep flowing past the main budget.
+          if (ruleCount++ > MAX_RULES || (outputBytes > MAX_OUTPUT_BYTES && protectedBytes > MAX_PROTECTED_BYTES)) return parts.join('\\n');
           const rule = rules[i];
           switch (rule.constructor.name) {
             case 'CSSMediaRule': {
@@ -342,8 +376,24 @@ export async function extractCriticalCssAndLcp(
       console.warn('[Extractor] CSS coverage unavailable:', covErr);
     }
 
-    // 2. Navigate to target URL with safety timeout
-    await page.goto(url, {
+    // 2. Navigate to target URL with safety timeout.
+    // IMPORTANT: append the extractor bypass flag so the WordPress plugin
+    // (and its advanced-cache.php drop-in) serves the RAW, untransformed
+    // page. Without it we would extract "critical" CSS from our own
+    // optimized output — scripts withheld by interaction_delay never run in
+    // a headless browser, JS-rendered elements (and their ::before/::after
+    // rules) vanish from the DOM, and LCP is measured against the wrong
+    // document. The flag is honored by the plugin since v1.11.0; on older
+    // plugin versions it degrades to a harmless cache-miss query param.
+    let fetchUrl = url;
+    try {
+      const u = new URL(url);
+      u.searchParams.set('turbopress_extract', '1');
+      fetchUrl = u.toString();
+    } catch {
+      // keep original
+    }
+    await page.goto(fetchUrl, {
       waitUntil: 'networkidle2',
       timeout: 45000,
     });
