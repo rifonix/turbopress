@@ -7,7 +7,7 @@ import {
   sha256,
   normalizeDomain,
   PRESET_LUDICROUS,
-} from '@turbopress/shared';
+} from '@wpinstant/shared';
 import { siteAuthMiddleware, saasUserAuthMiddleware } from '../middleware/auth.js';
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -21,7 +21,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
   const payload = HandshakeRequestSchema.parse(body);
 
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'user@turbopress.io';
+  const userEmail = c.get('userEmail') || 'user@wpinstant.dev';
   const domain = normalizeDomain(payload.domain);
 
   // Open-redirect hardening: the API key is appended to return_url, so the
@@ -65,7 +65,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       {
         success: false,
         code: 'SUBSCRIPTION_REQUIRED',
-        error: 'Active subscription required. Please purchase a TurboPress plan to connect your WordPress site.',
+        error: 'Active subscription required. Please purchase a WP Instant plan to connect your WordPress site.',
       },
       402
     );
@@ -94,7 +94,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       return c.json(
         {
           success: false,
-          error: `Site limit reached (${maxSites} max). Please upgrade your Turbopress subscription.`,
+          error: `Site limit reached (${maxSites} max). Please upgrade your WP Instant subscription.`,
         },
         403
       );
@@ -142,7 +142,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       {
         success: false,
         code: 'DOMAIN_OWNED_BY_OTHER_ACCOUNT',
-        error: 'This domain is already paired to a different TurboPress account. Contact support to transfer ownership.',
+        error: 'This domain is already paired to a different WP Instant account. Contact support to transfer ownership.',
       },
       409
     );
@@ -184,14 +184,14 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
   let callbackUrl = payload.return_url;
   try {
     const parsed = new URL(payload.return_url);
-    parsed.searchParams.set('turbopress_pair', '1');
+    parsed.searchParams.set('wp_instant_pair', '1');
     parsed.searchParams.set('state', payload.state);
     parsed.searchParams.set('api_key', apiKey);
     parsed.searchParams.set('site_id', activeSiteId);
     callbackUrl = parsed.toString();
   } catch {
     const sep = payload.return_url.includes('?') ? '&' : '?';
-    callbackUrl = `${payload.return_url}${sep}turbopress_pair=1&state=${encodeURIComponent(
+    callbackUrl = `${payload.return_url}${sep}wp_instant_pair=1&state=${encodeURIComponent(
       payload.state
     )}&api_key=${encodeURIComponent(apiKey)}&site_id=${encodeURIComponent(activeSiteId)}`;
   }
@@ -204,7 +204,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       apiKey,
       config: initialConfig,
       callback_url: callbackUrl,
-      message: 'Site successfully paired with Turbopress Edge Engine',
+      message: 'Site successfully paired with WP Instant Edge Engine',
     },
   });
 });
@@ -222,7 +222,7 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
   const site = c.get('site')!;
   const config = c.get('siteConfig')!;
   const wpVersion = c.req.header('X-WP-Version');
-  const pluginVersion = c.req.header('X-Turbopress-Version');
+  const pluginVersion = c.req.header('X-WP-Instant-Version');
 
   let callbackSecret: string | null = null;
   let siteUrl: string | null = null;
@@ -503,7 +503,7 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
  */
 authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'user@turbopress.io';
+  const userEmail = c.get('userEmail') || 'user@wpinstant.dev';
 
   const user = await c.env.DB.prepare(
     'SELECT * FROM users WHERE id = ?'

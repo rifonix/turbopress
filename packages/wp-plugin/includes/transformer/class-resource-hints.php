@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -72,7 +72,7 @@ class ResourceHints {
         // Scripts.
         $collect($html, '/<script\s+([^>]+)>/i', 'src', 4);
         // Fonts referenced by inline critical CSS (url(...) to woff2).
-        if (preg_match('/<style[^>]*id=[\'"]turbopress-critical-css[\'"][^>]*>([\s\S]*?)<\/style>/i', $html, $cssm)) {
+        if (preg_match('/<style[^>]*id=[\'"]wp-instant-critical-css[\'"][^>]*>([\s\S]*?)<\/style>/i', $html, $cssm)) {
             if (preg_match_all('/url\(\s*[\'"]?(https?:\/\/[^\'")\s]+)[\'"]?\s*\)/i', $cssm[1], $um)) {
                 foreach ($um[1] as $u) {
                     $host = strtolower((string) parse_url($u, PHP_URL_HOST));

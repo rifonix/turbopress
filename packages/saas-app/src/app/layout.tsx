@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
-import { turbopressClerkAppearance } from '@/components/auth/ClerkTheme';
+import { wpInstantClerkAppearance } from '@/components/auth/ClerkTheme';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TurboPress Engine · Zero-DNS WordPress Optimization SaaS',
+  title: 'WP Instant Engine · Zero-DNS WordPress Optimization SaaS',
   description:
     'High-Performance Zero-DNS WordPress Performance Platform. Automated Critical CSS, sub-15ms edge caching, 3-tier JavaScript deferral, and dynamic nonce micro-hydration on Cloudflare Workers.',
   icons: {
@@ -24,7 +24,7 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
-      appearance={turbopressClerkAppearance}
+      appearance={wpInstantClerkAppearance}
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
       signInFallbackRedirectUrl="/"

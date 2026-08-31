@@ -1,16 +1,16 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
 class Config {
-    public const OPTION_KEY = 'turbopress_config';
-    public const API_KEY_OPTION = 'turbopress_api_key';
-    public const SITE_ID_OPTION = 'turbopress_site_id';
-    public const API_URL_OPTION = 'turbopress_api_url';
-    public const CALLBACK_SECRET_OPTION = 'turbopress_callback_secret';
+    public const OPTION_KEY = 'wp_instant_config';
+    public const API_KEY_OPTION = 'wp_instant_api_key';
+    public const SITE_ID_OPTION = 'wp_instant_site_id';
+    public const API_URL_OPTION = 'wp_instant_api_url';
+    public const CALLBACK_SECRET_OPTION = 'wp_instant_callback_secret';
 
     /**
      * Structural config version. Bumped when defaults change in a way that
@@ -244,7 +244,7 @@ class Config {
     }
 
     public function get_api_url(): string {
-        return (string) get_option(self::API_URL_OPTION, TURBOPRESS_DEFAULT_API_BASE);
+        return (string) get_option(self::API_URL_OPTION, WP_INSTANT_DEFAULT_API_BASE);
     }
 
     public function is_connected(): bool {
@@ -277,8 +277,8 @@ class Config {
         // Exclusions ONLY affect interaction_delay mode (scripts that must
         // run even before first interaction: consent banners, payments).
         $interaction_exclusions = [
-            'turbopress-loader',
-            'turbopress-hydrator',
+            'wp-instant-loader',
+            'wp-instant-hydrator',
             'cookiebot',
             'complianz',
             'onetrust',
@@ -410,7 +410,7 @@ class Config {
             ],
             'deployment' => [
                 // Test Mode: fresh installs serve visitors UNOPTIMIZED while
-                // admins verify the optimized page via ?tp_preview=1, then
+                // admins verify the optimized page via ?wpins_preview=1, then
                 // hit Deploy. Existing sites are migrated to 'live'.
                 'status' => 'test',
                 // Safety net: automatically step down interaction_delay →

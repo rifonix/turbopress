@@ -3,7 +3,7 @@
 interface Env {
 	KV: KVNamespace;
 	ENVIRONMENT: "production";
-	SAAS_APP_URL: "https://app.turbopress.io";
+	SAAS_APP_URL: "https://app.wpinstant.dev";
 	ASSETS_BUCKET: R2Bucket;
 	DB: D1Database;
 	OPTIMIZATION_QUEUE: Queue;

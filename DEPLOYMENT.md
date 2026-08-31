@@ -1,4 +1,4 @@
-# 🚀 Turbopress Production Deployment Guide
+# 🚀 WP Instant Production Deployment Guide
 
 This guide outlines how to deploy the **Cloudflare Edge Pipeline**, **D1 Database**, **KV Cache**, **R2 Storage**, and **SaaS Web App**.
 
@@ -8,31 +8,31 @@ This guide outlines how to deploy the **Cloudflare Edge Pipeline**, **D1 Databas
 
 ### A. Create Cloudflare D1 Database
 ```bash
-npx wrangler d1 create turbopress-db
+npx wrangler d1 create wp-instant-db
 ```
 Update the `database_id` in `packages/edge-api/wrangler.jsonc`.
 
 ### B. Run D1 Database Migrations
 ```bash
 cd packages/edge-api
-npx wrangler d1 migrations apply turbopress-db --remote
+npx wrangler d1 migrations apply wp-instant-db --remote
 ```
 
 ### C. Create Cloudflare KV Namespace
 ```bash
-npx wrangler kv:namespace create turbopress-kv
+npx wrangler kv:namespace create wp-instant-kv
 ```
 Update the `kv_namespaces` binding `id` in `packages/edge-api/wrangler.jsonc`.
 
 ### D. Create Cloudflare R2 Asset Bucket
 ```bash
-npx wrangler r2 bucket create turbopress-assets
+npx wrangler r2 bucket create wp-instant-assets
 ```
 
 ### E. Create Cloudflare Queue
 ```bash
-npx wrangler queues create turbopress-optimization-queue
-npx wrangler queues create turbopress-dlq
+npx wrangler queues create wp-instant-optimization-queue
+npx wrangler queues create wp-instant-dlq
 ```
 
 ---
@@ -65,7 +65,7 @@ npx wrangler deploy
 
 1. Log into your **Polar.sh Dashboard**.
 2. Navigate to **Settings → Webhooks → Add Webhook**.
-3. Set the Webhook URL: `https://turbopress.webaccessibility.workers.dev/api/v1/billing/polar-webhook`
+3. Set the Webhook URL: `https://api.wpinstant.dev/api/v1/billing/polar-webhook`
 4. Subscribe to the following events:
    - `subscription.created`
    - `subscription.updated`
@@ -81,7 +81,7 @@ npx wrangler deploy
 1. Compress the plugin directory:
    ```bash
    cd packages
-   zip -r turbopress-optimizer.zip wp-plugin/
+   zip -r wp-instant.zip wp-plugin/
    ```
-2. Distribute `turbopress-optimizer.zip` to WordPress administrators.
+2. Distribute `wp-instant.zip` to WordPress administrators.
 3. Install via **WordPress Admin → Plugins → Add New → Upload Plugin**.

@@ -246,7 +246,7 @@ async function resolveProductFromCatalog(
  */
 billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'customer@turbopress.io';
+  const userEmail = c.get('userEmail') || 'customer@wpinstant.dev';
 
   const subscription = await c.env.DB.prepare(
     'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
@@ -352,11 +352,11 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const candidateEmail = (bodyEmail || authUserEmail || '').trim().toLowerCase();
   const isValidRealEmail =
     candidateEmail.includes('@') &&
-    !candidateEmail.endsWith('@users.turbopress.io') &&
+    !candidateEmail.endsWith('@users.wpinstant.dev') &&
     !candidateEmail.endsWith('@user.local') &&
-    !candidateEmail.includes('turbopress.internal');
+    !candidateEmail.includes('wp-instant.internal');
 
-  const saasUrl = c.env.SAAS_APP_URL || 'https://turbopress.webaccessibility.workers.dev';
+  const saasUrl = c.env.SAAS_APP_URL || 'https://api.wpinstant.dev';
   const successUrl = returnTo
     ? `${saasUrl}${returnTo.startsWith('/') ? returnTo : `/${returnTo}`}${
         returnTo.includes('?') ? '&' : '?'
@@ -370,7 +370,7 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
       customerExternalId: userId,
       metadata: {
         userId,
-        source: 'turbopress_saas_checkout',
+        source: 'wp_instant_saas_checkout',
       },
     };
 

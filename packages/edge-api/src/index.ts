@@ -28,7 +28,7 @@ app.onError(errorHandler);
 app.get('/health', (c) => {
   return c.json({
     status: 'ok',
-    service: 'Turbopress Edge Engine API',
+    service: 'WP Instant Edge Engine API',
     timestamp: Date.now(),
     environment: c.env.ENVIRONMENT || 'production',
   });

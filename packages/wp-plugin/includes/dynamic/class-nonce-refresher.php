@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -11,7 +11,7 @@ class NonceRefresher {
     }
 
     public function register_routes(): void {
-        register_rest_route('turbopress/v1', '/nonces', [
+        register_rest_route('wp-instant/v1', '/nonces', [
             'methods' => 'POST',
             'callback' => [$this, 'refresh_nonces'],
             'permission_callback' => '__return_true',

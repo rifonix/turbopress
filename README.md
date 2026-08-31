@@ -1,13 +1,13 @@
-# ⚡ Turbopress (SpeedForge Engine)
+# ⚡ WP Instant (SpeedForge Engine)
 > **High-Performance Zero-DNS WordPress Optimization SaaS & Client Engine**
 
-Turbopress is a modern, fault-proof, zero-DNS WordPress performance optimization platform that automates **95+ Mobile PageSpeed / Core Web Vitals** scores across any WordPress theme and plugin setup.
+WP Instant is a modern, fault-proof, zero-DNS WordPress performance optimization platform that automates **95+ Mobile PageSpeed / Core Web Vitals** scores across any WordPress theme and plugin setup.
 
 ---
 
 ## 🏛️ System Architecture
 
-Turbopress consists of three primary tiers:
+WP Instant consists of three primary tiers:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
@@ -51,11 +51,11 @@ The edge API worker runs on Cloudflare Workers with native bindings provisioned 
 
 | Resource | Binding Name | Cloudflare Target / ID | Purpose |
 |---|---|---|---|
-| **D1 SQL Database** | `DB` | `turbopress-db` (`b18efb43-46d8-4273-8fe8-4a82d64238ef`) | Users, Subscriptions, Sites, and Jobs relational store |
-| **KV Namespace** | `KV` | `turbopress-kv` (`e4d1d13005314aebbe15c5606b7ac23b`) | Sub-3ms edge authorization & job status fast-path |
-| **R2 Object Storage** | `ASSETS_BUCKET` | `turbopress-assets` | Zero-egress storage for generated Critical CSS & media assets |
-| **Queue Producer/Consumer**| `OPTIMIZATION_QUEUE` | `turbopress-optimization-queue` | Background batch dispatch for Chromium Puppeteer tasks |
-| **Dead-Letter Queue** | `DLQ` | `turbopress-dlq` | Fault-tolerant retry buffer for failed optimization jobs |
+| **D1 SQL Database** | `DB` | `wp-instant-db` (`b18efb43-46d8-4273-8fe8-4a82d64238ef`) | Users, Subscriptions, Sites, and Jobs relational store |
+| **KV Namespace** | `KV` | `wp-instant-kv` (`e4d1d13005314aebbe15c5606b7ac23b`) | Sub-3ms edge authorization & job status fast-path |
+| **R2 Object Storage** | `ASSETS_BUCKET` | `wp-instant-assets` | Zero-egress storage for generated Critical CSS & media assets |
+| **Queue Producer/Consumer**| `OPTIMIZATION_QUEUE` | `wp-instant-optimization-queue` | Background batch dispatch for Chromium Puppeteer tasks |
+| **Dead-Letter Queue** | `DLQ` | `wp-instant-dlq` | Fault-tolerant retry buffer for failed optimization jobs |
 | **Browser Rendering** | `BROWSER` | Cloudflare Browser Rendering | Headless Chromium instance pool for DOM & CSS analysis |
 
 ---
@@ -84,7 +84,7 @@ Subscriptions, checkout flows, and customer portals are powered by the official 
 ### 1. Deterministic 3-Tier Script Delayer & jQuery Queue
 * **Tier 0 (Whitelisted/Instant):** Elementor runtime, Cookie Consent banners (Complianz, Cookiebot, OneTrust), and core layout scripts load immediately without delay.
 * **Tier 1 (Defer):** Asynchronous non-blocking loading via `<script defer>`.
-* **Tier 2 (Interaction-Delayed):** Injects a `<1.2KB` standalone micro-loader (`turbopress-loader.min.js`) that stubs `$` and `jQuery()`, queues inline function calls, preserves original DOM execution order (`data-tp-order`), and triggers on user interaction (`scroll`, `click`, `mousemove`, `touchstart`, `keydown`) or a configurable safety timer (3.5s).
+* **Tier 2 (Interaction-Delayed):** Injects a `<1.2KB` standalone micro-loader (`wp-instant-loader.min.js`) that stubs `$` and `jQuery()`, queues inline function calls, preserves original DOM execution order (`data-wpins-order`), and triggers on user interaction (`scroll`, `click`, `mousemove`, `touchstart`, `keydown`) or a configurable safety timer (3.5s).
 
 ### 2. AST-Enriched Critical CSS Extraction Pipeline
 * Cloudflare Browser Rendering (Puppeteer) inspects DOM coverage and pairs it with AST post-processing.
@@ -93,7 +93,7 @@ Subscriptions, checkout flows, and customer portals are powered by the official 
 
 ### 3. Dynamic Nonce & Cart Micro-Hydration
 * Solves the notorious WordPress caching issue where form nonces expire after 12–24 hours (`403 Forbidden` / `-1` errors).
-* Asynchronous `<800B` hydrator (`hydrator.min.js`) hits a specialized zero-bootstrap REST route (`/wp-json/turbopress/v1/nonces`) to refresh form nonces and update WooCommerce cart badges in `<30ms`.
+* Asynchronous `<800B` hydrator (`hydrator.min.js`) hits a specialized zero-bootstrap REST route (`/wp-json/wp-instant/v1/nonces`) to refresh form nonces and update WooCommerce cart badges in `<30ms`.
 
 ### 4. W3C Speculation Rules API Prerendering
 * Injects native browser speculation rules for instantaneous `<50ms` link navigation on hover.
@@ -143,10 +143,10 @@ npx wrangler deploy
 ```
 
 ### C. Install WordPress Client Plugin
-1. Copy `packages/wp-plugin` or download `turbopress-optimizer.zip`.
+1. Copy `packages/wp-plugin` or download `wp-instant.zip`.
 2. Upload to your WordPress site under **Plugins → Add New → Upload Plugin**.
-3. Activate the plugin and navigate to **Turbopress** in the sidebar.
-4. Click **1-Click Connect to Turbopress** to pair with the Edge Engine!
+3. Activate the plugin and navigate to **WP Instant** in the sidebar.
+4. Click **1-Click Connect to WP Instant** to pair with the Edge Engine!
 
 ---
 
@@ -166,4 +166,4 @@ npx wrangler deploy
 ---
 
 ## 🛡️ License
-Turbopress is licensed under GPLv2 or later for the WordPress plugin, and MIT for the edge and shared packages.
+WP Instant is licensed under GPLv2 or later for the WordPress plugin, and MIT for the edge and shared packages.

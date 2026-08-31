@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -8,10 +8,10 @@ if (!defined('ABSPATH')) {
 /**
  * Admin experience: two pages.
  *
- *  - Dashboard (wp-admin/admin.php?page=turbopress): the full SaaS control
+ *  - Dashboard (wp-admin/admin.php?page=wp-instant): the full SaaS control
  *    panel, embedded full-width via a signed 1h HMAC token. Requires a
  *    connection; otherwise visitors are bounced to the Connect page.
- *  - Connect (wp-admin/admin.php?page=turbopress-connect): local page. When
+ *  - Connect (wp-admin/admin.php?page=wp-instant-connect): local page. When
  *    disconnected it is the onboarding screen; when connected it shows the
  *    connection details and hosts the Disconnect action.
  *
@@ -25,9 +25,9 @@ class AdminPage {
     private CacheManager $cache_manager;
     private HealthCheck $health_check;
 
-    public const PAGE_DASHBOARD = 'turbopress';
-    public const PAGE_CONNECT = 'turbopress-connect';
-    public const ACTIVATION_REDIRECT_OPTION = 'turbopress_do_activation_redirect';
+    public const PAGE_DASHBOARD = 'wp-instant';
+    public const PAGE_CONNECT = 'wp-instant-connect';
+    public const ACTIVATION_REDIRECT_OPTION = 'wp_instant_do_activation_redirect';
 
     public static function get_instance(): AdminPage {
         if (self::$instance === null) {
@@ -57,10 +57,10 @@ class AdminPage {
                 wp_enqueue_style('dashicons');
             }
         });
-        add_action('wp_ajax_turbopress_purge_cache', [$this, 'ajax_purge_cache']);
-        add_action('wp_ajax_turbopress_warm_cache', [$this, 'ajax_warm_cache']);
-        add_action('wp_ajax_turbopress_deploy', [$this, 'ajax_deploy']);
-        add_action('wp_ajax_turbopress_disconnect', [$this, 'ajax_disconnect']);
+        add_action('wp_ajax_wp_instant_purge_cache', [$this, 'ajax_purge_cache']);
+        add_action('wp_ajax_wp_instant_warm_cache', [$this, 'ajax_warm_cache']);
+        add_action('wp_ajax_wp_instant_deploy', [$this, 'ajax_deploy']);
+        add_action('wp_ajax_wp_instant_disconnect', [$this, 'ajax_disconnect']);
     }
 
     /* ------------------------------------------------------------------ */
@@ -69,8 +69,8 @@ class AdminPage {
 
     public function register_menu(): void {
         add_menu_page(
-            'Turbopress',
-            'Turbopress',
+            'WP Instant',
+            'WP Instant',
             'manage_options',
             self::PAGE_DASHBOARD,
             [$this, 'render_dashboard_page'],
@@ -138,18 +138,18 @@ class AdminPage {
     }
 
     public function enqueue_assets(string $hook): void {
-        // Menu titles are 'Turbopress' (capital T) — the top-level hook is
-        // `toplevel_page_Turbopress`, so this must be case-insensitive or
+        // Menu titles are 'WP Instant' (capital T) — the top-level hook is
+        // `toplevel_page_WP Instant`, so this must be case-insensitive or
         // the stylesheet silently never loads on the dashboard page.
-        if (stripos($hook, 'turbopress') === false) {
+        if (stripos($hook, 'wp-instant') === false) {
             return;
         }
 
         wp_enqueue_style(
-            'turbopress-admin-css',
-            TURBOPRESS_URL . 'assets/css/admin-dashboard.css',
+            'wp-instant-admin-css',
+            WP_INSTANT_URL . 'assets/css/admin-dashboard.css',
             [],
-            TURBOPRESS_VERSION
+            WP_INSTANT_VERSION
         );
 
         // Dashicons for the icon-based UI (usually already loaded in admin).
@@ -162,28 +162,28 @@ class AdminPage {
 
     private function render_toast_shell(): void {
         ?>
-        <div id="tp-toast" class="tp-toast" role="status" aria-live="polite"></div>
+        <div id="wpins-toast" class="wpins-toast" role="status" aria-live="polite"></div>
         <script>
-        window.tpToast = function(message, kind) {
-            var el = document.getElementById('tp-toast');
+        window.wpinsToast = function(message, kind) {
+            var el = document.getElementById('wpins-toast');
             if (!el) return;
             el.textContent = message;
-            el.className = 'tp-toast tp-toast--' + (kind || 'info') + ' tp-toast--show';
+            el.className = 'wpins-toast wpins-toast--' + (kind || 'info') + ' wpins-toast--show';
             clearTimeout(window.__tpToastTimer);
             window.__tpToastTimer = setTimeout(function() {
-                el.className = 'tp-toast';
+                el.className = 'wpins-toast';
             }, 4200);
         };
 
         document.addEventListener('DOMContentLoaded', function() {
             var params = new URLSearchParams(window.location.search);
 
-            // Toasts queued via redirect (?tp_toast=...).
-            var queued = params.get('tp_toast');
+            // Toasts queued via redirect (?wpins_toast=...).
+            var queued = params.get('wpins_toast');
             if (queued === 'warm_test') {
-                window.tpToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
+                window.wpinsToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
             } else if (queued === 'warm_ok') {
-                window.tpToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
+                window.wpinsToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
             }
 
             // Auto-warm trigger (?warm=1 from the admin bar) — fires the
@@ -191,20 +191,20 @@ class AdminPage {
             // the embed panel owns the UI now).
             if (params.get('warm') === '1') {
                 var d = new FormData();
-                d.append('action', 'turbopress_warm_cache');
-                d.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
+                d.append('action', 'wp_instant_warm_cache');
+                d.append('nonce', '<?php echo wp_create_nonce('wp_instant_admin'); ?>');
                 fetch(ajaxurl, { method: 'POST', body: d })
                     .then(function(r) { return r.json(); })
                     .then(function(res) {
                         if (res.success) {
-                            window.tpToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
+                            window.wpinsToast('Warm cache started — pages are being optimized and cached in the background.', 'ok');
                         } else if (res.data === 'test_mode') {
-                            window.tpToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
+                            window.wpinsToast('Warm Cache is disabled in Test Mode. Deploy to visitors first, then warm the cache.', 'warn');
                         } else {
-                            window.tpToast('Warm cache failed to start.', 'err');
+                            window.wpinsToast('Warm cache failed to start.', 'err');
                         }
                     })
-                    .catch(function() { window.tpToast('Warm cache request failed.', 'err'); });
+                    .catch(function() { window.wpinsToast('Warm cache request failed.', 'err'); });
             }
         });
         </script>
@@ -231,17 +231,17 @@ class AdminPage {
             . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
 
         ?>
-        <div class="wrap turbopress-admin-wrap tp-dashboard-wrap">
-            <div class="tp-embed-frame">
+        <div class="wrap wp-instant-admin-wrap wpins-dashboard-wrap">
+            <div class="wpins-embed-frame">
                 <iframe
                     src="<?php echo esc_url($embed_url); ?>"
-                    title="Turbopress Control Panel"
+                    title="WP Instant Control Panel"
                 ></iframe>
             </div>
 
-            <p class="tp-embed-footnote">
+            <p class="wpins-embed-footnote">
                 <?php if (!empty($_GET['connected'])): ?>
-                    <span class="tp-notice-ok"><span class="dashicons dashicons-yes-alt"></span> Connected — optimization started in the background.</span>
+                    <span class="wpins-notice-ok"><span class="dashicons dashicons-yes-alt"></span> Connected — optimization started in the background.</span>
                 <?php endif; ?>
                 Every optimization control for this site lives in the panel above — presets, critical CSS,
                 JavaScript engine, media offload, fonts, deployment. Changes apply instantly through the
@@ -259,7 +259,7 @@ class AdminPage {
         // added/dismissed so the save bar is always pinned to the visible
         // page bottom.
         (function () {
-            var frame = document.querySelector('.tp-embed-frame');
+            var frame = document.querySelector('.wpins-embed-frame');
             if (!frame) { return; }
             var last = 0;
             var fit = function () {
@@ -304,16 +304,16 @@ class AdminPage {
             }
 
             add_meta_box(
-                'turbopress_page_optimization',
-                'Turbopress Optimization',
+                'wp_instant_page_optimization',
+                'WP Instant Optimization',
                 [$this, 'render_page_optimization_metabox'],
                 $post_type->name,
                 'side',
                 'high'
             );
             add_meta_box(
-                'turbopress_page_assets',
-                'Turbopress Asset Exclusions',
+                'wp_instant_page_assets',
+                'WP Instant Asset Exclusions',
                 [$this, 'render_plugin_assets_metabox'],
                 $post_type->name,
                 'side',
@@ -368,7 +368,7 @@ class AdminPage {
     }
 
     public function render_plugin_assets_metabox(\WP_Post $post): void {
-        wp_nonce_field('turbopress_page_assets', 'turbopress_page_assets_nonce');
+        wp_nonce_field('wp_instant_page_assets', 'wp_instant_page_assets_nonce');
 
         $current = $this->get_post_asset_rules($post->ID);
         $pto = get_post_type_object($post->post_type);
@@ -387,7 +387,7 @@ class AdminPage {
                 <?php foreach ($plugins as $slug => $name): ?>
                     <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:0 0 7px;">
                         <input type="checkbox"
-                            name="turbopress_page_plugins[]"
+                            name="wp_instant_page_plugins[]"
                             value="<?php echo esc_attr($slug); ?>"
                             <?php checked(in_array($slug, $current['plugins'], true)); ?> />
                         <span><?php echo esc_html($name); ?></span>
@@ -402,7 +402,7 @@ class AdminPage {
                 <?php foreach ($themes as $slug => $name): ?>
                     <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:0 0 7px;">
                         <input type="checkbox"
-                            name="turbopress_page_themes[]"
+                            name="wp_instant_page_themes[]"
                             value="<?php echo esc_attr($slug); ?>"
                             <?php checked(in_array($slug, $current['themes'], true)); ?> />
                         <span><?php echo esc_html($name); ?> <em style="color:#a1a1aa;">(theme)</em></span>
@@ -411,10 +411,10 @@ class AdminPage {
             </div>
         <?php endif; ?>
 
-        <label for="turbopress-page-assets" style="display:block;font-size:12px;font-weight:600;margin:12px 0 4px;">
+        <label for="wp-instant-page-assets" style="display:block;font-size:12px;font-weight:600;margin:12px 0 4px;">
             Specific CSS/JS asset matches
         </label>
-        <textarea id="turbopress-page-assets" name="turbopress_page_assets" rows="5" spellcheck="false"
+        <textarea id="wp-instant-page-assets" name="wp_instant_page_assets" rows="5" spellcheck="false"
             placeholder="swiper.js\n/wp-content/plugins/example/assets/\nregex:/leaflet|mapbox/i"
             style="width:100%;font:11px/1.4 monospace;resize:vertical;"><?php echo esc_textarea(implode("\n", $current['assets'])); ?></textarea>
         <p class="description" style="margin:5px 0 0;">
@@ -423,7 +423,7 @@ class AdminPage {
         </p>
         <p class="description" style="margin-top:8px;">
             For reusable rules across this post type or “All pages”, use the
-            <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::PAGE_DASHBOARD)); ?>">Turbopress dashboard</a>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::PAGE_DASHBOARD)); ?>">WP Instant dashboard</a>
             Plugin Asset Control card.
         </p>
         <?php
@@ -437,20 +437,20 @@ class AdminPage {
         if (!current_user_can('manage_options')
             || wp_is_post_revision($post_id)
             || wp_is_post_autosave($post_id)
-            || !isset($_POST['turbopress_page_assets_nonce'])
-            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['turbopress_page_assets_nonce'])), 'turbopress_page_assets')) {
+            || !isset($_POST['wp_instant_page_assets_nonce'])
+            || !wp_verify_nonce(sanitize_key(wp_unslash($_POST['wp_instant_page_assets_nonce'])), 'wp_instant_page_assets')) {
             return;
         }
 
         $plugins = array_values(array_unique(array_filter(
-            array_map('sanitize_key', (array) ($_POST['turbopress_page_plugins'] ?? [])),
-            static fn (string $s): bool => $s !== '' && $s !== 'turbopress'
+            array_map('sanitize_key', (array) ($_POST['wp_instant_page_plugins'] ?? [])),
+            static fn (string $s): bool => $s !== '' && $s !== 'wp-instant'
         )));
         $themes = array_values(array_unique(array_filter(
-            array_map('sanitize_key', (array) ($_POST['turbopress_page_themes'] ?? [])),
+            array_map('sanitize_key', (array) ($_POST['wp_instant_page_themes'] ?? [])),
             static fn (string $s): bool => $s !== ''
         )));
-        $assets = self::sanitize_asset_patterns(wp_unslash((string) ($_POST['turbopress_page_assets'] ?? '')));
+        $assets = self::sanitize_asset_patterns(wp_unslash((string) ($_POST['wp_instant_page_assets'] ?? '')));
 
         if ($plugins === [] && $themes === [] && $assets === []) {
             delete_post_meta($post_id, PluginAssets::POST_META_KEY);
@@ -516,14 +516,14 @@ class AdminPage {
             return ['key' => 'pending', 'label' => 'Needs a permalink', 'post_status' => $post_status, 'css' => 'Waiting', 'featured_image' => $featured];
         }
 
-        $jobs = get_transient('tp_jobs_' . md5($url));
+        $jobs = get_transient('wpins_jobs_' . md5($url));
         if (is_array($jobs) && $jobs !== []) {
             return ['key' => 'optimizing', 'label' => 'Optimization in progress', 'post_status' => $post_status, 'css' => 'Generating', 'featured_image' => $featured];
         }
 
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $path = (string) (parse_url($url, PHP_URL_PATH) ?: '/');
-        $css_dir = TURBOPRESS_CACHE_DIR . '/' . md5($host) . '/css';
+        $css_dir = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css';
         $ready = false;
         foreach (['mobile', 'desktop'] as $viewport) {
             if (is_readable($css_dir . '/' . md5($path . '_' . $viewport) . '.css')) {
@@ -549,7 +549,7 @@ class AdminPage {
         if (function_exists('wp_get_active_and_valid_plugins')) {
             foreach (wp_get_active_and_valid_plugins() as $file) {
                 $slug = basename(dirname($file));
-                if ($slug === 'turbopress') {
+                if ($slug === 'wp-instant') {
                     continue;
                 }
                 $data = get_file_data($file, ['Name' => 'Plugin Name']);
@@ -594,18 +594,18 @@ class AdminPage {
 
         $connect_url = Handshake::generate_connect_url();
         ?>
-        <div class="wrap turbopress-admin-wrap tp-connect-wrap">
-            <div class="tp-connect-card">
-                <div class="tp-connect-head">
-                    <span class="dashicons dashicons-performance tp-connect-logo"></span>
-                    <h1>Connect to Turbopress</h1>
+        <div class="wrap wp-instant-admin-wrap wpins-connect-wrap">
+            <div class="wpins-connect-card">
+                <div class="wpins-connect-head">
+                    <span class="dashicons dashicons-performance wpins-connect-logo"></span>
+                    <h1>Connect to WP Instant</h1>
                     <p>
-                        Link this site to the Turbopress edge to unlock automated critical CSS, JavaScript
+                        Link this site to the WP Instant edge to unlock automated critical CSS, JavaScript
                         optimization, R2 media delivery and the cloud control panel.
                     </p>
                 </div>
 
-                <ul class="tp-connect-benefits">
+                <ul class="wpins-connect-benefits">
                     <li>
                         <span class="dashicons dashicons-dashboard"></span>
                         <div><strong>Cloud control panel</strong><span>Every optimization setting, job status and deploy control — embedded right in your dashboard.</span></div>
@@ -624,17 +624,17 @@ class AdminPage {
                     </li>
                 </ul>
 
-                <div class="tp-connect-cta">
-                    <a href="<?php echo esc_url($connect_url); ?>" class="tp-btn tp-btn--primary tp-btn--hero">
+                <div class="wpins-connect-cta">
+                    <a href="<?php echo esc_url($connect_url); ?>" class="wpins-btn wpins-btn--primary wpins-btn--hero">
                         <span class="dashicons dashicons-admin-links"></span> Connect this site
                     </a>
-                    <p class="tp-connect-note">
+                    <p class="wpins-connect-note">
                         One click — you will be returned here automatically once the handshake completes.
-                        A free Turbopress account is created on first connect.
+                        A free WP Instant account is created on first connect.
                     </p>
                 </div>
 
-                <div class="tp-connect-secure">
+                <div class="wpins-connect-secure">
                     <span class="dashicons dashicons-lock"></span>
                     The connection uses a scoped site key and signed callbacks only — no credentials are
                     stored in the browser.
@@ -651,29 +651,29 @@ class AdminPage {
         $is_test = $config->get('deployment.status', 'live') === 'test';
 
         // Cheap connectivity probe, cached by HealthCheck transients.
-        $verify = get_transient('turbopress_health_edge');
+        $verify = get_transient('wp_instant_health_edge');
         $edge_ok = is_array($verify) ? (bool) ($verify['ok'] ?? false) : null;
         ?>
-        <div class="wrap turbopress-admin-wrap tp-connect-wrap">
-            <div class="tp-connect-card tp-connect-card--wide">
-                <div class="tp-connect-head">
-                    <span class="dashicons dashicons-yes-alt tp-connected-logo"></span>
+        <div class="wrap wp-instant-admin-wrap wpins-connect-wrap">
+            <div class="wpins-connect-card wpins-connect-card--wide">
+                <div class="wpins-connect-head">
+                    <span class="dashicons dashicons-yes-alt wpins-connected-logo"></span>
                     <h1>Site Connected</h1>
-                    <p>This WordPress site is linked to the Turbopress edge. All controls live in the dashboard.</p>
+                    <p>This WordPress site is linked to the WP Instant edge. All controls live in the dashboard.</p>
                 </div>
 
-                <table class="tp-connection-table">
+                <table class="wpins-connection-table">
                     <tbody>
                         <tr>
                             <th>Status</th>
                             <td>
-                                <span class="tp-pill <?php echo $is_test ? 'tp-pill--test' : 'tp-pill--live'; ?>">
+                                <span class="wpins-pill <?php echo $is_test ? 'wpins-pill--test' : 'wpins-pill--live'; ?>">
                                     <?php echo $is_test ? 'Test Mode' : 'Live'; ?>
                                 </span>
                                 <?php if ($edge_ok === true): ?>
-                                    <span class="tp-pill tp-pill--live">Edge reachable</span>
+                                    <span class="wpins-pill wpins-pill--live">Edge reachable</span>
                                 <?php elseif ($edge_ok === false): ?>
-                                    <span class="tp-pill tp-pill--warn">Edge unreachable</span>
+                                    <span class="wpins-pill wpins-pill--warn">Edge unreachable</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -691,22 +691,22 @@ class AdminPage {
                         </tr>
                         <tr>
                             <th>Plugin version</th>
-                            <td><code>v<?php echo esc_html(TURBOPRESS_VERSION); ?></code></td>
+                            <td><code>v<?php echo esc_html(WP_INSTANT_VERSION); ?></code></td>
                         </tr>
                     </tbody>
                 </table>
 
-                <div class="tp-connect-cta tp-connect-cta--row">
+                <div class="wpins-connect-cta wpins-connect-cta--row">
                     <a href="<?php echo esc_url(add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php'))); ?>"
-                       class="tp-btn tp-btn--primary">
+                       class="wpins-btn wpins-btn--primary">
                         <span class="dashicons dashicons-dashboard"></span> Go to Dashboard
                     </a>
-                    <button type="button" id="tp-disconnect-btn" class="tp-btn tp-btn--danger">
+                    <button type="button" id="wpins-disconnect-btn" class="wpins-btn wpins-btn--danger">
                         <span class="dashicons dashicons-editor-unlink"></span> Disconnect
                     </button>
                 </div>
 
-                <div class="tp-connect-secure">
+                <div class="wpins-connect-secure">
                     <span class="dashicons dashicons-lock"></span>
                     Disconnecting keeps the site working — optimization simply stops until you reconnect.
                     Deleting the plugin removes all connection keys automatically.
@@ -718,22 +718,22 @@ class AdminPage {
 
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-            var disconnectBtn = document.getElementById('tp-disconnect-btn');
+            var disconnectBtn = document.getElementById('wpins-disconnect-btn');
             if (!disconnectBtn) return;
 
             disconnectBtn.addEventListener('click', function() {
-                if (!confirm('Disconnect from Turbopress? The site keeps working; optimization stops until you reconnect.')) {
+                if (!confirm('Disconnect from WP Instant? The site keeps working; optimization stops until you reconnect.')) {
                     return;
                 }
                 disconnectBtn.disabled = true;
                 var data = new FormData();
-                data.append('action', 'turbopress_disconnect');
-                data.append('nonce', '<?php echo wp_create_nonce('turbopress_admin'); ?>');
+                data.append('action', 'wp_instant_disconnect');
+                data.append('nonce', '<?php echo wp_create_nonce('wp_instant_admin'); ?>');
 
                 fetch(ajaxurl, { method: 'POST', body: data })
                     .then(function(r) { return r.json(); })
                     .then(function() { window.location.reload(); })
-                    .catch(function() { disconnectBtn.disabled = false; window.tpToast('Disconnect failed.', 'err'); });
+                    .catch(function() { disconnectBtn.disabled = false; window.wpinsToast('Disconnect failed.', 'err'); });
             });
         });
         </script>
@@ -750,8 +750,8 @@ class AdminPage {
         }
 
         $wp_admin_bar->add_node([
-            'id' => 'turbopress',
-            'title' => '<span class="ab-icon dashicons dashicons-performance"></span> Turbopress',
+            'id' => 'wp-instant',
+            'title' => '<span class="ab-icon dashicons dashicons-performance"></span> WP Instant',
             'href' => add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php')),
         ]);
 
@@ -760,33 +760,33 @@ class AdminPage {
             $current = home_url(esc_url_raw($_SERVER['REQUEST_URI'] ?? '/'));
 
             $wp_admin_bar->add_node([
-                'id' => 'turbopress-purge-page',
-                'parent' => 'turbopress',
+                'id' => 'wp-instant-purge-page',
+                'parent' => 'wp-instant',
                 'title' => '<span class="dashicons dashicons-trash"></span> Purge this page',
                 'href' => wp_nonce_url(
-                    add_query_arg(['turbopress_action' => 'purge_page', 'tp_url' => $current], $current),
-                    'turbopress_bar'
+                    add_query_arg(['wp_instant_action' => 'purge_page', 'wpins_url' => $current], $current),
+                    'wp_instant_bar'
                 ),
             ]);
         }
 
         $wp_admin_bar->add_node([
-            'id' => 'turbopress-purge-all',
-            'parent' => 'turbopress',
+            'id' => 'wp-instant-purge-all',
+            'parent' => 'wp-instant',
             'title' => '<span class="dashicons dashicons-editor-removeformatting"></span> Purge all caches',
             'href' => wp_nonce_url(
-                add_query_arg(['turbopress_action' => 'purge_all', 'tp_url' => home_url('/')], home_url('/')),
-                'turbopress_bar'
+                add_query_arg(['wp_instant_action' => 'purge_all', 'wpins_url' => home_url('/')], home_url('/')),
+                'wp_instant_bar'
             ),
         ]);
 
         $wp_admin_bar->add_node([
-            'id' => 'turbopress-warm-cache',
-            'parent' => 'turbopress',
+            'id' => 'wp-instant-warm-cache',
+            'parent' => 'wp-instant',
             'title' => '<span class="dashicons dashicons-update"></span> Warm cache',
             'href' => wp_nonce_url(
-                add_query_arg(['turbopress_action' => 'warm_cache', 'tp_url' => home_url('/')], home_url('/')),
-                'turbopress_bar'
+                add_query_arg(['wp_instant_action' => 'warm_cache', 'wpins_url' => home_url('/')], home_url('/')),
+                'wp_instant_bar'
             ),
         ]);
     }
@@ -796,18 +796,18 @@ class AdminPage {
      * redirect back to the page the user was viewing.
      */
     public function handle_admin_bar_action(): void {
-        $action = isset($_GET['turbopress_action']) ? sanitize_key($_GET['turbopress_action']) : '';
+        $action = isset($_GET['wp_instant_action']) ? sanitize_key($_GET['wp_instant_action']) : '';
         if (!in_array($action, ['purge_page', 'purge_all', 'warm_cache'], true)) {
             return;
         }
 
-        if (!current_user_can('manage_options') || !check_admin_referer('turbopress_bar')) {
+        if (!current_user_can('manage_options') || !check_admin_referer('wp_instant_bar')) {
             return;
         }
 
-        $url = isset($_GET['tp_url']) ? esc_url_raw(wp_unslash($_GET['tp_url'])) : '';
+        $url = isset($_GET['wpins_url']) ? esc_url_raw(wp_unslash($_GET['wpins_url'])) : '';
         $back = wp_get_referer() ?: home_url('/');
-        $back = remove_query_arg(['turbopress_action', '_wpnonce', 'tp_url'], $back);
+        $back = remove_query_arg(['wp_instant_action', '_wpnonce', 'wpins_url'], $back);
 
         switch ($action) {
             case 'purge_page':
@@ -830,21 +830,21 @@ class AdminPage {
                 if ($config->get('deployment.status', 'live') === 'test') {
                     // Surface why nothing happened as a toast on the dashboard.
                     wp_safe_redirect(add_query_arg(
-                        ['page' => self::PAGE_DASHBOARD, 'tp_toast' => 'warm_test'],
+                        ['page' => self::PAGE_DASHBOARD, 'wpins_toast' => 'warm_test'],
                         admin_url('admin.php')
                     ));
                     exit;
                 }
                 $home = home_url('/');
                 if ($config->is_connected()) {
-                    wp_schedule_single_event(time(), 'turbopress_async_optimize', [$home, 1]);
-                    wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+                    wp_schedule_single_event(time(), 'wp_instant_async_optimize', [$home, 1]);
+                    wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
                     spawn_cron();
                 }
                 wp_remote_get($home, [
                     'timeout' => 5,
                     'blocking' => false,
-                    'headers' => ['X-Turbopress-Revalidate' => '1', 'Cache-Control' => 'no-cache'],
+                    'headers' => ['X-WP-Instant-Revalidate' => '1', 'Cache-Control' => 'no-cache'],
                 ]);
                 break;
         }
@@ -858,7 +858,7 @@ class AdminPage {
     /* ------------------------------------------------------------------ */
 
     public function ajax_purge_cache(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
+        check_ajax_referer('wp_instant_admin', 'nonce');
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
@@ -874,7 +874,7 @@ class AdminPage {
      * the caller shows the explanatory toast.
      */
     public function ajax_warm_cache(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
+        check_ajax_referer('wp_instant_admin', 'nonce');
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
@@ -887,8 +887,8 @@ class AdminPage {
 
         $home = home_url('/');
         if ($config->is_connected()) {
-            wp_schedule_single_event(time(), 'turbopress_async_optimize', [$home, 1]);
-            wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+            wp_schedule_single_event(time(), 'wp_instant_async_optimize', [$home, 1]);
+            wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
             spawn_cron();
         }
 
@@ -896,7 +896,7 @@ class AdminPage {
         wp_remote_get($home, [
             'timeout' => 5,
             'blocking' => false,
-            'headers' => ['X-Turbopress-Revalidate' => '1', 'Cache-Control' => 'no-cache'],
+            'headers' => ['X-WP-Instant-Revalidate' => '1', 'Cache-Control' => 'no-cache'],
         ]);
 
         wp_send_json_success();
@@ -907,7 +907,7 @@ class AdminPage {
      * destructive direction — the JS side forces a confirm() first.
      */
     public function ajax_deploy(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
+        check_ajax_referer('wp_instant_admin', 'nonce');
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
@@ -928,7 +928,7 @@ class AdminPage {
     }
 
     public function ajax_disconnect(): void {
-        check_ajax_referer('turbopress_admin', 'nonce');
+        check_ajax_referer('wp_instant_admin', 'nonce');
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');

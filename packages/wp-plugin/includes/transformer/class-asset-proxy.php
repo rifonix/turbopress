@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;

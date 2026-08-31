@@ -9,9 +9,9 @@ import {
   sha256,
   generateApiKey,
   normalizeDomain,
-} from '@turbopress/shared';
+} from '@wpinstant/shared';
 
-describe('Turbopress Architecture & Core Engine Tests', () => {
+describe('WP Instant Architecture & Core Engine Tests', () => {
   it('correctly hashes API keys with SHA-256', async () => {
     const key = generateApiKey('sk_live_');
     expect(key.startsWith('sk_live_')).toBe(true);
@@ -28,7 +28,7 @@ describe('Turbopress Architecture & Core Engine Tests', () => {
     const valid = {
       domain: 'grandemarehotel.com',
       state: 'state_nonce_123',
-      return_url: 'https://grandemarehotel.com/wp-admin/admin.php?page=turbopress',
+      return_url: 'https://grandemarehotel.com/wp-admin/admin.php?page=wp-instant',
       wp_version: '6.7',
       plugin_version: '1.0.0',
     };

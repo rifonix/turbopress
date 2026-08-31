@@ -11,7 +11,7 @@ import {
   hmacSha256Hex,
   normalizeDomain,
   PRESET_LUDICROUS,
-} from '@turbopress/shared';
+} from '@wpinstant/shared';
 import { saasUserAuthMiddleware, siteAuthMiddleware } from '../middleware/auth.js';
 
 export const siteRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -98,9 +98,9 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
         status,
         lastJobTime: s.latest_job_time ? formatRelativeTime(s.latest_job_time) : null,
         subTitle: s.wp_version
-          ? `WordPress ${s.wp_version} · TurboPress`
+          ? `WordPress ${s.wp_version} · WP Instant`
           : s.is_active
-            ? 'Connected · TurboPress'
+            ? 'Connected · WP Instant'
             : 'Not connected',
       };
     }),
@@ -134,7 +134,7 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
       {
         success: false,
         code: 'SUBSCRIPTION_REQUIRED',
-        error: 'Active subscription required. Please purchase a TurboPress plan to register a site.',
+        error: 'Active subscription required. Please purchase a WP Instant plan to register a site.',
       },
       402
     );
@@ -185,7 +185,7 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
       {
         success: false,
         code: 'DOMAIN_OWNED_BY_OTHER_ACCOUNT',
-        error: 'This domain is already registered to a different TurboPress account. Contact support to transfer ownership.',
+        error: 'This domain is already registered to a different WP Instant account. Contact support to transfer ownership.',
       },
       409
     );
@@ -460,11 +460,11 @@ siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
       });
       const signature = await hmacSha256Hex(row.callback_secret, commandBody);
       c.executionCtx.waitUntil(
-        fetch(`${base}/wp-json/turbopress/v1/optimize-callback`, {
+        fetch(`${base}/wp-json/wp-instant/v1/optimize-callback`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Turbopress-Signature': signature,
+            'X-WP-Instant-Signature': signature,
           },
           body: commandBody,
           signal: AbortSignal.timeout(8000),

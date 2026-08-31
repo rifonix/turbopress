@@ -1,6 +1,6 @@
-/* Turbopress Admin Dashboard CSS */
+/* WP Instant Admin Dashboard CSS */
 
-.turbopress-admin-wrap {
+.wp-instant-admin-wrap {
   max-width: none;
   width: 100%;
   margin: 20px 20px 40px 2px;
@@ -9,11 +9,11 @@
 
 /* ---- Dashboard page: full-width embedded control panel ---- */
 
-.tp-dashboard-wrap {
+.wpins-dashboard-wrap {
   margin: 0 0 0 -20px; /* stretch edge-to-edge under the WP admin bar */
 }
 
-.tp-dashboard-bar {
+.wpins-dashboard-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -24,38 +24,38 @@
   padding: 14px 24px;
 }
 
-.tp-dashboard-brand {
+.wpins-dashboard-brand {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.tp-dashboard-brand .tp-brand-icon {
+.wpins-dashboard-brand .wpins-brand-icon {
   font-size: 28px;
   width: 28px;
   height: 28px;
   color: #f03e2f;
 }
 
-.tp-dashboard-brand strong {
+.wpins-dashboard-brand strong {
   display: block;
   font-size: 15px;
   color: #0f172a;
 }
 
-.tp-dashboard-domain {
+.wpins-dashboard-domain {
   display: block;
   font-size: 12px;
   color: #64748b;
 }
 
-.tp-dashboard-actions {
+.wpins-dashboard-actions {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.tp-dashboard-actions .button .dashicons {
+.wpins-dashboard-actions .button .dashicons {
   font-size: 16px;
   width: 16px;
   height: 16px;
@@ -65,7 +65,7 @@
   margin-top: 3px;
 }
 
-.tp-notice-ok {
+.wpins-notice-ok {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -77,13 +77,13 @@
   padding: 4px 10px;
 }
 
-.tp-notice-ok .dashicons {
+.wpins-notice-ok .dashicons {
   font-size: 14px;
   width: 14px;
   height: 14px;
 }
 
-.tp-embed-frame {
+.wpins-embed-frame {
   width: 100%;
   /* Fallback only — the dashboard page sets an exact pixel height via JS
      (fits the remaining viewport below any admin notices). */
@@ -93,7 +93,7 @@
   overflow: hidden;
 }
 
-.tp-embed-frame iframe {
+.wpins-embed-frame iframe {
   width: 100%;
   height: 100%;
   border: 0;
@@ -101,12 +101,12 @@
 }
 
 @media screen and (max-width: 782px) {
-  .tp-embed-frame {
+  .wpins-embed-frame {
     height: calc(100vh - 66px);
   }
 }
 
-.tp-embed-footnote {
+.wpins-embed-footnote {
   padding: 12px 24px 20px;
   margin: 0;
   font-size: 12px;
@@ -114,24 +114,24 @@
 }
 
 .dashicons.spin {
-  animation: tp-spin 1s linear infinite;
+  animation: wpins-spin 1s linear infinite;
 }
 
-@keyframes tp-spin {
+@keyframes wpins-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
 /* ---- Connect page ---- */
 
-.tp-connect-wrap {
+.wpins-connect-wrap {
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: 40px;
 }
 
-.tp-connect-card {
+.wpins-connect-card {
   max-width: 620px;
   width: 100%;
   background: #ffffff;
@@ -141,12 +141,12 @@
   padding: 40px 44px 36px;
 }
 
-.tp-connect-head {
+.wpins-connect-head {
   text-align: center;
   margin-bottom: 28px;
 }
 
-.tp-connect-logo {
+.wpins-connect-logo {
   display: inline-block;
   font-size: 44px;
   width: 44px;
@@ -159,21 +159,21 @@
   margin-bottom: 16px;
 }
 
-.tp-connect-head h1 {
+.wpins-connect-head h1 {
   font-size: 24px;
   font-weight: 800;
   color: #0f172a;
   margin: 0 0 8px 0;
 }
 
-.tp-connect-head p {
+.wpins-connect-head p {
   font-size: 14px;
   color: #64748b;
   margin: 0;
   line-height: 1.6;
 }
 
-.tp-connect-benefits {
+.wpins-connect-benefits {
   list-style: none;
   margin: 0 0 28px 0;
   padding: 0;
@@ -181,13 +181,13 @@
   gap: 14px;
 }
 
-.tp-connect-benefits li {
+.wpins-connect-benefits li {
   display: flex;
   gap: 14px;
   align-items: flex-start;
 }
 
-.tp-connect-benefits .dashicons {
+.wpins-connect-benefits .dashicons {
   flex: 0 0 auto;
   font-size: 20px;
   width: 20px;
@@ -199,13 +199,13 @@
   box-sizing: content-box;
 }
 
-.tp-connect-benefits strong {
+.wpins-connect-benefits strong {
   display: block;
   font-size: 13px;
   color: #0f172a;
 }
 
-.tp-connect-benefits span:not(.dashicons) {
+.wpins-connect-benefits span:not(.dashicons) {
   display: block;
   font-size: 12px;
   color: #64748b;
@@ -213,12 +213,12 @@
   margin-top: 2px;
 }
 
-.tp-connect-cta {
+.wpins-connect-cta {
   text-align: center;
   margin-bottom: 24px;
 }
 
-.tp-connect-cta .button-hero .dashicons {
+.wpins-connect-cta .button-hero .dashicons {
   font-size: 18px;
   width: 18px;
   height: 18px;
@@ -227,14 +227,14 @@
   margin-right: 6px;
 }
 
-.tp-connect-note {
+.wpins-connect-note {
   font-size: 12px;
   color: #94a3b8;
   margin: 12px 0 0 0;
   line-height: 1.6;
 }
 
-.tp-connect-secure {
+.wpins-connect-secure {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -245,7 +245,7 @@
   color: #94a3b8;
 }
 
-.tp-connect-secure .dashicons {
+.wpins-connect-secure .dashicons {
   font-size: 14px;
   width: 14px;
   height: 14px;
@@ -254,7 +254,7 @@
 
 /* ---- Admin bar (front end) ---- */
 
-#wpadminbar #wp-admin-bar-turbopress .ab-icon {
+#wpadminbar #wp-admin-bar-wp-instant .ab-icon {
   font: 400 16px/1 dashicons !important;
   padding: 6px 0 0 4px;
   float: none;
@@ -263,7 +263,7 @@
   margin-right: 4px;
 }
 
-#wpadminbar #wp-admin-bar-turbopress .ab-item .dashicons {
+#wpadminbar #wp-admin-bar-wp-instant .ab-item .dashicons {
   font-size: 15px;
   width: 15px;
   height: 15px;
@@ -275,7 +275,7 @@
 
 /* ---- Brand buttons, pills, banner, toasts ---- */
 
-.tp-btn {
+.wpins-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -291,65 +291,65 @@
   white-space: nowrap;
 }
 
-.tp-btn .dashicons {
+.wpins-btn .dashicons {
   font-size: 16px;
   width: 16px;
   height: 16px;
   line-height: 16px;
 }
 
-.tp-btn.is-busy {
+.wpins-btn.is-busy {
   opacity: 0.6;
   pointer-events: none;
 }
 
-.tp-btn.is-busy .dashicons {
-  animation: tp-spin 1s linear infinite;
+.wpins-btn.is-busy .dashicons {
+  animation: wpins-spin 1s linear infinite;
 }
 
-.tp-btn--primary {
+.wpins-btn--primary {
   background: #f03e2f;
   color: #fff;
 }
 
-.tp-btn--primary:hover,
-.tp-btn--primary:focus {
+.wpins-btn--primary:hover,
+.wpins-btn--primary:focus {
   background: #d93628;
   color: #fff;
 }
 
-.tp-btn--ghost {
+.wpins-btn--ghost {
   background: #fff;
   border-color: #e2e8f0;
   color: #0f172a;
 }
 
-.tp-btn--ghost:hover,
-.tp-btn--ghost:focus {
+.wpins-btn--ghost:hover,
+.wpins-btn--ghost:focus {
   border-color: #cbd5e1;
   background: #f8fafc;
   color: #0f172a;
 }
 
-.tp-btn--danger {
+.wpins-btn--danger {
   background: #fff;
   border-color: #fecdd3;
   color: #b42318;
 }
 
-.tp-btn--danger:hover,
-.tp-btn--danger:focus {
+.wpins-btn--danger:hover,
+.wpins-btn--danger:focus {
   background: #fef3f2;
   border-color: #fda29b;
   color: #b42318;
 }
 
-.tp-btn--hero {
+.wpins-btn--hero {
   padding: 12px 28px;
   font-size: 14px;
 }
 
-.tp-pill {
+.wpins-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -361,25 +361,25 @@
   text-transform: uppercase;
 }
 
-.tp-pill--live {
+.wpins-pill--live {
   background: #ecfdf3;
   color: #027a48;
   border: 1px solid #abefc6;
 }
 
-.tp-pill--test {
+.wpins-pill--test {
   background: #fffaeb;
   color: #b54708;
   border: 1px solid #fedf89;
 }
 
-.tp-pill--warn {
+.wpins-pill--warn {
   background: #fef3f2;
   color: #b42318;
   border: 1px solid #fecdca;
 }
 
-.tp-testmode-banner {
+.wpins-testmode-banner {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -391,7 +391,7 @@
   line-height: 1.55;
 }
 
-.tp-testmode-banner .dashicons {
+.wpins-testmode-banner .dashicons {
   color: #d97706;
   font-size: 18px;
   width: 18px;
@@ -399,12 +399,12 @@
   margin-top: 1px;
 }
 
-.tp-testmode-banner a {
+.wpins-testmode-banner a {
   color: #b45309;
   font-weight: 600;
 }
 
-.tp-toast {
+.wpins-toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
@@ -423,30 +423,30 @@
   max-width: 90vw;
 }
 
-.tp-toast--show {
+.wpins-toast--show {
   opacity: 1;
   transform: translate(-50%, 0);
 }
 
-.tp-toast--ok {
+.wpins-toast--ok {
   background: #027a48;
 }
 
-.tp-toast--warn {
+.wpins-toast--warn {
   background: #b54708;
 }
 
-.tp-toast--err {
+.wpins-toast--err {
   background: #b42318;
 }
 
 /* ---- Connection details (connected state of the Connect page) ---- */
 
-.tp-connect-card--wide {
+.wpins-connect-card--wide {
   max-width: 680px;
 }
 
-.tp-connected-logo {
+.wpins-connected-logo {
   display: inline-block;
   font-size: 44px;
   width: 44px;
@@ -459,14 +459,14 @@
   margin-bottom: 16px;
 }
 
-.tp-connection-table {
+.wpins-connection-table {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 26px;
 }
 
-.tp-connection-table th,
-.tp-connection-table td {
+.wpins-connection-table th,
+.wpins-connection-table td {
   text-align: left;
   padding: 10px 12px;
   border-bottom: 1px solid #f1f5f9;
@@ -474,13 +474,13 @@
   vertical-align: middle;
 }
 
-.tp-connection-table th {
+.wpins-connection-table th {
   width: 160px;
   color: #64748b;
   font-weight: 600;
 }
 
-.tp-connection-table code {
+.wpins-connection-table code {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -490,7 +490,7 @@
   word-break: break-all;
 }
 
-.tp-connect-cta--row {
+.wpins-connect-cta--row {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -500,14 +500,14 @@
 
 /* ---- Legacy component styles (kept for admin notices) ---- */
 
-.tp-header {
+.wpins-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
 }
 
-.tp-badge {
+.wpins-badge {
   display: inline-block;
   font-size: 11px;
   font-weight: 700;
@@ -520,7 +520,7 @@
   margin-bottom: 6px;
 }
 
-.tp-header h1 {
+.wpins-header h1 {
   font-size: 26px;
   font-weight: 800;
   color: #0f172a;
@@ -528,13 +528,13 @@
   padding: 0;
 }
 
-.tp-subtitle {
+.wpins-subtitle {
   font-size: 14px;
   color: #64748b;
   margin: 0;
 }
 
-.tp-card {
+.wpins-card {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -543,76 +543,76 @@
   box-shadow: 0 1px 3px rgba(0,0,0,0.03);
 }
 
-.tp-card h2 {
+.wpins-card h2 {
   font-size: 18px;
   font-weight: 700;
   color: #0f172a;
   margin: 0 0 6px 0;
 }
 
-.tp-desc {
+.wpins-desc {
   font-size: 13px;
   color: #64748b;
   margin: 0 0 20px 0;
 }
 
 /* Status Card */
-.tp-status-card {
+.wpins-status-card {
   border-left: 4px solid #94a3b8;
 }
 
-.tp-status-card.connected {
+.wpins-status-card.connected {
   border-left-color: #10b981;
   background: linear-gradient(to right, #f0fdf4, #ffffff);
 }
 
-.tp-status-card.disconnected {
+.wpins-status-card.disconnected {
   border-left-color: #f59e0b;
   background: linear-gradient(to right, #fffbeb, #ffffff);
 }
 
-.tp-card-content {
+.wpins-card-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.tp-status-indicator {
+.wpins-status-indicator {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.tp-dot {
+.wpins-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: #94a3b8;
 }
 
-.connected .tp-dot {
+.connected .wpins-dot {
   background: #10b981;
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
 }
 
-.disconnected .tp-dot {
+.disconnected .wpins-dot {
   background: #f59e0b;
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
 }
 
-.tp-status-text h3 {
+.wpins-status-text h3 {
   margin: 0 0 4px 0;
   font-size: 15px;
   font-weight: 700;
 }
 
-.tp-status-text p {
+.wpins-status-text p {
   margin: 0;
   font-size: 13px;
   color: #64748b;
 }
 
-.tp-connect-btn {
+.wpins-connect-btn {
   font-weight: 600 !important;
   padding: 6px 16px !important;
   height: auto !important;
@@ -621,14 +621,14 @@
 }
 
 /* Presets Grid */
-.tp-presets-grid {
+.wpins-presets-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
   margin-top: 12px;
 }
 
-.tp-preset-box {
+.wpins-preset-box {
   position: relative;
   border: 2px solid #e2e8f0;
   border-radius: 10px;
@@ -638,24 +638,24 @@
   background: #f8fafc;
 }
 
-.tp-preset-box:hover {
+.wpins-preset-box:hover {
   border-color: #cbd5e1;
 }
 
-.tp-preset-box.active {
+.wpins-preset-box.active {
   border-color: #0284c7;
   background: #ffffff;
   box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
 }
 
-.tp-preset-box input[type="radio"] {
+.wpins-preset-box input[type="radio"] {
   position: absolute;
   top: 16px;
   right: 16px;
   margin: 0;
 }
 
-.tp-preset-tag {
+.wpins-preset-tag {
   display: inline-block;
   font-size: 11px;
   font-weight: 700;
@@ -664,18 +664,18 @@
   margin-bottom: 6px;
 }
 
-.tp-tag-gold {
+.wpins-tag-gold {
   color: #b45309;
 }
 
-.tp-preset-content h4 {
+.wpins-preset-content h4 {
   font-size: 15px;
   font-weight: 700;
   margin: 0 0 6px 0;
   color: #0f172a;
 }
 
-.tp-preset-content p {
+.wpins-preset-content p {
   font-size: 12px;
   line-height: 1.5;
   color: #64748b;
@@ -683,7 +683,7 @@
 }
 
 /* Form switches */
-.tp-table th {
+.wpins-table th {
   font-size: 14px;
   font-weight: 600;
   color: #1e293b;
@@ -691,11 +691,11 @@
   padding: 16px 0;
 }
 
-.tp-table td {
+.wpins-table td {
   padding: 16px 0;
 }
 
-.tp-switch {
+.wpins-switch {
   position: relative;
   display: inline-block;
   width: 44px;
@@ -704,13 +704,13 @@
   margin-right: 12px;
 }
 
-.tp-switch input {
+.wpins-switch input {
   opacity: 0;
   width: 0;
   height: 0;
 }
 
-.tp-slider {
+.wpins-slider {
   position: absolute;
   cursor: pointer;
   top: 0;
@@ -722,7 +722,7 @@
   border-radius: 24px;
 }
 
-.tp-slider:before {
+.wpins-slider:before {
   position: absolute;
   content: "";
   height: 18px;
@@ -734,21 +734,21 @@
   border-radius: 50%;
 }
 
-input:checked + .tp-slider {
+input:checked + .wpins-slider {
   background-color: #0284c7;
 }
 
-input:checked + .tp-slider:before {
+input:checked + .wpins-slider:before {
   transform: translateX(20px);
 }
 
-.tp-label-desc {
+.wpins-label-desc {
   font-size: 13px;
   color: #64748b;
   vertical-align: middle;
 }
 
-.tp-form-footer {
+.wpins-form-footer {
   margin-top: 24px;
   padding-top: 16px;
   border-top: 1px solid #f1f5f9;
@@ -757,7 +757,7 @@ input:checked + .tp-slider:before {
   gap: 16px;
 }
 
-.tp-status-msg {
+.wpins-status-msg {
   font-size: 14px;
   font-weight: 600;
 }

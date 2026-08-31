@@ -5,7 +5,7 @@ import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { SignUp } from '@clerk/nextjs';
 import { useSearchParams } from 'next/navigation';
-import { turbopressClerkAppearance } from '@/components/auth/ClerkTheme';
+import { wpInstantClerkAppearance } from '@/components/auth/ClerkTheme';
 
 function SignUpContent() {
   const searchParams = useSearchParams();
@@ -23,7 +23,7 @@ function SignUpContent() {
             <Zap className="w-4 h-4 text-[#f03e2f] fill-current" />
           </span>
           <span className="font-semibold text-lg tracking-tight">
-            TurboPress <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
+            WP Instant <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
           </span>
         </Link>
 
@@ -128,7 +128,7 @@ function SignUpContent() {
 
               <div className="pt-1 flex justify-center">
                 <SignUp
-                  appearance={turbopressClerkAppearance}
+                  appearance={wpInstantClerkAppearance}
                   routing="path"
                   path="/sign-up"
                   signInUrl="/sign-in"
@@ -142,7 +142,7 @@ function SignUpContent() {
 
       {/* Footer */}
       <footer className="px-6 py-4 border-t border-[#e4e4e7] bg-white text-center text-xs text-[#71717a] font-mono">
-        TurboPress · High-Performance Zero-DNS WordPress Optimization Engine · Production Ready
+        WP Instant · High-Performance Zero-DNS WordPress Optimization Engine · Production Ready
       </footer>
     </div>
   );

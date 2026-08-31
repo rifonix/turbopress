@@ -59,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </svg>
           </span>
           <span className="font-semibold text-[15px] tracking-tight text-[#171717]">
-            TurboPress <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
+            WP Instant <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
           </span>
         </Link>
 
@@ -200,7 +200,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Operational Status Pill */}
           <div className="flex items-center gap-2 px-2.5 py-1.5 border border-[#e4e4e7] rounded-full bg-white text-[11.5px] text-[#3f3f46]">
             <span className="w-2 h-2 rounded-full bg-[#16a34a] shadow-[0_0_0_2px_rgba(22,163,74,0.15)] flex-none" />
-            <span className="truncate">TurboPress Edge: Active</span>
+            <span className="truncate">WP Instant Edge: Active</span>
           </div>
 
           {/* User Profile Card / Bespoke Clerk User Button */}

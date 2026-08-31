@@ -1,6 +1,6 @@
 <?php
 /**
- * Turbopress uninstall cleanup.
+ * WP Instant uninstall cleanup.
  *
  * Runs when the plugin is deleted from wp-admin. Removes every trace:
  * connection keys + site credentials, options, transients, cache
@@ -10,106 +10,106 @@
  * (drop-in removal, htaccess strip, cache purge) has normally already
  * run — everything below is standalone-safe and idempotent.
  *
- * @package Turbopress
+ * @package WP Instant
  */
 
 if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
-$turbopress_options = [
-    'turbopress_config',            // includes api_key + site_id (connection keys)
-    'turbopress_callback_secret',
-    'turbopress_api_url',
-    'turbopress_version',
-    'turbopress_health',
-    'turbopress_auto_degrade',
-    'turbopress_auto_degrade_dismissed',
-    'turbopress_htaccess',
-    'turbopress_media_queue',
-    'turbopress_lcp_images',
-    'turbopress_css_dispatched',
-    'turbopress_dropin_conflict',
-    'turbopress_do_activation_redirect',
+$wp_instant_options = [
+    'wp_instant_config',            // includes api_key + site_id (connection keys)
+    'wp_instant_callback_secret',
+    'wp_instant_api_url',
+    'wp_instant_version',
+    'wp_instant_health',
+    'wp_instant_auto_degrade',
+    'wp_instant_auto_degrade_dismissed',
+    'wp_instant_htaccess',
+    'wp_instant_media_queue',
+    'wp_instant_lcp_images',
+    'wp_instant_css_dispatched',
+    'wp_instant_dropin_conflict',
+    'wp_instant_do_activation_redirect',
 ];
 
-foreach ($turbopress_options as $turbopress_option) {
-    delete_option($turbopress_option);
+foreach ($wp_instant_options as $wp_instant_option) {
+    delete_option($wp_instant_option);
 }
 
 // Transients (job pollers, dispatch throttles, health probes). Multisite:
 // clean the current site; network-activated installs are not a target of
 // this plugin.
 global $wpdb;
-$turbopress_transient_patterns = [
-    '\_transient\_tp\_%',
-    '\_transient\_turbopress\_%',
-    '\_transient\_timeout\_tp\_%',
-    '\_transient\_timeout\_turbopress\_%',
+$wp_instant_transient_patterns = [
+    '\_transient\_wpins\_%',
+    '\_transient\_wp\_instant\_%',
+    '\_transient\_timeout\_wpins\_%',
+    '\_transient\_timeout\_wp\_instant\_%',
 ];
-foreach ($turbopress_transient_patterns as $turbopress_pattern) {
-    $turbopress_keys = $wpdb->get_col(
+foreach ($wp_instant_transient_patterns as $wp_instant_pattern) {
+    $wp_instant_keys = $wpdb->get_col(
         $wpdb->prepare(
             "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s",
-            $turbopress_pattern
+            $wp_instant_pattern
         )
     );
-    foreach ($turbopress_keys as $turbopress_key) {
-        $turbopress_clean = str_replace('_transient_timeout_', '', $turbopress_key);
-        $turbopress_clean = str_replace('_transient_', '', $turbopress_clean);
-        delete_transient($turbopress_clean);
+    foreach ($wp_instant_keys as $wp_instant_key) {
+        $wp_instant_clean = str_replace('_transient_timeout_', '', $wp_instant_key);
+        $wp_instant_clean = str_replace('_transient_', '', $wp_instant_clean);
+        delete_transient($wp_instant_clean);
     }
 }
 
 // User preferences.
-delete_metadata('user', 0, 'turbopress_view_mode', '', true);
+delete_metadata('user', 0, 'wp_instant_view_mode', '', true);
 
 // Per-page asset exclusion rules (post meta, every post type).
-delete_metadata('post', 0, '_turbopress_asset_exclusions', '', true);
+delete_metadata('post', 0, '_wp_instant_asset_exclusions', '', true);
 
 // Cache artifacts: pages, critical CSS, combined bundles, fonts, media, RUM.
-$turbopress_cache_dir = WP_CONTENT_DIR . '/cache/turbopress';
-if (is_dir($turbopress_cache_dir)) {
-    $turbopress_rm = static function (string $dir) use (&$turbopress_rm): void {
+$wp_instant_cache_dir = WP_CONTENT_DIR . '/cache/wp-instant';
+if (is_dir($wp_instant_cache_dir)) {
+    $wp_instant_rm = static function (string $dir) use (&$wp_instant_rm): void {
         $entries = @scandir($dir) ?: [];
         foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
             $path = $dir . '/' . $entry;
-            is_dir($path) ? $turbopress_rm($path) : @unlink($path);
+            is_dir($path) ? $wp_instant_rm($path) : @unlink($path);
         }
         @rmdir($dir);
     };
-    $turbopress_rm($turbopress_cache_dir);
+    $wp_instant_rm($wp_instant_cache_dir);
 }
 
 // Our advanced-cache drop-in (only when the checksum matches ours).
-$turbopress_dropin = WP_CONTENT_DIR . '/advanced-cache.php';
-$turbopress_source = __DIR__ . '/advanced-cache.php';
-if (file_exists($turbopress_dropin) && file_exists($turbopress_source)) {
-    if (md5_file($turbopress_dropin) === md5_file($turbopress_source)) {
-        @unlink($turbopress_dropin);
+$wp_instant_dropin = WP_CONTENT_DIR . '/advanced-cache.php';
+$wp_instant_source = __DIR__ . '/advanced-cache.php';
+if (file_exists($wp_instant_dropin) && file_exists($wp_instant_source)) {
+    if (md5_file($wp_instant_dropin) === md5_file($wp_instant_source)) {
+        @unlink($wp_instant_dropin);
     }
 }
 
 // .htaccess marker block (deactivate normally strips it; belt & braces).
-$turbopress_htaccess = dirname(WP_CONTENT_DIR) . '/.htaccess';
-if (file_exists($turbopress_htaccess) && is_writable($turbopress_htaccess)) {
-    $turbopress_content = (string) file_get_contents($turbopress_htaccess);
-    $turbopress_content = preg_replace(
-        '/\n?# BEGIN TurboPress.*?# END TurboPress\n?/s',
+$wp_instant_htaccess = dirname(WP_CONTENT_DIR) . '/.htaccess';
+if (file_exists($wp_instant_htaccess) && is_writable($wp_instant_htaccess)) {
+    $wp_instant_content = (string) file_get_contents($wp_instant_htaccess);
+    $wp_instant_content = preg_replace(
+        '/\n?# BEGIN WP Instant.*?# END WP Instant\n?/s',
         "\n",
-        $turbopress_content
+        $wp_instant_content
     );
-    if ($turbopress_content !== null) {
-        @file_put_contents($turbopress_htaccess, $turbopress_content);
+    if ($wp_instant_content !== null) {
+        @file_put_contents($wp_instant_htaccess, $wp_instant_content);
     }
-    @unlink($turbopress_htaccess . '.turbopress-bak');
+    @unlink($wp_instant_htaccess . '.wp-instant-bak');
 }
 
 // Scheduled events.
-wp_clear_scheduled_hook('turbopress_async_optimize');
-wp_clear_scheduled_hook('turbopress_health_heartbeat');
-wp_clear_scheduled_hook('turbopress_rum_heartbeat');
-wp_clear_scheduled_hook('turbopress_media_offload');
+wp_clear_scheduled_hook('wp_instant_async_optimize');
+wp_clear_scheduled_hook('wp_instant_health_heartbeat');
+wp_clear_scheduled_hook('wp_instant_rum_heartbeat');
+wp_clear_scheduled_hook('wp_instant_media_offload');

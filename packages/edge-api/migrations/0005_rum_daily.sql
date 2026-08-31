@@ -1,6 +1,6 @@
 -- Migration: 0005_rum_daily
 -- Daily per-mode Core Web Vitals + JS error rollups pushed by the plugin's
--- hourly RUM heartbeat (beacon buckets live in cache/turbopress/{host}/rum.json).
+-- hourly RUM heartbeat (beacon buckets live in cache/wp-instant/{host}/rum.json).
 CREATE TABLE IF NOT EXISTS rum_daily (
   site_id TEXT NOT NULL,
   day TEXT NOT NULL,

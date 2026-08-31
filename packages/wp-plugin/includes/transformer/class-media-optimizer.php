@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -25,7 +25,7 @@ class MediaOptimizer {
         $path = $parsed['path'] ?? '/';
         $key = md5($path . '_' . $viewport);
 
-        $map = get_option('turbopress_lcp_images', []);
+        $map = get_option('wp_instant_lcp_images', []);
         if (!is_array($map)) {
             $map = [];
         }
@@ -34,7 +34,7 @@ class MediaOptimizer {
             if (count($map) > 400) {
                 $map = array_slice($map, -400, null, true);
             }
-            update_option('turbopress_lcp_images', $map);
+            update_option('wp_instant_lcp_images', $map);
         }
     }
 
@@ -42,7 +42,7 @@ class MediaOptimizer {
         $parsed = parse_url($url);
         $path = $parsed['path'] ?? '/';
         $key = md5($path . '_' . $viewport);
-        $map = get_option('turbopress_lcp_images', []);
+        $map = get_option('wp_instant_lcp_images', []);
         return is_array($map) && !empty($map[$key]) ? (string) $map[$key] : null;
     }
 
@@ -68,7 +68,7 @@ class MediaOptimizer {
                     $src = $src_match[1];
                 }
                 $orig_src = '';
-                if (preg_match('/data-tp-orig-src=[\'"]([^\'"]+)[\'"]/i', $attributes, $om)) {
+                if (preg_match('/data-wpins-orig-src=[\'"]([^\'"]+)[\'"]/i', $attributes, $om)) {
                     $orig_src = $om[1];
                 }
 

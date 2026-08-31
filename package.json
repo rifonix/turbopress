@@ -1,20 +1,19 @@
 {
-  "name": "turbopress-monorepo",
+  "name": "wp-instant-monorepo",
   "version": "1.0.0",
   "private": true,
-  "description": "Turbopress (SpeedForge Engine) - High-Performance Zero-DNS WordPress Optimization SaaS & Client",
+  "description": "WP Instant (SpeedForge Engine) - High-Performance Zero-DNS WordPress Optimization SaaS & Client",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@turbopress/shared && npm run build:worker --workspace=@turbopress/saas-app && npm run build --workspace=@turbopress/edge-api",
-    "build:saas": "npm run build --workspace=@turbopress/shared && npm run build:worker --workspace=@turbopress/saas-app",
-    "build:edge": "npm run build --workspace=@turbopress/shared && npm run build --workspace=@turbopress/edge-api",
+    "build": "npm run build --workspace=@wpinstant/shared && npm run build:worker --workspace=@wpinstant/saas-app && npm run build --workspace=@wpinstant/edge-api",
+    "build:saas": "npm run build --workspace=@wpinstant/shared && npm run build:worker --workspace=@wpinstant/saas-app",
+    "build:edge": "npm run build --workspace=@wpinstant/shared && npm run build --workspace=@wpinstant/edge-api",
     "test": "npm run --workspaces --if-present test",
     "lint": "npm run --workspaces --if-present lint",
-    "dev:edge": "npm run --workspace=@turbopress/edge-api dev",
-    "dev:saas": "npm run --workspace=@turbopress/saas-app dev",
-    "dev:wp-admin": "npm run --workspace=@turbopress/wp-plugin dev"
+    "dev:edge": "npm run --workspace=@wpinstant/edge-api dev",
+    "dev:saas": "npm run --workspace=@wpinstant/saas-app dev"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

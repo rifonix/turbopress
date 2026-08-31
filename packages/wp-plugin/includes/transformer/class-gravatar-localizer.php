@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -27,7 +27,7 @@ class GravatarLocalizer {
             return $html;
         }
 
-        $cache_dir = WP_CONTENT_DIR . '/cache/turbopress/avatars';
+        $cache_dir = WP_CONTENT_DIR . '/cache/wp-instant/avatars';
         if (!is_dir($cache_dir)) {
             wp_mkdir_p($cache_dir);
         }
@@ -84,6 +84,6 @@ class GravatarLocalizer {
             @file_put_contents($file_path, $body);
         }
 
-        return content_url('/cache/turbopress/avatars/' . $file_name);
+        return content_url('/cache/wp-instant/avatars/' . $file_name);
     }
 }

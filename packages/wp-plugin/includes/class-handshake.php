@@ -1,14 +1,14 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
 class Handshake {
-    public const STATE_TRANSIENT_PREFIX = 'tp_auth_state_';
+    public const STATE_TRANSIENT_PREFIX = 'wpins_auth_state_';
 
-    public static function generate_connect_url(string $saas_app_url = 'https://turbopress.webaccessibility.workers.dev'): string {
+    public static function generate_connect_url(string $saas_app_url = 'https://app.wpinstant.dev'): string {
         $state = wp_generate_password(32, false);
         set_transient(self::STATE_TRANSIENT_PREFIX . $state, time(), 3600);
 
@@ -17,8 +17,8 @@ class Handshake {
         $clean_domain = $parsed['host'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
 
         $return_url = add_query_arg([
-            'page' => 'turbopress',
-            'turbopress_pair' => '1',
+            'page' => 'wp-instant',
+            'wp_instant_pair' => '1',
             'state' => $state,
         ], admin_url('admin.php'));
 
@@ -27,7 +27,7 @@ class Handshake {
             'state' => $state,
             'return_url' => urlencode($return_url),
             'wp_version' => get_bloginfo('version'),
-            'plugin_version' => TURBOPRESS_VERSION,
+            'plugin_version' => WP_INSTANT_VERSION,
         ], rtrim($saas_app_url, '/') . '/connect');
     }
 
@@ -36,7 +36,7 @@ class Handshake {
             return;
         }
 
-        if (empty($_GET['page']) || $_GET['page'] !== 'turbopress' || empty($_GET['turbopress_pair'])) {
+        if (empty($_GET['page']) || $_GET['page'] !== 'wp-instant' || empty($_GET['wp_instant_pair'])) {
             return;
         }
 
@@ -45,7 +45,7 @@ class Handshake {
         $site_id = sanitize_text_field($_GET['site_id'] ?? '');
 
         if (empty($state) || empty($api_key)) {
-            add_settings_error('turbopress', 'invalid_handshake', 'Invalid handshake payload received.', 'error');
+            add_settings_error('wp-instant', 'invalid_handshake', 'Invalid handshake payload received.', 'error');
             return;
         }
 
@@ -53,7 +53,7 @@ class Handshake {
         $stored_time = get_transient($transient_key);
 
         if (!$stored_time) {
-            add_settings_error('turbopress', 'expired_state', 'Handshake session expired or invalid. Please try connecting again.', 'error');
+            add_settings_error('wp-instant', 'expired_state', 'Handshake session expired or invalid. Please try connecting again.', 'error');
             return;
         }
 
@@ -85,17 +85,17 @@ class Handshake {
                     static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']],
                     $dispatch['data']['jobs']
                 );
-                set_transient('tp_jobs_' . md5($home), $jobs, 30 * MINUTE_IN_SECONDS);
-                wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', [$home, 1]);
+                set_transient('wpins_jobs_' . md5($home), $jobs, 30 * MINUTE_IN_SECONDS);
+                wp_schedule_single_event(time() + 60, 'wp_instant_async_optimize', [$home, 1]);
             }
-            wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+            wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
             spawn_cron();
 
             // Clean redirect back to main settings page with success flag
-            wp_safe_redirect(add_query_arg(['page' => 'turbopress', 'connected' => '1'], admin_url('admin.php')));
+            wp_safe_redirect(add_query_arg(['page' => 'wp-instant', 'connected' => '1'], admin_url('admin.php')));
             exit;
         } else {
-            add_settings_error('turbopress', 'verify_failed', 'Connected but verification failed: ' . ($verify['error'] ?? 'Unknown'), 'warning');
+            add_settings_error('wp-instant', 'verify_failed', 'Connected but verification failed: ' . ($verify['error'] ?? 'Unknown'), 'warning');
         }
     }
 }

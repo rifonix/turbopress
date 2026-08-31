@@ -2,7 +2,7 @@ import { MessageBatch } from '@cloudflare/workers-types';
 import puppeteer, { Browser } from '@cloudflare/puppeteer';
 import { Env, OptimizationQueueMessage } from '../types/env.js';
 import { extractCriticalCssAndLcp, OriginChallengeError } from './puppeteer-extractor.js';
-import { generateJobId, hmacSha256Hex, ViewportMode } from '@turbopress/shared';
+import { generateJobId, hmacSha256Hex, ViewportMode } from '@wpinstant/shared';
 
 /** How many additional internal pages to optimize after the homepage. */
 const MAX_CRAWL_PAGES = 5;
@@ -42,12 +42,12 @@ async function pushOptimizationCallback(
     const rawBody = JSON.stringify(payload);
     const signature = await hmacSha256Hex(site.callback_secret, rawBody);
 
-    const callbackUrl = site.site_url.replace(/\/+$/, '') + '/wp-json/turbopress/v1/optimize-callback';
+    const callbackUrl = site.site_url.replace(/\/+$/, '') + '/wp-json/wp-instant/v1/optimize-callback';
     const response = await fetch(callbackUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Turbopress-Signature': signature,
+        'X-WP-Instant-Signature': signature,
       },
       body: rawBody,
       signal: AbortSignal.timeout(8000),

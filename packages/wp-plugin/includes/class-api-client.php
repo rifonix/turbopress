@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -41,7 +41,7 @@ class ApiClient {
             'headers' => [
                 'Authorization' => 'Bearer ' . $api_key,
                 'X-Site-Domain' => $domain,
-                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'X-WP-Instant-Version' => WP_INSTANT_VERSION,
                 'X-WP-Version' => get_bloginfo('version'),
                 'Content-Type' => 'application/json',
             ],
@@ -148,7 +148,7 @@ class ApiClient {
             'headers' => [
                 'Authorization' => 'Bearer ' . $api_key,
                 'X-Site-Domain' => $this->get_site_domain(),
-                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'X-WP-Instant-Version' => WP_INSTANT_VERSION,
                 'Content-Type' => 'application/json',
             ],
             'body' => wp_json_encode($report),
@@ -184,7 +184,7 @@ class ApiClient {
             'headers' => [
                 'Authorization' => 'Bearer ' . $api_key,
                 'X-Site-Domain' => $this->get_site_domain(),
-                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'X-WP-Instant-Version' => WP_INSTANT_VERSION,
                 'Content-Type' => 'application/json',
             ],
             'body' => wp_json_encode($payload),
@@ -223,7 +223,7 @@ class ApiClient {
             'headers' => [
                 'Authorization' => 'Bearer ' . $api_key,
                 'X-Site-Domain' => $this->get_site_domain(),
-                'X-Turbopress-Version' => TURBOPRESS_VERSION,
+                'X-WP-Instant-Version' => WP_INSTANT_VERSION,
                 'Content-Type' => 'application/json',
             ],
             'body' => wp_json_encode(['logs' => array_slice($entries, 0, 30)]),

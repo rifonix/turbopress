@@ -1,5 +1,5 @@
 {
-  "name": "@turbopress/edge-api",
+  "name": "@wpinstant/edge-api",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -12,7 +12,7 @@
   "dependencies": {
     "@cloudflare/puppeteer": "^0.0.12",
     "@polar-sh/sdk": "^0.30.0",
-    "@turbopress/shared": "*",
+    "@wpinstant/shared": "*",
     "hono": "^4.7.2",
     "svix": "^1.61.3",
     "wasm-image-optimization": "^2.0.9",

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
-import { hmacSha256Hex, normalizeDomain, SiteConfigSchema, generateJobId } from '@turbopress/shared';
-import type { ViewportMode } from '@turbopress/shared';
+import { hmacSha256Hex, normalizeDomain, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
+import type { ViewportMode } from '@wpinstant/shared';
 
 /**
  * Embed routes: let the WP-admin iframe drive the SaaS control plane
@@ -63,11 +63,11 @@ async function pushPluginCommand(
   const body = JSON.stringify(payload);
   const signature = await hmacSha256Hex(site.callback_secret, body);
   try {
-    const res = await fetch(`${site.site_url.replace(/\/+$/, '')}/wp-json/turbopress/v1/optimize-callback`, {
+    const res = await fetch(`${site.site_url.replace(/\/+$/, '')}/wp-json/wp-instant/v1/optimize-callback`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Turbopress-Signature': signature,
+        'X-WP-Instant-Signature': signature,
       },
       body,
       signal: AbortSignal.timeout(8000),

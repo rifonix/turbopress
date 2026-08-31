@@ -1,8 +1,8 @@
 {
-  "name": "@turbopress/wp-plugin",
-  "version": "1.0.0",
+  "name": "@wpinstant/wp-plugin",
+  "version": "1.12.1",
   "private": true,
-  "description": "Turbopress WordPress Client Plugin",
+  "description": "WP Instant WordPress Client Plugin",
   "scripts": {
     "build": "echo 'WordPress plugin assets ready'"
   }

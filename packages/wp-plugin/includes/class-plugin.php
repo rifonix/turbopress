@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -46,9 +46,9 @@ class Plugin {
         // Upgrade housekeeping: when the plugin version changes, purge the
         // static page cache so HTML transformed by an older release (e.g.
         // with the broken script-delaying logic) is never served stale.
-        $installed_version = get_option('turbopress_version', '');
-        if ($installed_version !== TURBOPRESS_VERSION) {
-            update_option('turbopress_version', TURBOPRESS_VERSION);
+        $installed_version = get_option('wp_instant_version', '');
+        if ($installed_version !== WP_INSTANT_VERSION) {
+            update_option('wp_instant_version', WP_INSTANT_VERSION);
             CacheManager::purge_all_static();
             // Propagate to host/foreign caches (LiteSpeed etc.): without this,
             // HTML transformed by the OLD release stays served indefinitely.
@@ -62,7 +62,7 @@ class Plugin {
             // element repairs) and stale files keep serving via the
             // per-URL cache lookups until the edge pushes fresh CSS.
             $host_hash = md5(wp_parse_url(home_url(), PHP_URL_HOST) ?: '');
-            $css_dir = TURBOPRESS_CACHE_DIR . '/' . $host_hash . '/css';
+            $css_dir = WP_INSTANT_CACHE_DIR . '/' . $host_hash . '/css';
             if (is_dir($css_dir)) {
                 foreach (glob($css_dir . '/*.css') ?: [] as $file) {
                     @unlink($file);
@@ -70,7 +70,7 @@ class Plugin {
             }
             // v1.11.0: LCP URLs measured pre-extraction-bypass pointed at the
             // optimized page (possibly worker-rewritten); re-measure fresh.
-            delete_option('turbopress_lcp_images');
+            delete_option('wp_instant_lcp_images');
         }
 
         // Initialize Cache Purger hooks
@@ -86,7 +86,7 @@ class Plugin {
         // the nonce tick during REST verification: nonces minted in
         // wp-admin (default tick) then fail hash-equality in REST and every
         // editor save (POST /wp-json/wp/v2/pages/<id>) returns 403.
-        // Our own /turbopress/v1/ namespace keeps the extension — its
+        // Our own /wp-instant/v1/ namespace keeps the extension — its
         // endpoints mint nonces for FRONTEND verification.
         if (!is_admin() && !$this->is_core_rest_or_ajax()) {
             $nonce_ttl = max(DAY_IN_SECONDS, (int) $this->config->get('caching.ttl', 604800));
@@ -101,19 +101,19 @@ class Plugin {
         $this->auto_purge->init();
 
         // Async optimization pipeline: dispatch to edge, poll, download critical CSS
-        add_action('turbopress_async_optimize', [$this, 'run_async_optimize'], 10, 2);
+        add_action('wp_instant_async_optimize', [$this, 'run_async_optimize'], 10, 2);
 
         // Daily health heartbeat to the SaaS control plane
-        add_action('turbopress_health_heartbeat', [$this, 'run_health_heartbeat']);
-        if (!wp_next_scheduled('turbopress_health_heartbeat')) {
-            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'turbopress_health_heartbeat');
+        add_action('wp_instant_health_heartbeat', [$this, 'run_health_heartbeat']);
+        if (!wp_next_scheduled('wp_instant_health_heartbeat')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'wp_instant_health_heartbeat');
         }
 
         // Hourly RUM heartbeat: push aggregated telemetry + evaluate the
         // auto-degrade safety net on live error rates.
-        add_action('turbopress_rum_heartbeat', [$this, 'run_rum_heartbeat']);
-        if (!wp_next_scheduled('turbopress_rum_heartbeat')) {
-            wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'turbopress_rum_heartbeat');
+        add_action('wp_instant_rum_heartbeat', [$this, 'run_rum_heartbeat']);
+        if (!wp_next_scheduled('wp_instant_rum_heartbeat')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'wp_instant_rum_heartbeat');
         }
 
         // Frequent media derivative generation (R2 offload queue: webp
@@ -122,17 +122,17 @@ class Plugin {
         // derivatives normally land in R2 within seconds — this recurring
         // event is only the backstop for drained-failure leftovers.
         add_filter('cron_schedules', static function (array $schedules): array {
-            if (!isset($schedules['turbopress_5min'])) {
-                $schedules['turbopress_5min'] = [
+            if (!isset($schedules['wp_instant_5min'])) {
+                $schedules['wp_instant_5min'] = [
                     'interval' => 5 * MINUTE_IN_SECONDS,
-                    'display' => 'Every 5 Minutes (Turbopress)',
+                    'display' => 'Every 5 Minutes (WP Instant)',
                 ];
             }
             return $schedules;
         });
-        add_action('turbopress_media_offload', [MediaOffloader::class, 'process_queue']);
-        if (!wp_next_scheduled('turbopress_media_offload')) {
-            wp_schedule_event(time() + 2 * MINUTE_IN_SECONDS, 'turbopress_5min', 'turbopress_media_offload');
+        add_action('wp_instant_media_offload', [MediaOffloader::class, 'process_queue']);
+        if (!wp_next_scheduled('wp_instant_media_offload')) {
+            wp_schedule_event(time() + 2 * MINUTE_IN_SECONDS, 'wp_instant_5min', 'wp_instant_media_offload');
         }
 
         // Edge push callback (HMAC-verified REST route)
@@ -158,7 +158,7 @@ class Plugin {
 
         // Initialize Admin UI
         if (is_admin()) {
-            \Turbopress\AdminPage::get_instance()->init($this->config, $this->api_client, $this->cache_manager);
+            \WPInstant\AdminPage::get_instance()->init($this->config, $this->api_client, $this->cache_manager);
             $this->health_check->maybe_run();
         }
 
@@ -193,7 +193,7 @@ class Plugin {
 
         // Our own namespace mints nonces for frontend verification — it
         // needs the SAME extended TTL as the front end, not core's.
-        return !str_starts_with(strtolower($route), '/turbopress/');
+        return !str_starts_with(strtolower($route), '/wp-instant/');
     }
 
     public function start_output_buffer(): void {
@@ -201,18 +201,18 @@ class Plugin {
         // extraction (parsing our own optimized output) was the root cause
         // of critical CSS missing JS-rendered elements and their
         // ::before/::after rules, and of skewed LCP measurements.
-        if (isset($_GET['turbopress_extract'])) {
+        if (isset($_GET['wp_instant_extract'])) {
             return;
         }
 
         $preview = false;
 
-        // Preview flag: an admin carrying ?tp_preview=1 always sees (and
+        // Preview flag: an admin carrying ?wpins_preview=1 always sees (and
         // verifies) the optimized page — mandatory in Test Mode, and the
         // verification tool in Live mode (logged-in requests otherwise
         // bypass the pipeline entirely, which made features like per-page
         // asset exclusion look "broken" to the admin testing them).
-        if (current_user_can('manage_options') && isset($_GET['tp_preview'])) {
+        if (current_user_can('manage_options') && isset($_GET['wpins_preview'])) {
             $preview = true;
         } elseif (($this->config->get('deployment.status', 'live')) === 'test') {
             // Test Mode without the flag: visitors get the untouched origin.
@@ -228,7 +228,7 @@ class Plugin {
         $this->dom_engine->enable_rum($preview);
 
         if ($preview && !headers_sent()) {
-            header('X-Turbopress-Preview: 1');
+            header('X-WP-Instant-Preview: 1');
         }
 
         ob_start([$this, 'process_output_buffer']);
@@ -259,7 +259,7 @@ class Plugin {
         if ($is_preview) {
             $badge = '<div style="position:fixed;bottom:16px;right:16px;z-index:99999;background:#111;color:#fff;'
                 . 'padding:8px 14px;border-radius:8px;font:600 12px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)">'
-                . '&#9889; TurboPress Test Preview v' . TURBOPRESS_VERSION . '</div>';
+                . '&#9889; WP Instant Test Preview v' . WP_INSTANT_VERSION . '</div>';
             if (stripos($transformed, '</body>') !== false) {
                 $transformed = str_ireplace('</body>', $badge . '</body>', $transformed);
             }
@@ -271,11 +271,11 @@ class Plugin {
     private function is_preview_request(): bool {
         // Any admin carrying the preview flag (Test or Live mode): preview
         // output is never written to the static page cache.
-        return current_user_can('manage_options') && isset($_GET['tp_preview']);
+        return current_user_can('manage_options') && isset($_GET['wpins_preview']);
     }
 
     /**
-     * Cron handler for 'turbopress_async_optimize'.
+     * Cron handler for 'wp_instant_async_optimize'.
      * Lifecycle: dispatch job(s) -> poll every 60s -> download CSS per viewport
      * -> write local cache -> purge page cache. Reschedules itself until done.
      *
@@ -290,7 +290,7 @@ class Plugin {
             return;
         }
 
-        $transient_key = 'tp_jobs_' . md5($url);
+        $transient_key = 'wpins_jobs_' . md5($url);
         $jobs = get_transient($transient_key);
 
         // Phase 1: dispatch the extraction job(s).
@@ -305,7 +305,7 @@ class Plugin {
 
             $jobs = array_map(static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']], $created);
             set_transient($transient_key, $jobs, 30 * MINUTE_IN_SECONDS);
-            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', [$url, 1]);
+            wp_schedule_single_event(time() + 60, 'wp_instant_async_optimize', [$url, 1]);
             return;
         }
 
@@ -344,7 +344,7 @@ class Plugin {
 
         // Keep polling (cap ~30 attempts / 30 min).
         if ($attempt < 30) {
-            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', [$url, $attempt + 1]);
+            wp_schedule_single_event(time() + 60, 'wp_instant_async_optimize', [$url, $attempt + 1]);
         } else {
             delete_transient($transient_key);
         }
@@ -369,7 +369,7 @@ class Plugin {
 
     public static function activate(): void {
         // Create cache folders (pages separated from artifacts)
-        foreach ([TURBOPRESS_CACHE_DIR, TURBOPRESS_PAGES_DIR] as $dir) {
+        foreach ([WP_INSTANT_CACHE_DIR, WP_INSTANT_PAGES_DIR] as $dir) {
             if (!file_exists($dir)) {
                 wp_mkdir_p($dir);
             }
@@ -406,7 +406,7 @@ class Plugin {
         CacheIntegration::purge_foreign_caches('all');
 
         // Unschedule heartbeats
-        foreach (['turbopress_health_heartbeat', 'turbopress_rum_heartbeat', 'turbopress_media_offload'] as $hook) {
+        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload'] as $hook) {
             $timestamp = wp_next_scheduled($hook);
             while ($timestamp) {
                 wp_unschedule_event($timestamp, $hook);

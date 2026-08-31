@@ -2,6 +2,6 @@
 
 interface Env {
 	VITE_CLERK_PUBLISHABLE_KEY: "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk";
-	VITE_API_BASE_URL: "https://api.turbopress.io" | "https://staging-api.turbopress.io";
+	VITE_API_BASE_URL: "https://api.wpinstant.dev" | "https://staging-api.wpinstant.dev";
 	ENVIRONMENT: "production" | "staging";
 }

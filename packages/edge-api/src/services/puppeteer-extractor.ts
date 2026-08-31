@@ -1,6 +1,6 @@
 import puppeteer, { Browser } from '@cloudflare/puppeteer';
 import { Env } from '../types/env.js';
-import { ViewportMode } from '@turbopress/shared';
+import { ViewportMode } from '@wpinstant/shared';
 
 export interface PageMetrics {
   ttfbMs: number | null;
@@ -388,7 +388,7 @@ export async function extractCriticalCssAndLcp(
     let fetchUrl = url;
     try {
       const u = new URL(url);
-      u.searchParams.set('turbopress_extract', '1');
+      u.searchParams.set('wp_instant_extract', '1');
       fetchUrl = u.toString();
     } catch {
       // keep original

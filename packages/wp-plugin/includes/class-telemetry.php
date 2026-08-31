@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
  * dashboard (and AutoDegrade) can act on real visitor error rates.
  */
 class Telemetry {
-    private const ROUTE_NAMESPACE = 'turbopress/v1';
+    private const ROUTE_NAMESPACE = 'wp-instant/v1';
     private const MAX_ERRORS_PER_BEACON = 5;
     private const MAX_SAMPLES = 50;
     private const HOUR_RETENTION = 25;
@@ -35,7 +35,7 @@ class Telemetry {
     /**
      * D1 stale-while-revalidate partner: the beacon appended to stale
      * entries hits this endpoint. Throttled to one loopback per path per
-     * minute; the loopback carries X-Turbopress-Revalidate so the drop-in
+     * minute; the loopback carries X-WP-Instant-Revalidate so the drop-in
      * skips serving and WordPress writes a fresh entry.
      */
     public static function handle_revalidate(\WP_REST_Request $request) {
@@ -50,7 +50,7 @@ class Telemetry {
         }
 
         // Collapse revalidate storms (every stale pageview beacons).
-        $throttle_key = 'tp_reval_' . md5($path);
+        $throttle_key = 'wpins_reval_' . md5($path);
         if (get_transient($throttle_key)) {
             return new \WP_REST_Response(['success' => true]);
         }
@@ -62,7 +62,7 @@ class Telemetry {
             'timeout' => 0.01,
             'blocking' => false,
             'headers' => [
-                'X-Turbopress-Revalidate' => '1',
+                'X-WP-Instant-Revalidate' => '1',
                 'Cache-Control' => 'no-cache',
             ],
         ]);
@@ -109,7 +109,7 @@ class Telemetry {
 
     private static function rum_path(): string {
         $host = strtolower((string) (parse_url(home_url(), PHP_URL_HOST) ?: 'localhost'));
-        $dir = TURBOPRESS_CACHE_DIR . '/' . md5($host);
+        $dir = WP_INSTANT_CACHE_DIR . '/' . md5($host);
         if (!is_dir($dir)) {
             wp_mkdir_p($dir);
         }

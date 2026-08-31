@@ -1,5 +1,5 @@
 import { Fetcher, R2Bucket, KVNamespace, D1Database, Queue } from '@cloudflare/workers-types';
-import { Site, SiteConfig, ViewportMode } from '@turbopress/shared';
+import { Site, SiteConfig, ViewportMode } from '@wpinstant/shared';
 
 export interface OptimizationQueueMessage {
   jobId: string;

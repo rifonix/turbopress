@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -42,7 +42,7 @@ class CssOptimizer {
         if (!(bool) $this->config->get('css.inline_all', true)) {
             return null;
         }
-        if (stripos($html, 'turbopress-full-css') !== false) {
+        if (stripos($html, 'wp-instant-full-css') !== false) {
             return null; // already inlined (idempotency)
         }
 
@@ -88,7 +88,7 @@ class CssOptimizer {
                     return ''; // consumed by the inline block
                 }
                 $placed = true;
-                return '<style id="turbopress-full-css">' . $css . '</style>';
+                return '<style id="wp-instant-full-css">' . $css . '</style>';
             },
             $html
         );
@@ -166,7 +166,7 @@ class CssOptimizer {
                 $used_rescue = true;
 
                 // First member of the combined group carries the bundle tag.
-                // data-tp-css keeps the original hrefs so the rescue script
+                // data-wpins-css keeps the original hrefs so the rescue script
                 // can restore real <link rel=stylesheet> tags when the
                 // preload→stylesheet swap never applies (CSP blocking the
                 // inline onload attribute, 404, dropped preload): styles can
@@ -174,7 +174,7 @@ class CssOptimizer {
                 if ($combined_url !== null && $i === $combined_idx) {
                     $orig_hrefs = array_map(fn($k) => $combinable[$k]['href'], $main_keys);
                     return sprintf(
-                        '<link rel="preload" href="%s" as="style" data-tp-css="%s" ' .
+                        '<link rel="preload" href="%s" as="style" data-wpins-css="%s" ' .
                         'onload="this.onload=null;this.rel=\'stylesheet\'" onerror="if(window.__tpCssRescue)window.__tpCssRescue(this)">' .
                         '<noscript><link rel="stylesheet" href="%s"></noscript>',
                         esc_url($combined_url),
@@ -193,7 +193,7 @@ class CssOptimizer {
                     $clean_attrs = preg_replace('/rel=[\'"]stylesheet[\'"]/i', '', $clean_attrs);
 
                     return sprintf(
-                        '<link rel="preload" href="%s" as="style" data-tp-css="%s" %s ' .
+                        '<link rel="preload" href="%s" as="style" data-wpins-css="%s" %s ' .
                         'onload="this.onload=null;this.rel=\'stylesheet\'" onerror="if(window.__tpCssRescue)window.__tpCssRescue(this)">' .
                         '<noscript><link rel="stylesheet" href="%s"></noscript>',
                         esc_url($href),
@@ -210,12 +210,12 @@ class CssOptimizer {
         // Rescue script (once per page): restores the original stylesheets
         // when the preload→stylesheet swap has not applied shortly after
         // load, or immediately on preload error.
-        if ($used_rescue && is_string($html) && stripos((string) $html, 'turbopress-css-rescue') === false) {
-            $sel = 'link[rel=preload][as=style][data-tp-css]';
+        if ($used_rescue && is_string($html) && stripos((string) $html, 'wp-instant-css-rescue') === false) {
+            $sel = 'link[rel=preload][as=style][data-wpins-css]';
             $scan = 'var ls=document.querySelectorAll(\'' . $sel . '\');for(var i=0;i<ls.length;i++){if(!ls[i].sheet)window.__tpCssRescue(ls[i])}';
-            $rescue = '<script tp-exclude id="turbopress-css-rescue">(function(){'
+            $rescue = '<script wpins-exclude id="wp-instant-css-rescue">(function(){'
                 . 'window.__tpCssRescue=function(l){try{'
-                . 'var a=JSON.parse(l.getAttribute(\'data-tp-css\')||\'[]\');'
+                . 'var a=JSON.parse(l.getAttribute(\'data-wpins-css\')||\'[]\');'
                 . 'for(var i=0;i<a.length;i++){var s=document.createElement(\'link\');s.rel=\'stylesheet\';s.href=a[i];document.head.appendChild(s)}'
                 . 'l.removeAttribute(\'onload\');l.removeAttribute(\'onerror\');l.parentNode&&l.parentNode.removeChild(l)'
                 . '}catch(e){}};'
@@ -402,13 +402,13 @@ class CssOptimizer {
             }
 
             $host = isset($_SERVER['HTTP_HOST']) ? strtolower($_SERVER['HTTP_HOST']) : parse_url(home_url(), PHP_URL_HOST);
-            $dir = TURBOPRESS_CACHE_DIR . '/' . md5((string) $host) . '/combined';
+            $dir = WP_INSTANT_CACHE_DIR . '/' . md5((string) $host) . '/combined';
             if (!file_exists($dir) && !wp_mkdir_p($dir)) {
                 return null;
             }
 
             // Cache key from hrefs + local mtimes so edits invalidate bundles.
-            $key_parts = [TURBOPRESS_VERSION];
+            $key_parts = [WP_INSTANT_VERSION];
             // The R2 offload state changes the bundle's url() targets — a
             // bundle built pre-offload must never be reused post-toggle.
             $key_parts[] = 'offload:' . ((bool) $this->config->get('media.offload_images', false) ? '1' : '0');
@@ -416,7 +416,7 @@ class CssOptimizer {
                 $key_parts[] = $href . '@' . $this->sheet_version($href);
             }
             $bundle_hash = md5(implode('|', $key_parts));
-            $bundle_file = $dir . '/tp-' . $bundle_hash . '.css';
+            $bundle_file = $dir . '/wpins-' . $bundle_hash . '.css';
 
             if (!file_exists($bundle_file)) {
                 $imports = [];
@@ -447,7 +447,7 @@ class CssOptimizer {
                     if ($total > self::MAX_BYTES) {
                         return null;
                     }
-                    $chunks[] = "/* turbopress: {$href} */\n" . $css;
+                    $chunks[] = "/* wp-instant: {$href} */\n" . $css;
                 }
 
                 $bundle = '';
@@ -470,7 +470,7 @@ class CssOptimizer {
             }
 
             return [
-                'url' => WP_CONTENT_URL . '/cache/turbopress/' . md5((string) $host) . '/combined/tp-' . $bundle_hash . '.css',
+                'url' => WP_CONTENT_URL . '/cache/wp-instant/' . md5((string) $host) . '/combined/wpins-' . $bundle_hash . '.css',
                 'file' => $bundle_file,
                 'bytes' => $bytes,
             ];
@@ -531,7 +531,7 @@ class CssOptimizer {
         }
 
         // Remote sheet: short transient cache to keep TTFB stable.
-        $key = 'tp_css_' . md5($href);
+        $key = 'wpins_css_' . md5($href);
         $cached = get_transient($key);
         if ($cached !== false) {
             return is_string($cached) ? $cached : null;

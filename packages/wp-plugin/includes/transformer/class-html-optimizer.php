@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -48,7 +48,7 @@ class HtmlOptimizer {
 
         // 3. Optional comment removal (IE conditionals + our signature kept).
         if ((bool) $this->config->get('html.remove_html_comments', false)) {
-            $html = preg_replace('/<!--(?!\[if|<!|>| Optimized with TurboPress)[\s\S]*?-->/i', '', $html) ?? $html;
+            $html = preg_replace('/<!--(?!\[if|<!|>| Optimized with WP Instant)[\s\S]*?-->/i', '', $html) ?? $html;
         }
 
         if ((bool) $this->config->get('html.normalize', true)) {

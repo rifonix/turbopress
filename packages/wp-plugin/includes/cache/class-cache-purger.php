@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -42,7 +42,7 @@ class CachePurger {
         add_action('edit_terms', [$this, 'on_edit_terms']);
         add_action('wp_update_nav_menu', [$this, 'on_menu_update']);
         add_action('comment_post', [$this, 'on_comment_post'], 10, 2);
-        add_action('turbopress_purge_all', [CacheManager::class, 'purge_all_static']);
+        add_action('wp_instant_purge_all', [CacheManager::class, 'purge_all_static']);
         add_action('pre_post_update', [$this, 'on_pre_post_update']);
 
         if (!self::$flush_registered) {

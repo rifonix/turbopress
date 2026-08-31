@@ -1,4 +1,4 @@
-import { Site, SiteConfig, PresetType, Subscription } from '@turbopress/shared';
+import { Site, SiteConfig, PresetType, Subscription } from '@wpinstant/shared';
 
 export type AppView =
   | 'overview'

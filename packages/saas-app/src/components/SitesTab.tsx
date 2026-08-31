@@ -69,7 +69,7 @@ export const SitesTab: React.FC<SitesTabProps> = ({
             Connected Sites
           </h1>
           <p className="text-[13.5px] text-[#71717a] mt-0.5">
-            {sites.length} WordPress site{sites.length === 1 ? '' : 's'} managed on TurboPress Edge
+            {sites.length} WordPress site{sites.length === 1 ? '' : 's'} managed on WP Instant Edge
           </p>
         </div>
 
@@ -146,7 +146,7 @@ export const SitesTab: React.FC<SitesTabProps> = ({
                       <h3 className="font-mono font-semibold text-[13.5px] text-[#171717] truncate group-hover:text-[#f03e2f] transition-colors">
                         {site.domain}
                       </h3>
-                      <p className="text-[11.5px] text-[#71717a] truncate">{site.subTitle || (site.is_active ? 'Connected · TurboPress' : 'Not connected')}</p>
+                      <p className="text-[11.5px] text-[#71717a] truncate">{site.subTitle || (site.is_active ? 'Connected · WP Instant' : 'Not connected')}</p>
                     </div>
                   </div>
 

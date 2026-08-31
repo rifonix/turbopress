@@ -1,5 +1,5 @@
 -- Migration: 0001_init.sql
--- Turbopress Core Schema for Cloudflare D1
+-- WP Instant Core Schema for Cloudflare D1
 
 -- 1. Users (Synced from Clerk Webhooks / Auth)
 CREATE TABLE IF NOT EXISTS users (

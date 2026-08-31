@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -14,12 +14,12 @@ if (!defined('ABSPATH')) {
  *     {api}/api/v1/assets/media/{site_id}/{hash}?u=&w=&f=&s= — the worker
  *     serves the R2 derivative on HIT and 302s to the origin URL on MISS,
  *     so a rewrite can NEVER break an image (worst case = a redirect).
- *  2. Rewritten assets are queued; the hourly turbopress_media_offload
+ *  2. Rewritten assets are queued; the hourly wp_instant_media_offload
  *     cron generates webp derivatives (GD) and PUTs them to the edge,
  *     which stores them in R2 (immutable).
  */
 class MediaOffloader {
-    private const QUEUE_OPTION = 'turbopress_media_queue';
+    private const QUEUE_OPTION = 'wp_instant_media_queue';
     private const MAX_QUEUE = 500;
     private const MAX_BATCH = 12;
     private const MAX_ATTEMPTS = 5;
@@ -60,7 +60,7 @@ class MediaOffloader {
                         $w = preg_match('/\swidth=["\'](\d{3,4})["\']/i', $tag, $wm) ? (int) $wm[1] : $max_w;
                         $new = $this->rewrite_source($src, $w, 'webp', $excluded, $queued);
                         if ($new !== null) {
-                            $tag = str_replace($sm[0], ' src="' . esc_url($new) . '" data-tp-orig-src="' . esc_url($src) . '"', $tag);
+                            $tag = str_replace($sm[0], ' src="' . esc_url($new) . '" data-wpins-orig-src="' . esc_url($src) . '"', $tag);
                         }
                     }
 
@@ -128,7 +128,7 @@ class MediaOffloader {
                     if ($new === null) {
                         return $tag;
                     }
-                    return str_replace($sm[0], ' src="' . esc_url($new) . '" data-tp-orig-src="' . esc_url($sm[1]) . '"', $tag);
+                    return str_replace($sm[0], ' src="' . esc_url($new) . '" data-wpins-orig-src="' . esc_url($sm[1]) . '"', $tag);
                 },
                 $html
             ) ?? $html;
@@ -368,9 +368,9 @@ class MediaOffloader {
         // seconds, not at the next hourly cron tick. Kick a due-now worker
         // (spawn_cron fires the loopback without delaying this request).
         // Throttled: one pending kick at a time.
-        if ($added > 0 && !get_transient('tp_media_kick')) {
-            set_transient('tp_media_kick', 1, 2 * MINUTE_IN_SECONDS);
-            wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+        if ($added > 0 && !get_transient('wpins_media_kick')) {
+            set_transient('wpins_media_kick', 1, 2 * MINUTE_IN_SECONDS);
+            wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
             if (function_exists('spawn_cron')) {
                 spawn_cron();
             }
@@ -437,7 +437,7 @@ class MediaOffloader {
 
         // More work left? Keep the worker hot without waiting an hour.
         if ($queue !== [] && $batch >= self::MAX_BATCH) {
-            wp_schedule_single_event(time() + 20, 'turbopress_media_offload', []);
+            wp_schedule_single_event(time() + 20, 'wp_instant_media_offload', []);
             spawn_cron();
         }
     }

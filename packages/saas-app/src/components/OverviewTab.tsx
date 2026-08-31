@@ -182,7 +182,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Fleet Overview
             </h1>
             <p className="text-[13.5px] text-[#71717a] mt-0.5">
-              Welcome to TurboPress · High-Performance Zero-DNS WordPress Optimization Engine
+              Welcome to WP Instant · High-Performance Zero-DNS WordPress Optimization Engine
             </p>
           </div>
 
@@ -203,14 +203,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               No WordPress sites connected yet
             </h2>
             <p className="text-sm text-[#71717a] max-w-md mx-auto leading-relaxed">
-              Connect your first WordPress site in under 60 seconds with our 1-Click OAuth Handshake or install the TurboPress plugin.
+              Connect your first WordPress site in under 60 seconds with our 1-Click OAuth Handshake or install the WP Instant plugin.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left pt-2">
             <div className="p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl space-y-1">
               <span className="font-mono text-xs font-semibold text-[#171717] block">1. Install Plugin</span>
-              <p className="text-[11.5px] text-[#71717a]">Upload the TurboPress plugin to your WP admin</p>
+              <p className="text-[11.5px] text-[#71717a]">Upload the WP Instant plugin to your WP admin</p>
             </div>
             <div className="p-3.5 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl space-y-1">
               <span className="font-mono text-xs font-semibold text-[#171717] block">2. 1-Click Pair</span>
@@ -228,7 +228,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <ArrowRight className="w-4 h-4 ml-1.5" />
             </button>
             <button
-              onClick={() => onToast('Plugin download package: turbopress.zip')}
+              onClick={() => onToast('Plugin download package: wp-instant.zip')}
               className="w-full sm:w-auto btn btn-secondary px-5 py-2.5"
             >
               Download WP Plugin (.zip)
@@ -332,7 +332,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
           </div>
           <p className="text-[11px] text-[#a1a1aa] mt-3 leading-snug">
-            Reported by the TurboPress plugin once page cache telemetry is enabled.
+            Reported by the WP Instant plugin once page cache telemetry is enabled.
           </p>
         </div>
 
@@ -480,7 +480,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                             {site.domain}
                           </span>
                           <span className="text-[11.5px] text-[#71717a]">
-                            {site.subTitle || (site.is_active ? 'Connected · TurboPress' : 'Not connected')}
+                            {site.subTitle || (site.is_active ? 'Connected · WP Instant' : 'Not connected')}
                           </span>
                         </div>
                       </div>
@@ -554,7 +554,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                         <button
                           title="Open WordPress Admin"
                           onClick={() => {
-                            window.open(`https://${site.domain}/wp-admin/admin.php?page=turbopress`, '_blank');
+                            window.open(`https://${site.domain}/wp-admin/admin.php?page=wp-instant`, '_blank');
                           }}
                           className="w-7 h-7 rounded grid place-items-center hover:bg-white text-[#71717a] hover:text-[#171717] hover:shadow-sm"
                         >

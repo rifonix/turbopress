@@ -145,7 +145,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const wantsAvif = f === 'webp' && /image\/avif/i.test(accept);
 
   // Cache API fast path (per URL + format variant).
-  const cache = await caches.open('tp-media-v1');
+  const cache = await caches.open('wpins-media-v1');
   const cacheKey = new Request(c.req.url + (wantsAvif ? '&fmt=avif' : ''));
   const cachedHit = await cache.match(cacheKey).catch(() => null);
   if (cachedHit && cachedHit.ok) {
@@ -187,7 +187,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Accept-Ranges': 'bytes',
         'Access-Control-Allow-Origin': '*',
-        'X-Turbopress-Media': 'HIT',
+        'X-WP-Instant-Media': 'HIT',
       },
     });
     c.executionCtx.waitUntil(cache.put(cacheKey, hit.clone()).catch(() => {}));
@@ -219,7 +219,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
       // best effort
     }
     c.header('Cache-Control', 'public, max-age=60');
-    c.header('X-Turbopress-Media', 'MISS');
+    c.header('X-WP-Instant-Media', 'MISS');
     return c.redirect(verified.src, 302);
   }
 
@@ -233,7 +233,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     // Origin unreachable: last-resort redirect (kept from the old design —
     // a rewrite can never permanently break an image).
     c.header('Cache-Control', 'public, max-age=60');
-    c.header('X-Turbopress-Media', 'MISS');
+    c.header('X-WP-Instant-Media', 'MISS');
     return c.redirect(verified.src, 302);
   }
 
@@ -241,14 +241,14 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const contentLength = Number(srcRes.headers.get('content-length') || '0');
   if (contentLength > 5 * 1024 * 1024) {
     c.header('Cache-Control', 'public, max-age=300');
-    c.header('X-Turbopress-Media', 'PASS-OVERSIZE');
+    c.header('X-WP-Instant-Media', 'PASS-OVERSIZE');
     return c.redirect(verified.src, 302);
   }
 
   const srcBytes = await srcRes.arrayBuffer();
   if (srcBytes.byteLength > 5 * 1024 * 1024) {
     c.header('Cache-Control', 'public, max-age=300');
-    c.header('X-Turbopress-Media', 'PASS-OVERSIZE');
+    c.header('X-WP-Instant-Media', 'PASS-OVERSIZE');
     return c.redirect(verified.src, 302);
   }
 
@@ -266,7 +266,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
         'Content-Type': ct,
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Access-Control-Allow-Origin': '*',
-        'X-Turbopress-Media': 'EDGE-FILL',
+        'X-WP-Instant-Media': 'EDGE-FILL',
       },
     });
     c.executionCtx.waitUntil(cache.put(cacheKey, passthrough.clone()).catch(() => {}));
@@ -305,7 +305,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
           'Content-Type': `image/${outFormat}`,
           'Cache-Control': 'public, max-age=31536000, immutable',
           'Access-Control-Allow-Origin': '*',
-          'X-Turbopress-Media': 'EDGE-OPT',
+          'X-WP-Instant-Media': 'EDGE-OPT',
         },
       });
       c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => {}));
@@ -327,7 +327,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
       'Content-Type': srcType || 'application/octet-stream',
       'Cache-Control': 'public, max-age=300',
       'Access-Control-Allow-Origin': '*',
-      'X-Turbopress-Media': 'ORIGINAL',
+      'X-WP-Instant-Media': 'ORIGINAL',
     },
   });
 });

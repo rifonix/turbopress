@@ -10,7 +10,7 @@ import {
 } from './dist/index.js';
 
 async function runVerification() {
-  console.log('⚡ Starting Turbopress Architecture Verification Test...\n');
+  console.log('⚡ Starting WP Instant Architecture Verification Test...\n');
 
   // 1. Validate Presets against Zod Schema
   console.log('1. Validating Master Presets against Zod Schema:');

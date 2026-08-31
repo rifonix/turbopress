@@ -1,13 +1,13 @@
 <?php
 /**
- * Turbopress Advanced Cache Drop-In Engine
+ * WP Instant Advanced Cache Drop-In Engine
  * Provides sub-15ms static page delivery bypassing WordPress core execution.
  *
  * SELF-CONTAINED BY DESIGN: this file is copied to wp-content/advanced-cache.php
  * and executes before WordPress loads the plugin. It therefore must not
  * depend on any plugin class, WP function, or database access. The cache key
  * rules (host hashing, ignored query params, mobile UA sniff, page path)
- * MUST stay byte-compatible with Turbopress\CacheManager.
+ * MUST stay byte-compatible with WPInstant\CacheManager.
  */
 
 if (!defined('ABSPATH')) {
@@ -22,7 +22,7 @@ if ($request_method !== 'GET' && $request_method !== 'HEAD') {
 
 // 1b. Revalidation loopback: skip serving so WordPress re-renders the page
 // and writes a fresh cache entry (the fresh write also removes .stale twins).
-if (!empty($_SERVER['HTTP_X_TURBOPRESS_REVALIDATE'])) {
+if (!empty($_SERVER['HTTP_X_WP_INSTANT_REVALIDATE'])) {
     return;
 }
 
@@ -30,7 +30,7 @@ if (!empty($_SERVER['HTTP_X_TURBOPRESS_REVALIDATE'])) {
 // origin page, never our own transformed/cached output (circular extraction
 // drops JS-rendered elements and their ::before/::after rules, and skews
 // LCP). The flag is appended by the edge extractor since v1.11.0.
-if (isset($_GET['turbopress_extract'])) {
+if (isset($_GET['wp_instant_extract'])) {
     return;
 }
 
@@ -67,7 +67,7 @@ $parsed_url = parse_url($request_uri);
 $path = isset($parsed_url['path']) ? $parsed_url['path'] : '/';
 $query = isset($parsed_url['query']) ? $parsed_url['query'] : '';
 
-$turbopress_ignored_params = [
+$wp_instant_ignored_params = [
     'utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid',
     'msclkid', 'adgroupid', 'campaignid', 'vgo_ee',
 ];
@@ -75,7 +75,7 @@ $turbopress_ignored_params = [
 $clean_query = '';
 if (!empty($query)) {
     parse_str($query, $params);
-    foreach ($turbopress_ignored_params as $ignored) {
+    foreach ($wp_instant_ignored_params as $ignored) {
         $ignored = rtrim($ignored, '*');
         if ($ignored === '') {
             continue;
@@ -100,7 +100,7 @@ if (preg_match('/mobile|android|iphone|ipod|windows phone/i', $user_agent)) {
 }
 
 // 5. Construct Cache File Path (pages subtree only — CSS/fonts survive purges)
-$cache_dir = WP_CONTENT_DIR . '/cache/turbopress/pages/' . md5($http_host);
+$cache_dir = WP_CONTENT_DIR . '/cache/wp-instant/pages/' . md5($http_host);
 $url_hash = md5($path . $clean_query . ($is_mobile ? '_mobile' : '_desktop'));
 $cache_file = $cache_dir . '/' . substr($url_hash, 0, 2) . '/' . $url_hash . '.html';
 
@@ -123,8 +123,8 @@ if (file_exists($cache_file)) {
         $accept_encoding = isset($_SERVER['HTTP_ACCEPT_ENCODING']) ? $_SERVER['HTTP_ACCEPT_ENCODING'] : '';
 
         header('Content-Type: text/html; charset=UTF-8');
-        header('X-Turbopress-Cache: HIT');
-        header('X-Turbopress-Device: ' . ($is_mobile ? 'mobile' : 'desktop'));
+        header('X-WP-Instant-Cache: HIT');
+        header('X-WP-Instant-Device: ' . ($is_mobile ? 'mobile' : 'desktop'));
         header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
 
         // Check for pre-compressed Brotli or Gzip
@@ -154,20 +154,20 @@ if (file_exists($stale_file) && (time() - filemtime($stale_file)) < 86400) {
     $stale_html = @file_get_contents($stale_file);
     if ($stale_html !== false && strlen($stale_html) > 255) {
         header('Content-Type: text/html; charset=UTF-8');
-        header('X-Turbopress-Cache: STALE');
-        header('X-Turbopress-Device: ' . ($is_mobile ? 'mobile' : 'desktop'));
+        header('X-WP-Instant-Cache: STALE');
+        header('X-WP-Instant-Device: ' . ($is_mobile ? 'mobile' : 'desktop'));
         // no-cache: host-level proxies (LiteSpeed etc.) must not pin the
         // stale copy; the fresh entry lands within a minute.
         header('Cache-Control: no-cache, must-revalidate');
 
         // Fire-and-forget beacon: the REST endpoint throttles per path and
         // performs a non-blocking loopback render.
-        $tp_beacon = '<script tp-exclude>(function(){try{navigator.sendBeacon('
-            . 'location.origin + "/wp-json/turbopress/v1/revalidate",'
+        $wpins_beacon = '<script wpins-exclude>(function(){try{navigator.sendBeacon('
+            . 'location.origin + "/wp-json/wp-instant/v1/revalidate",'
             . 'JSON.stringify({p: location.pathname + location.search})'
             . ');}catch(e){}})();</script>';
         if (stripos($stale_html, '</body>') !== false) {
-            $stale_html = str_ireplace('</body>', $tp_beacon . '</body>', $stale_html);
+            $stale_html = str_ireplace('</body>', $wpins_beacon . '</body>', $stale_html);
         }
         echo $stale_html;
         exit;
@@ -175,4 +175,4 @@ if (file_exists($stale_file) && (time() - filemtime($stale_file)) < 86400) {
     @unlink($stale_file); // corrupt/oversized stale entry — drop it
 }
 
-// Cache Miss: Let WordPress continue bootstrap and hit the Turbopress output buffer
+// Cache Miss: Let WordPress continue bootstrap and hit the WP Instant output buffer

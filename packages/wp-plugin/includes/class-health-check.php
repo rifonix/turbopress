@@ -1,17 +1,17 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
 /**
- * 13-point self-diagnostic. Results are stored in the 'turbopress_health'
+ * 13-point self-diagnostic. Results are stored in the 'wp_instant_health'
  * option (drives the admin checklist UI), and pushed daily to the SaaS
  * control plane via the heartbeat route so fleet health is visible remotely.
  */
 class HealthCheck {
-    private const OPTION_KEY = 'turbopress_health';
+    private const OPTION_KEY = 'wp_instant_health';
     private const THROTTLE = 900; // 15 minutes
 
     private Config $config;
@@ -34,7 +34,7 @@ class HealthCheck {
 
     public function run(): array {
         $host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
-        $css_glob = TURBOPRESS_CACHE_DIR . '/' . md5($host) . '/css/*.css';
+        $css_glob = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css/*.css';
         $css_files = glob($css_glob) ?: [];
 
         $foreign = CacheIntegration::detect_foreign_dropin();
@@ -42,32 +42,32 @@ class HealthCheck {
         // Loopback self-test: does our own cache serve a HIT, and is the
         // served HTML carrying the CURRENT plugin version fingerprint?
         // Cached for the report's lifetime to avoid a request storm.
-        $loopback = get_transient('turbopress_health_loopback');
+        $loopback = get_transient('wp_instant_health_loopback');
         if (!is_array($loopback)) {
             $loopback = $this->probe_loopback();
-            set_transient('turbopress_health_loopback', $loopback, self::THROTTLE);
+            set_transient('wp_instant_health_loopback', $loopback, self::THROTTLE);
         }
         $loopback_hit = (bool) ($loopback['hit'] ?? false);
         $served_version = isset($loopback['version']) ? (string) $loopback['version'] : null;
 
         // Edge reachability (cached — a slow/failed probe shouldn't stall admin).
-        $edge = get_transient('turbopress_health_edge');
+        $edge = get_transient('wp_instant_health_edge');
         if ($edge === false) {
             $edge = $this->config->is_connected() ? $this->probe_edge() : null;
             if ($edge !== null) {
-                set_transient('turbopress_health_edge', $edge, self::THROTTLE);
+                set_transient('wp_instant_health_edge', $edge, self::THROTTLE);
             }
         }
 
         $checks = [
             [
                 'key' => 'dropin_installed',
-                'label' => 'Turbopress drop-in installed',
+                'label' => 'WP Instant drop-in installed',
                 'status' => CacheIntegration::is_our_dropin_installed() ? 'ok' : ($foreign !== null ? 'info' : 'warning'),
                 'detail' => CacheIntegration::is_our_dropin_installed()
                     ? 'advanced-cache.php is ours'
                     : ($foreign !== null
-                        ? 'Delegated to ' . $foreign['label'] . ' (it owns the single drop-in slot; Turbopress hooks its purge events)'
+                        ? 'Delegated to ' . $foreign['label'] . ' (it owns the single drop-in slot; WP Instant hooks its purge events)'
                         : 'advanced-cache.php is not installed'),
             ],
             [
@@ -84,14 +84,14 @@ class HealthCheck {
                 'status' => $foreign === null ? 'ok' : 'ok',
                 'detail' => $foreign === null
                     ? 'No foreign advanced-cache.php'
-                    : 'Coexisting with ' . $foreign['label'] . ' — Turbopress purges it automatically on content changes',
+                    : 'Coexisting with ' . $foreign['label'] . ' — WP Instant purges it automatically on content changes',
             ],
             [
                 'key' => 'loopback_cache_hit',
                 'label' => 'Page cache serving (loopback test)',
                 'status' => $loopback_hit ? 'ok' : ($foreign !== null ? 'info' : 'warning'),
                 'detail' => $loopback_hit
-                    ? 'X-Turbopress-Cache: HIT observed'
+                    ? 'X-WP-Instant-Cache: HIT observed'
                     : ($foreign !== null
                         ? 'Host cache (' . $foreign['label'] . ') is serving pages — expected when it owns the drop-in'
                         : 'No cache HIT on loopback request'),
@@ -99,18 +99,18 @@ class HealthCheck {
             [
                 'key' => 'served_html_current',
                 'label' => 'Served HTML is current',
-                'status' => $served_version === null ? 'warning' : ($served_version === TURBOPRESS_VERSION ? 'ok' : 'error'),
+                'status' => $served_version === null ? 'warning' : ($served_version === WP_INSTANT_VERSION ? 'ok' : 'error'),
                 'detail' => $served_version === null
-                    ? 'No Turbopress fingerprint on served homepage (host cache serving unoptimized HTML, or DOM engine inactive)'
-                    : ($served_version === TURBOPRESS_VERSION
-                        ? 'data-tp-version matches ' . TURBOPRESS_VERSION
+                    ? 'No WP Instant fingerprint on served homepage (host cache serving unoptimized HTML, or DOM engine inactive)'
+                    : ($served_version === WP_INSTANT_VERSION
+                        ? 'data-wpins-version matches ' . WP_INSTANT_VERSION
                         : 'STALE: homepage served by a host/foreign cache was generated by v' . $served_version . ' — purge the host cache (LiteSpeed etc.)'),
             ],
             [
                 'key' => 'cache_dir_writable',
                 'label' => 'Cache directory writable',
-                'status' => wp_is_writable(TURBOPRESS_PAGES_DIR) ? 'ok' : 'error',
-                'detail' => TURBOPRESS_PAGES_DIR,
+                'status' => wp_is_writable(WP_INSTANT_PAGES_DIR) ? 'ok' : 'error',
+                'detail' => WP_INSTANT_PAGES_DIR,
             ],
             [
                 'key' => 'compression_available',
@@ -149,8 +149,8 @@ class HealthCheck {
             [
                 'key' => 'plugin_version_current',
                 'label' => 'Plugin version current',
-                'status' => get_option('turbopress_version') === TURBOPRESS_VERSION ? 'ok' : 'warning',
-                'detail' => TURBOPRESS_VERSION,
+                'status' => get_option('wp_instant_version') === WP_INSTANT_VERSION ? 'ok' : 'warning',
+                'detail' => WP_INSTANT_VERSION,
             ],
             [
                 'key' => 'output_buffering_active',
@@ -211,7 +211,7 @@ class HealthCheck {
         if (function_exists('wp_get_active_and_valid_plugins')) {
             foreach (wp_get_active_and_valid_plugins() as $file) {
                 $slug = basename(dirname($file));
-                if ($slug === 'turbopress') {
+                if ($slug === 'wp-instant') {
                     continue;
                 }
                 $data = get_file_data($file, ['Name' => 'Plugin Name']);
@@ -240,7 +240,7 @@ class HealthCheck {
 
     /**
      * Loopback probe: is our cache serving, and which plugin version
-     * generated the served HTML (data-tp-version fingerprint)?
+     * generated the served HTML (data-wpins-version fingerprint)?
      */
     private function probe_loopback(): array {
         $response = wp_remote_get(home_url('/'), [
@@ -251,11 +251,11 @@ class HealthCheck {
             return ['hit' => false, 'version' => null];
         }
 
-        $header = (string) wp_remote_retrieve_header($response, 'x-turbopress-cache');
+        $header = (string) wp_remote_retrieve_header($response, 'x-wp-instant-cache');
         $body = (string) wp_remote_retrieve_body($response);
 
         $version = null;
-        if (preg_match('/<html\b[^>]*\sdata-tp-version=["\']([0-9.]+)["\']/i', substr($body, 0, 4096), $m)) {
+        if (preg_match('/<html\b[^>]*\sdata-wpins-version=["\']([0-9.]+)["\']/i', substr($body, 0, 4096), $m)) {
             $version = $m[1];
         }
 

@@ -7,7 +7,7 @@ import {
   Loader2, ShieldCheck, FlaskConical, Activity, ExternalLink, FileText,
   HardDriveDownload, Eye, AlertTriangle, Layers, ChevronDown,
 } from 'lucide-react';
-import { PRESETS_RECORD } from '@turbopress/shared';
+import { PRESETS_RECORD } from '@wpinstant/shared';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -621,7 +621,7 @@ function EmbedPanel() {
           </div>
           <h2 className="text-base font-semibold text-[#18181b]">Can&apos;t load the dashboard</h2>
           <p className="text-xs text-[#71717a]">{error || 'Unknown error'}</p>
-          <p className="text-[11px] text-[#a1a1aa]">Go back to WP-admin and reload the Turbopress page to mint a fresh token.</p>
+          <p className="text-[11px] text-[#a1a1aa]">Go back to WP-admin and reload the WP Instant page to mint a fresh token.</p>
         </div>
       </div>
     );
@@ -629,7 +629,7 @@ function EmbedPanel() {
 
   const deploymentStatus: string = getPath(config, 'deployment.status') || 'live';
   const isTest = deploymentStatus === 'test';
-  const previewUrl = `https://${data.site.domain}/?tp_preview=1`;
+  const previewUrl = `https://${data.site.domain}/?wpins_preview=1`;
   const preset: string = config.preset || 'ludicrous';
   const offloadLog = data.offloadLog || [];
   const sitePlugins: Record<string, string> =
@@ -1030,7 +1030,7 @@ function EmbedPanel() {
         </div>
 
         <div className="text-center text-[11px] text-[#a1a1aa] pb-4">
-          Turbopress embed · changes apply to your site instantly via the signed command channel ·{' '}
+          WP Instant embed · changes apply to your site instantly via the signed command channel ·{' '}
           <a href="/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 hover:text-[#71717a]">
             open full dashboard <ExternalLink className="w-3 h-3" />
           </a>

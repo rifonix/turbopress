@@ -115,7 +115,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       <div className="flex items-center justify-between border-b border-[#e4e4e7] pb-4">
         <div className="flex items-center gap-2 text-xs font-mono text-[#71717a]">
           <span className="w-2 h-2 rounded-full bg-[#f03e2f] animate-pulse" />
-          <strong className="text-[#171717]">TurboPress Onboarding</strong>
+          <strong className="text-[#171717]">WP Instant Onboarding</strong>
           <span className="hidden sm:inline">· Step {step} of 4</span>
         </div>
         {hasActivePlan && (
@@ -177,8 +177,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               {isVerifyingPurchase
                 ? 'Confirming your purchase…'
                 : hasActivePlan
-                ? 'Your TurboPress Plan is Active'
-                : 'Choose your TurboPress Plan'}
+                ? 'Your WP Instant Plan is Active'
+                : 'Choose your WP Instant Plan'}
             </h2>
             <p className="text-[13.5px] text-[#71717a]">
               {isVerifyingPurchase
@@ -254,7 +254,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   Recommended
                 </span>
                 <div>
-                  <h3 className="text-lg font-semibold text-[#171717]">TurboPress Starter</h3>
+                  <h3 className="text-lg font-semibold text-[#171717]">WP Instant Starter</h3>
                   <div className="flex items-baseline gap-1 mt-3">
                     <span className="font-mono text-3xl font-bold text-[#171717]">
                       ${billingInterval === 'monthly' ? '19' : '15'}
@@ -312,7 +312,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               Connect your WordPress Site
             </h2>
             <p className="text-[13.5px] text-[#71717a]">
-              Register your domain to generate an API key, then pair the TurboPress plugin.
+              Register your domain to generate an API key, then pair the WP Instant plugin.
             </p>
           </div>
 
@@ -359,7 +359,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </span>
                 <div>
                   <p className="text-xs font-semibold text-[#166534]">
-                    {siteDomain} connected to TurboPress Edge
+                    {siteDomain} connected to WP Instant Edge
                   </p>
                   <p className="text-[11px] text-[#15803d]">
                     Edge zone provisioned · drop-in cache armed
@@ -396,13 +396,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <p className="font-semibold text-[#171717]">Finish pairing in WordPress:</p>
                 <ol className="list-decimal pl-4 space-y-1">
                   <li>
-                    Download <code>turbopress-optimizer.zip</code> and upload it under WordPress →
+                    Download <code>wp-instant.zip</code> and upload it under WordPress →
                     Plugins → Add New.
                   </li>
-                  <li>Activate the plugin, then open TurboPress settings.</li>
+                  <li>Activate the plugin, then open WP Instant settings.</li>
                   <li>
                     Paste the API key above — or just click{' '}
-                    <strong>1-Click Connect to TurboPress</strong> inside the plugin.
+                    <strong>1-Click Connect to WP Instant</strong> inside the plugin.
                   </li>
                 </ol>
               </div>
@@ -538,7 +538,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                     : '. Its first optimization run will finish in the Jobs queue.'}
                 </>
               ) : (
-                'Your TurboPress plan is active and the fleet dashboard is unlocked.'
+                'Your WP Instant plan is active and the fleet dashboard is unlocked.'
               )}
             </p>
           </div>
@@ -569,7 +569,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               onClick={onComplete}
               className="btn btn-primary text-xs py-2.5 px-8 shadow-md"
             >
-              Enter TurboPress Fleet Dashboard →
+              Enter WP Instant Fleet Dashboard →
             </button>
           </div>
         </div>

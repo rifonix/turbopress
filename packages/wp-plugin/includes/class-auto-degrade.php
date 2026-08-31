@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) {
  * 6h max; every action is surfaced in wp-admin and persisted for the SaaS.
  */
 class AutoDegrade {
-    public const OPTION = 'turbopress_auto_degrade';
+    public const OPTION = 'wp_instant_auto_degrade';
 
     private const MIN_VIEWS = 300;
     private const WINDOW_HOURS = 6;
@@ -121,24 +121,24 @@ class AutoDegrade {
         $rate = (float) ($state['rate'] ?? 0) * 100;
         $views = (int) ($state['views'] ?? 0);
         printf(
-            '<div class="notice notice-warning is-dismissible" data-tp-dismiss="auto_degrade"><p>' .
-            '<strong>TurboPress Auto-Protect:</strong> visitor error rate reached %.1f%% across %d pageviews, ' .
+            '<div class="notice notice-warning is-dismissible" data-wpins-dismiss="auto_degrade"><p>' .
+            '<strong>WP Instant Auto-Protect:</strong> visitor error rate reached %.1f%% across %d pageviews, ' .
             'so JavaScript execution was automatically stepped down from <code>%s</code> to <code>%s</code>. ' .
-            'You can change this in <a href="%s">TurboPress settings</a>.</p></div>',
+            'You can change this in <a href="%s">WP Instant settings</a>.</p></div>',
             $rate,
             $views,
             $from,
             $to,
-            esc_url(admin_url('admin.php?page=turbopress'))
+            esc_url(admin_url('admin.php?page=wp-instant'))
         );
 
         // Minimal inline dismiss handler (no separate asset needed).
-        echo '<script>document.addEventListener("click",function(e){if(e.target.closest(\'[data-tp-dismiss="auto_degrade"]\')){var x=new XMLHttpRequest;x.open("POST",ajaxurl||"' . esc_url(admin_url('admin-ajax.php')) . '");x.setRequestHeader("Content-Type","application/x-www-form-urlencoded");x.send("action=turbopress_dismiss_degrade&nonce=' . esc_js(wp_create_nonce('turbopress_admin')) . '");}});</script>';
+        echo '<script>document.addEventListener("click",function(e){if(e.target.closest(\'[data-wpins-dismiss="auto_degrade"]\')){var x=new XMLHttpRequest;x.open("POST",ajaxurl||"' . esc_url(admin_url('admin-ajax.php')) . '");x.setRequestHeader("Content-Type","application/x-www-form-urlencoded");x.send("action=wp_instant_dismiss_degrade&nonce=' . esc_js(wp_create_nonce('wp_instant_admin')) . '");}});</script>';
     }
 
     public static function register_ajax(): void {
-        add_action('wp_ajax_turbopress_dismiss_degrade', static function (): void {
-            check_ajax_referer('turbopress_admin', 'nonce');
+        add_action('wp_ajax_wp_instant_dismiss_degrade', static function (): void {
+            check_ajax_referer('wp_instant_admin', 'nonce');
             if (!current_user_can('manage_options')) {
                 wp_send_json_error(null, 403);
             }

@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -80,7 +80,7 @@ class CacheManager {
             $is_mobile = self::ua_is_mobile($_SERVER['HTTP_USER_AGENT'] ?? '');
         }
 
-        $cache_dir = TURBOPRESS_PAGES_DIR . '/' . md5($host);
+        $cache_dir = WP_INSTANT_PAGES_DIR . '/' . md5($host);
         $url_hash = md5($path . $clean_query . ($is_mobile ? '_mobile' : '_desktop'));
         $sub_dir = $cache_dir . '/' . substr($url_hash, 0, 2);
 
@@ -157,7 +157,7 @@ class CacheManager {
             !empty($query) ? '?' . $query : '',
         ]);
 
-        $cache_dir = TURBOPRESS_PAGES_DIR . '/' . md5($host);
+        $cache_dir = WP_INSTANT_PAGES_DIR . '/' . md5($host);
 
         foreach (['_desktop', '_mobile'] as $suffix) {
             foreach ($query_variants as $q) {
@@ -190,13 +190,13 @@ class CacheManager {
      * pauses cache writes mid-swap.
      */
     public static function purge_all_static(): void {
-        if (!file_exists(TURBOPRESS_PAGES_DIR)) {
+        if (!file_exists(WP_INSTANT_PAGES_DIR)) {
             return;
         }
 
-        $lock_fp = @fopen(TURBOPRESS_CACHE_DIR . '/.purge_lock', 'c');
+        $lock_fp = @fopen(WP_INSTANT_CACHE_DIR . '/.purge_lock', 'c');
         if (!$lock_fp) {
-            self::delete_directory_contents(TURBOPRESS_PAGES_DIR);
+            self::delete_directory_contents(WP_INSTANT_PAGES_DIR);
             return;
         }
 
@@ -207,12 +207,12 @@ class CacheManager {
         }
 
         try {
-            $trash = TURBOPRESS_PAGES_DIR . '.old.' . substr(md5(uniqid('', true)), 0, 8);
-            if (@rename(TURBOPRESS_PAGES_DIR, $trash)) {
-                wp_mkdir_p(TURBOPRESS_PAGES_DIR);
+            $trash = WP_INSTANT_PAGES_DIR . '.old.' . substr(md5(uniqid('', true)), 0, 8);
+            if (@rename(WP_INSTANT_PAGES_DIR, $trash)) {
+                wp_mkdir_p(WP_INSTANT_PAGES_DIR);
                 self::delete_directory($trash);
             } else {
-                self::delete_directory_contents(TURBOPRESS_PAGES_DIR);
+                self::delete_directory_contents(WP_INSTANT_PAGES_DIR);
             }
         } finally {
             @flock($lock_fp, LOCK_UN);
@@ -221,7 +221,7 @@ class CacheManager {
     }
 
     private static function is_purge_locked(): bool {
-        $lock_fp = @fopen(TURBOPRESS_CACHE_DIR . '/.purge_lock', 'c');
+        $lock_fp = @fopen(WP_INSTANT_CACHE_DIR . '/.purge_lock', 'c');
         if (!$lock_fp) {
             return false;
         }

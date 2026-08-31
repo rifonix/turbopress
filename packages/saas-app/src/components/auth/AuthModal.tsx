@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { X, Zap } from 'lucide-react';
 import { SignIn, SignUp } from '@clerk/nextjs';
-import { turbopressClerkAppearance } from './ClerkTheme';
+import { wpInstantClerkAppearance } from './ClerkTheme';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -38,7 +38,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <Zap className="w-3.5 h-3.5 text-[#f03e2f] fill-current" />
             </span>
             <div>
-              <h3 className="font-semibold text-sm text-[#171717]">TurboPress Engine</h3>
+              <h3 className="font-semibold text-sm text-[#171717]">WP Instant Engine</h3>
               <p className="text-[11px] text-[#71717a]">Zero-DNS WordPress Acceleration</p>
             </div>
           </div>
@@ -84,14 +84,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="flex justify-center">
           {mode === 'signin' ? (
             <SignIn
-              appearance={turbopressClerkAppearance}
+              appearance={wpInstantClerkAppearance}
               routing="hash"
               signUpUrl="/sign-up"
               fallbackRedirectUrl="/"
             />
           ) : (
             <SignUp
-              appearance={turbopressClerkAppearance}
+              appearance={wpInstantClerkAppearance}
               routing="hash"
               signInUrl="/sign-in"
               fallbackRedirectUrl="/"

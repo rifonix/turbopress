@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
  *
  * 1. Google Fonts localization: fetches the css2 (or css) payload with a
  *    modern Chrome UA (woff2 + unicode-range), downloads the latin/latin-ext
- *    woff2 files to wp-content/cache/turbopress/fonts/, rewrites the CSS to
+ *    woff2 files to wp-content/cache/wp-instant/fonts/, rewrites the CSS to
  *    the same-origin URLs and adds font-display:swap. Kills 4 blocking DNS
  *    connections to fonts.googleapis.com/fonts.gstatic.com. The localized
  *    fonts.css is a normal same-origin sheet, so the CSS combiner can
@@ -107,7 +107,7 @@ class FontOptimizer {
     private function localize_google_fonts(string $href): ?array {
         try {
             $pkg = md5($href);
-            $dir = TURBOPRESS_CACHE_DIR . '/fonts/' . $pkg;
+            $dir = WP_INSTANT_CACHE_DIR . '/fonts/' . $pkg;
             $css_file = $dir . '/fonts.css';
             $stamp_file = $dir . '/.stamp';
 
@@ -222,7 +222,7 @@ class FontOptimizer {
     }
 
     private function fonts_public_url(string $pkg, string $file): string {
-        return WP_CONTENT_URL . '/cache/turbopress/fonts/' . $pkg . '/' . $file;
+        return WP_CONTENT_URL . '/cache/wp-instant/fonts/' . $pkg . '/' . $file;
     }
 
     private function first_font_url(string $css, string $pkg): ?string {

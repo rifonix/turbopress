@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -72,7 +72,7 @@ class DomEngine {
         // Idempotency guard: already transformed by THIS version (e.g. a
         // host cache feeding our own output back through the buffer) —
         // never transform twice.
-        if ($this->transformed_version($html) === TURBOPRESS_VERSION) {
+        if ($this->transformed_version($html) === WP_INSTANT_VERSION) {
             return $html;
         }
 
@@ -183,7 +183,7 @@ class DomEngine {
             }
 
             // 9. Signature watermark (inside <body> so it never lands after </html>)
-            $signature = "\n<!-- Optimized with TurboPress v" . TURBOPRESS_VERSION . " -->";
+            $signature = "\n<!-- Optimized with WP Instant v" . WP_INSTANT_VERSION . " -->";
             if (stripos($html, '</body>') !== false) {
                 $html = str_ireplace('</body>', $signature . '</body>', $html);
             }
@@ -206,7 +206,7 @@ class DomEngine {
             return $html;
         } catch (\Throwable $e) {
             // Fault-proof safety fallback: Never break customer front-end
-            return $original . "\n<!-- Turbopress Transformation Fallback: " . esc_html($e->getMessage()) . " -->";
+            return $original . "\n<!-- WP Instant Transformation Fallback: " . esc_html($e->getMessage()) . " -->";
         }
     }
 
@@ -224,7 +224,7 @@ class DomEngine {
             // document the pipeline has already gone wrong somewhere
             // upstream and the transform() guards will restore $original.
             if (strlen($input) > 256 && stripos($input, '</body>') !== false) {
-                $comment = '<!-- Turbopress stage reverted: ' . $name . ' -->';
+                $comment = '<!-- WP Instant stage reverted: ' . $name . ' -->';
                 return (string) preg_replace('/<\/body>/i', $comment . '</body>', $input, 1);
             }
             return $input;
@@ -264,7 +264,7 @@ class DomEngine {
         if (!preg_match('/<html\b[^>]*>/i', $html, $tag)) {
             return null;
         }
-        if (preg_match('/data-tp-version=["\']([0-9.]+)["\']/', $tag[0], $m)) {
+        if (preg_match('/data-wpins-version=["\']([0-9.]+)["\']/', $tag[0], $m)) {
             return $m[1];
         }
         return null;
@@ -279,18 +279,18 @@ class DomEngine {
         }
         $tag_html = $tag[0];
 
-        if (strpos($tag_html, 'data-tp-version=') !== false) {
+        if (strpos($tag_html, 'data-wpins-version=') !== false) {
             $new_tag = preg_replace(
-                '/\sdata-tp-version=[\"\'][0-9.]+[\"\']/',
-                ' data-tp-version="' . TURBOPRESS_VERSION . '"',
+                '/\sdata-wpins-version=[\"\'][0-9.]+[\"\']/',
+                ' data-wpins-version="' . WP_INSTANT_VERSION . '"',
                 $tag_html,
                 1
             );
         } else {
-            $new_tag = substr($tag_html, 0, -1) . ' data-tp-version="' . TURBOPRESS_VERSION . '">';
+            $new_tag = substr($tag_html, 0, -1) . ' data-wpins-version="' . WP_INSTANT_VERSION . '">';
         }
 
-        if (!is_string($new_tag) || $new_tag === '' || strpos($new_tag, 'data-tp-version=') === false) {
+        if (!is_string($new_tag) || $new_tag === '' || strpos($new_tag, 'data-wpins-version=') === false) {
             return $html;
         }
 
@@ -319,7 +319,7 @@ class DomEngine {
         if (trim($css) === '') {
             return $html;
         }
-        $tag = '<style id="turbopress-custom-css">' . $css . '</style>';
+        $tag = '<style id="wp-instant-custom-css">' . $css . '</style>';
         $result = preg_replace_callback(
             '/(<\/head>)/i',
             static fn(array $m): string => $tag . "\n" . $m[1],
@@ -330,12 +330,12 @@ class DomEngine {
     }
 
     private function inject_hydrator_scripts(string $html): string {
-        $hydrator_url = TURBOPRESS_URL . 'assets/js/hydrator.min.js';
-        $nonce_endpoint = esc_url_raw(rest_url('turbopress/v1/nonces'));
+        $hydrator_url = WP_INSTANT_URL . 'assets/js/hydrator.min.js';
+        $nonce_endpoint = esc_url_raw(rest_url('wp-instant/v1/nonces'));
 
         $script = sprintf(
-            '<script id="turbopress-hydrator-init" tp-exclude>window._tpHydrateConfig = { endpoint: "%s" };</script>' .
-            '<script src="%s" id="turbopress-hydrator-js" tp-exclude defer></script>',
+            '<script id="wp-instant-hydrator-init" wpins-exclude>window._wpinsHydrateConfig = { endpoint: "%s" };</script>' .
+            '<script src="%s" id="wp-instant-hydrator-js" wpins-exclude defer></script>',
             $nonce_endpoint,
             esc_url($hydrator_url)
         );
@@ -351,17 +351,17 @@ class DomEngine {
      */
     private function inject_rum_beacon(string $html): string {
         $mode = (string) $this->config->get('javascript.execution_mode', 'defer');
-        $endpoint = esc_url_raw(rest_url('turbopress/v1/telemetry'));
+        $endpoint = esc_url_raw(rest_url('wp-instant/v1/telemetry'));
         $preview = $this->rum_preview ? 'true' : 'false';
 
-        $js = '(function(){var m={mode:"' . esc_js($mode) . '",version:"' . esc_js(TURBOPRESS_VERSION) . '",preview:' . $preview . '},e=[],n=0,l=0,c=0;'
+        $js = '(function(){var m={mode:"' . esc_js($mode) . '",version:"' . esc_js(WP_INSTANT_VERSION) . '",preview:' . $preview . '},e=[],n=0,l=0,c=0;'
             . 'window.onerror=function(s,f){if(n<5){e.push({m:String(s).slice(0,120),f:String(f||"").slice(0,80)});n++}};'
             . 'window.addEventListener("unhandledrejection",function(v){if(n<5){var r=v.reason;e.push({m:String(r&&r.message||r||"promise").slice(0,120),f:""});n++}});'
             . 'try{new PerformanceObserver(function(b){var x=b.getEntries();l=x[x.length-1].startTime}).observe({type:"largest-contentful-paint",buffered:true});'
             . 'new PerformanceObserver(function(b){b.getEntries().forEach(function(x){if(!x.hadRecentInput)c+=x.value})}).observe({type:"layout-shift",buffered:true})}catch(_){}'
             . 'window.addEventListener("pagehide",function(){try{navigator.sendBeacon("' . esc_url_raw($endpoint) . '",JSON.stringify({m:m,e:e,l:Math.round(l),c:Math.round(c*1000)/1000,p:location.pathname}))}catch(_){}},{once:true});})();';
 
-        $tag = '<script tp-exclude id="turbopress-rum">' . $js . '</script>';
+        $tag = '<script wpins-exclude id="wp-instant-rum">' . $js . '</script>';
 
         return str_ireplace('</body>', $tag . '</body>', $html);
     }

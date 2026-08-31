@@ -16,7 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { ExtendedSite, SitePreset, OptimizationJobItem, SitePagesData } from '../types';
-import { SiteConfig } from '@turbopress/shared';
+import { SiteConfig } from '@wpinstant/shared';
 import { api } from '../services/api';
 
 interface SiteDetailPageProps {
@@ -503,7 +503,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
           </button>
 
           <a
-            href={`https://${site.domain}/wp-admin/admin.php?page=turbopress`}
+            href={`https://${site.domain}/wp-admin/admin.php?page=wp-instant`}
             target="_blank"
             rel="noreferrer"
             className="btn btn-secondary text-xs"
@@ -691,7 +691,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
                 <h4 className="text-xs font-semibold text-[#171717]">Staged Rollout</h4>
                 <p className="text-[11.5px] text-[#71717a] leading-relaxed">
                   {deployStatus === 'test'
-                    ? 'Only admins see optimized HTML (via the ?tp_preview=1 URL param in WP admin). Visitors get the original page.'
+                    ? 'Only admins see optimized HTML (via the ?wpins_preview=1 URL param in WP admin). Visitors get the original page.'
                     : 'Optimized HTML is served to every visitor.'}
                 </p>
                 <button
@@ -715,7 +715,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
                   />
                 </div>
                 <p className="text-[11.5px] text-[#71717a] leading-relaxed">
-                  Monitors real-user JS errors. If the error rate spikes after a change, TurboPress automatically
+                  Monitors real-user JS errors. If the error rate spikes after a change, WP Instant automatically
                   steps JavaScript optimization down (delay → defer → none) and purges caches.
                 </p>
               </div>
@@ -857,7 +857,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-[#171717]">Real-User Vitals (last 7 days)</h3>
-                <p className="text-xs text-[#71717a]">Collected by the Turbopress RUM beacon on every optimized pageview</p>
+                <p className="text-xs text-[#71717a]">Collected by the WP Instant RUM beacon on every optimized pageview</p>
               </div>
             </div>
             {pagesLoading ? (
@@ -998,18 +998,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             <h3 className="text-base font-semibold text-[#171717]">Site Connection</h3>
             <p className="text-xs text-[#71717a] mt-0.5">
               Your API key was shown once when the site was connected. It is stored (hashed) on the edge and
-              in your WordPress admin under <strong>TurboPress → Settings</strong>.
+              in your WordPress admin under <strong>WP Instant → Settings</strong>.
             </p>
           </div>
 
           <div className="p-4 border border-[#e4e4e7] rounded-xl space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-[#71717a]">WordPress REST Route:</span>
-              <code className="text-[#171717]">/wp-json/turbopress/v1/nonces</code>
+              <code className="text-[#171717]">/wp-json/wp-instant/v1/nonces</code>
             </div>
             <div className="flex justify-between">
               <span className="text-[#71717a]">Edge API Gateway:</span>
-              <code className="text-[#171717]">https://turbopress.webaccessibility.workers.dev</code>
+              <code className="text-[#171717]">https://api.wpinstant.dev</code>
             </div>
             <div className="flex justify-between">
               <span className="text-[#71717a]">WordPress Version:</span>

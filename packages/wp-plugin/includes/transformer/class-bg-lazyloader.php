@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
  * (Elementor section/column backgrounds below the fold).
  *
  * The image url() is swapped for a 1px placeholder and the real URL moved
- * to data-tp-bg; an IntersectionObserver (rootMargin 300px) swaps it back
+ * to data-wpins-bg; an IntersectionObserver (rootMargin 300px) swaps it back
  * in as the element approaches the viewport.
  *
  * LCP safety: the FIRST inline-background element in the document (the
@@ -55,18 +55,18 @@ class BgLazyLoader {
 
                 $new_style = str_replace($um[0], 'url("' . self::PLACEHOLDER . '")', $m[2]);
                 $changed++;
-                return ' style=' . $m[1] . $new_style . $m[1] . ' data-tp-bg="' . esc_attr($url) . '"';
+                return ' style=' . $m[1] . $new_style . $m[1] . ' data-wpins-bg="' . esc_attr($url) . '"';
             },
             $html
         ) ?? $html;
 
         if ($changed > 0) {
-            $js = '<script tp-exclude>(function(){'
+            $js = '<script wpins-exclude>(function(){'
                 . 'var io=new IntersectionObserver(function(es){es.forEach(function(en){'
-                . 'if(!en.isIntersecting)return;var el=en.target,u=el.getAttribute("data-tp-bg");'
-                . 'if(u){el.style.backgroundImage="url(\'"+u+"\')";el.removeAttribute("data-tp-bg")}io.unobserve(el)'
+                . 'if(!en.isIntersecting)return;var el=en.target,u=el.getAttribute("data-wpins-bg");'
+                . 'if(u){el.style.backgroundImage="url(\'"+u+"\')";el.removeAttribute("data-wpins-bg")}io.unobserve(el)'
                 . '})},{rootMargin:"300px 0px"});'
-                . 'var boot=function(){document.querySelectorAll("[data-tp-bg]").forEach(function(el){io.observe(el)})};'
+                . 'var boot=function(){document.querySelectorAll("[data-wpins-bg]").forEach(function(el){io.observe(el)})};'
                 . 'if(document.readyState!=="loading")boot();else document.addEventListener("DOMContentLoaded",boot);'
                 . '})();</script>';
             $html = str_ireplace('</body>', $js . '</body>', $html);

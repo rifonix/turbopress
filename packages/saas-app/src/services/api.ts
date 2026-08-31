@@ -1,9 +1,9 @@
 import { ExtendedSite, OptimizationJobItem, BillingStatusData, UserProfileData, SitePagesData, AttentionFeedData } from '../types';
-import { SiteConfig } from '@turbopress/shared';
+import { SiteConfig } from '@wpinstant/shared';
 
 const API_BASE =
   (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
-  'https://turbopress.webaccessibility.workers.dev';
+  'https://api.wpinstant.dev';
 
 class ApiError extends Error {
   status: number;

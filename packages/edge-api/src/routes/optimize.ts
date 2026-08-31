@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
-import { OptimizationDispatchSchema, generateJobId, ViewportMode, normalizeDomain, sha256 } from '@turbopress/shared';
+import { OptimizationDispatchSchema, generateJobId, ViewportMode, normalizeDomain, sha256 } from '@wpinstant/shared';
 import { saasUserAuthMiddleware, verifyClerkJwt } from '../middleware/auth.js';
 
 export const optimizeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -497,7 +497,7 @@ optimizeRoutes.get('/css', async (c) => {
   return c.body(await object.text(), 200, {
     'Content-Type': 'text/css; charset=utf-8',
     'Cache-Control': 'public, max-age=300',
-    'X-Turbopress-Css-Key': job.critical_css_r2_key,
+    'X-WP-Instant-Css-Key': job.critical_css_r2_key,
   });
 });
 

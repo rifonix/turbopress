@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -21,7 +21,7 @@ class PresetEngine {
         // precisely the "Cannot read properties of undefined (animate)" /
         // "elementorModules is not defined" / sticky-widget breakage class.
         //
-        // The delayed chain is order-preserving (data-tp-order + sequential
+        // The delayed chain is order-preserving (data-wpins-order + sequential
         // execution + per-script error isolation), so builder scripts are
         // the ones that MOST need to be inside it. Only the user-managed
         // exclusion list (consent banners, payment SDKs — see Config

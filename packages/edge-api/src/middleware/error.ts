@@ -2,7 +2,7 @@ import { ErrorHandler } from 'hono';
 import { ZodError } from 'zod';
 
 export const errorHandler: ErrorHandler = (err, c) => {
-  console.error('[Turbopress Error]', err);
+  console.error('[WP Instant Error]', err);
 
   if (err instanceof ZodError) {
     return c.json(

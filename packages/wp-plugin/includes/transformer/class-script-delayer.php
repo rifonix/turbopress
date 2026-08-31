@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -57,15 +57,15 @@ class ScriptDelayer {
                     stripos($attributes, 'ld+json') !== false ||
                     stripos($attributes, 'application/json') !== false ||
                     stripos($attributes, 'speculationrules') !== false ||
-                    stripos($attributes, 'turbopress-loader') !== false ||
-                    stripos($attributes, 'turbopress-hydrator') !== false
+                    stripos($attributes, 'wp-instant-loader') !== false ||
+                    stripos($attributes, 'wp-instant-hydrator') !== false
                 ) {
                     return $full_tag;
                 }
 
-                // tp-exclude contract: anything we (or a theme) explicitly
+                // wpins-exclude contract: anything we (or a theme) explicitly
                 // marks is never transformed.
-                if (stripos($attributes, 'tp-exclude') !== false) {
+                if (stripos($attributes, 'wpins-exclude') !== false) {
                     return $full_tag;
                 }
 
@@ -153,7 +153,7 @@ class ScriptDelayer {
                     $clean_attrs = preg_replace('/type=[\'"][^\'"]+[\'"]/i', '', (string) $clean_attrs);
 
                     return sprintf(
-                        '<script type="text/turbopress" data-tp-src="%s" data-tp-order="%d" %s></script>',
+                        '<script type="text/wp-instant" data-wpins-src="%s" data-wpins-order="%d" %s></script>',
                         esc_url($src),
                         $script_order,
                         trim((string) $clean_attrs)
@@ -163,7 +163,7 @@ class ScriptDelayer {
                 // Inline Script
                 $clean_attrs = preg_replace('/type=[\'"][^\'"]+[\'"]/i', '', $attributes);
                 return sprintf(
-                    '<script type="text/turbopress" data-tp-order="%d" %s>%s</script>',
+                    '<script type="text/wp-instant" data-wpins-order="%d" %s>%s</script>',
                     $script_order,
                     trim((string) $clean_attrs),
                     $content
@@ -180,9 +180,9 @@ class ScriptDelayer {
 
         // Inject Micro-Loader in <head> (deferred: never render-blocking)
         if ($mode === 'interaction_delay') {
-            $loader_url = TURBOPRESS_URL . 'assets/js/turbopress-loader.min.js';
+            $loader_url = WP_INSTANT_URL . 'assets/js/wp-instant-loader.min.js';
             $loader_tag = sprintf(
-                '<script id="turbopress-loader-config" tp-exclude>' .
+                '<script id="wp-instant-loader-config" wpins-exclude>' .
                 'window._tpLoaderConfig = { timeout: %d };' .
                 'window._tpJQueue = window._tpJQueue || [];' .
                 'if (typeof window.jQuery === "undefined") {' .
@@ -193,7 +193,7 @@ class ScriptDelayer {
                 '  window.$ = window.jQuery = window._tpJStub;' .
                 '}' .
                 '</script>' .
-                '<script src="%s" id="turbopress-loader-core" tp-exclude defer></script>',
+                '<script src="%s" id="wp-instant-loader-core" wpins-exclude defer></script>',
                 $delay_timeout,
                 esc_url($loader_url)
             );

@@ -53,7 +53,7 @@ export interface AssetsConfig {
 }
 
 export interface HtaccessConfig {
-  enabled: boolean; // manage the TurboPress .htaccess marker block
+  enabled: boolean; // manage the WP Instant .htaccess marker block
   brotli_filters: boolean; // AddOutputFilterByType BROTLI_COMPRESS when mod_brotli present
 }
 
@@ -82,7 +82,7 @@ export interface HintsConfig {
 }
 
 export interface DeploymentConfig {
-  /** test = visitors get unoptimized HTML, admins preview via ?tp_preview=1 */
+  /** test = visitors get unoptimized HTML, admins preview via ?wpins_preview=1 */
   status: 'test' | 'live';
   /** auto step down interaction_delay→defer→none on rising JS error rates */
   auto_degrade: boolean;

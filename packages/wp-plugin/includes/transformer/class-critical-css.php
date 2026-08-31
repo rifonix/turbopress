@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -61,7 +61,7 @@ class CriticalCssTransformer {
                 $font_faces = $offloader->rewrite_css_urls($font_faces);
             }
 
-            $style_id = $used_local_fallback ? 'turbopress-critical-css tp-fallback' : 'turbopress-critical-css';
+            $style_id = $used_local_fallback ? 'wp-instant-critical-css wpins-fallback' : 'wp-instant-critical-css';
             $style_tag = sprintf(
                 '<style id="%s">%s%s</style>',
                 $style_id,
@@ -99,7 +99,7 @@ class CriticalCssTransformer {
         $path = $parsed['path'] ?? '/';
         $url_hash = md5($path . '_' . $viewport);
 
-        $cache_file = TURBOPRESS_CACHE_DIR . '/' . md5($host) . '/css/' . $url_hash . '.css';
+        $cache_file = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css/' . $url_hash . '.css';
 
         if (file_exists($cache_file)) {
             return @file_get_contents($cache_file);
@@ -137,7 +137,7 @@ class CriticalCssTransformer {
         $hosts = array_unique(array_filter($hosts));
 
         foreach ($hosts as $host) {
-            $dir = TURBOPRESS_CACHE_DIR . '/' . md5($host) . '/css';
+            $dir = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css';
             if (!file_exists($dir)) {
                 wp_mkdir_p($dir);
             }
@@ -155,7 +155,7 @@ class CriticalCssTransformer {
      * rules, light minification. Imperfect but FOUC-safe.
      */
     private function maybe_local_fallback(string $html, string $url, string $viewport): ?string {
-        $option_key = 'turbopress_css_dispatched';
+        $option_key = 'wp_instant_css_dispatched';
         $dispatched = get_option($option_key, []);
         $url_key = md5($url);
         if (empty($dispatched[$url_key]) || (time() - (int) $dispatched[$url_key]) < 600) {
@@ -265,7 +265,7 @@ class CriticalCssTransformer {
         }
 
         // Throttle dispatch using transients (once per 10 minutes per URL)
-        $transient_key = 'tp_dispatch_' . md5($url);
+        $transient_key = 'wpins_dispatch_' . md5($url);
         if (get_transient($transient_key)) {
             return;
         }
@@ -274,7 +274,7 @@ class CriticalCssTransformer {
 
         // Track dispatch time so the local fallback knows when the grace
         // window has elapsed (option, survives cache purges).
-        $dispatched = get_option('turbopress_css_dispatched', []);
+        $dispatched = get_option('wp_instant_css_dispatched', []);
         if (!is_array($dispatched)) {
             $dispatched = [];
         }
@@ -282,11 +282,11 @@ class CriticalCssTransformer {
         if (count($dispatched) > 200) {
             $dispatched = array_slice($dispatched, -200, null, true);
         }
-        update_option('turbopress_css_dispatched', $dispatched);
+        update_option('wp_instant_css_dispatched', $dispatched);
 
         // Non-blocking asynchronous dispatch (positional args: PHP 8 turns
         // associative cron args into named parameters and fatals)
-        wp_schedule_single_event(time(), 'turbopress_async_optimize', [$url]);
+        wp_schedule_single_event(time(), 'wp_instant_async_optimize', [$url]);
     }
 
     private function get_current_url(): string {

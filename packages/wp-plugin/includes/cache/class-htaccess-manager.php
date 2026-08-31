@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -8,11 +8,11 @@ if (!defined('ABSPATH')) {
 /**
  * .htaccess optimization manager (marker-scoped, self-healing).
  *
- * Installs a "# BEGIN TurboPress … # END TurboPress" block:
+ * Installs a "# BEGIN WP Instant … # END WP Instant" block:
  *  1. Pre-compressed .br / .gz twins served when the browser accepts them
  *     (Brotli preferred, gzip fallback) for css/js/svg.
  *  2. Cache-Control: 1y immutable for content-hashed assets under
- *     wp-content/cache/turbopress/ and for ?ver=-versioned css/js.
+ *     wp-content/cache/wp-instant/ and for ?ver=-versioned css/js.
  *  3. 30d Cache-Control for all other first-party static assets
  *     (images, fonts, media) — replaces Hostinger's 7d default.
  *  4. Optional Brotli/deflate output filters (skipped when LiteSpeed Cache
@@ -24,10 +24,10 @@ if (!defined('ABSPATH')) {
  * marker blocks (WordPress core, LiteSpeed, WP Rocket…).
  */
 class Htaccess_Manager {
-    public const MARKER_BEGIN = '# BEGIN TurboPress';
-    public const MARKER_END = '# END TurboPress';
-    private const OPTION = 'turbopress_htaccess';
-    private const BACKUP_SUFFIX = '.turbopress-bak';
+    public const MARKER_BEGIN = '# BEGIN WP Instant';
+    public const MARKER_END = '# END WP Instant';
+    private const OPTION = 'wp_instant_htaccess';
+    private const BACKUP_SUFFIX = '.wp-instant-bak';
 
     /**
      * Install or refresh the marker block. Returns true on success.
@@ -68,7 +68,7 @@ class Htaccess_Manager {
 
         $new = self::replace_block($current, $rules);
         if ($new === $current) {
-            self::store(['active' => true, 'reason' => '', 'at' => time(), 'version' => TURBOPRESS_VERSION]);
+            self::store(['active' => true, 'reason' => '', 'at' => time(), 'version' => WP_INSTANT_VERSION]);
             return true; // already exactly current
         }
 
@@ -89,7 +89,7 @@ class Htaccess_Manager {
             return false;
         }
 
-        self::store(['active' => true, 'reason' => '', 'at' => time(), 'version' => TURBOPRESS_VERSION]);
+        self::store(['active' => true, 'reason' => '', 'at' => time(), 'version' => WP_INSTANT_VERSION]);
         return true;
     }
 
@@ -139,7 +139,7 @@ class Htaccess_Manager {
     private static function build_rules(): string {
         $lines = [];
         $lines[] = self::MARKER_BEGIN;
-        $lines[] = '# Managed by the TurboPress plugin. Do not edit between the markers.';
+        $lines[] = '# Managed by the WP Instant plugin. Do not edit between the markers.';
         $lines[] = '<IfModule mod_rewrite.c>';
         $lines[] = 'RewriteEngine On';
 
@@ -162,12 +162,12 @@ class Htaccess_Manager {
         $lines[] = '</IfModule>';
 
         // 2) Immutable buckets: content-hashed cache dir + ?ver= assets.
-        $lines[] = 'RewriteRule ^wp-content/cache/turbopress/ - [E=TP_IMMUTABLE:1]';
+        $lines[] = 'RewriteRule ^wp-content/cache/wp-instant/ - [E=WPINS_IMMUTABLE:1]';
         $lines[] = 'RewriteCond %{QUERY_STRING} (^|&)(ver|v|rev)=[a-z0-9._-]+ [NC]';
-        $lines[] = 'RewriteRule \.(css|js|woff2?)$ - [E=TP_IMMUTABLE:1]';
+        $lines[] = 'RewriteRule \.(css|js|woff2?)$ - [E=WPINS_IMMUTABLE:1]';
 
         // 3) Long-but-not-immutable TTL for all other first-party statics.
-        $lines[] = 'RewriteRule \.(css|js|woff2?|ttf|eot|otf|svg|png|jpe?g|webp|avif|gif|ico|mp4|webm|mov)$ - [E=TP_STATIC:1]';
+        $lines[] = 'RewriteRule \.(css|js|woff2?|ttf|eot|otf|svg|png|jpe?g|webp|avif|gif|ico|mp4|webm|mov)$ - [E=WPINS_STATIC:1]';
         $lines[] = '</IfModule>';
 
         $lines[] = '<IfModule mod_headers.c>';
@@ -187,8 +187,8 @@ class Htaccess_Manager {
         $lines[] = '<FilesMatch "\.(css|js|svg)(\.(br|gz))?$">';
         $lines[] = 'Header merge Vary Accept-Encoding';
         $lines[] = '</FilesMatch>';
-        $lines[] = 'Header set Cache-Control "public, max-age=2592000" env=TP_STATIC';
-        $lines[] = 'Header set Cache-Control "public, max-age=31536000, immutable" env=TP_IMMUTABLE';
+        $lines[] = 'Header set Cache-Control "public, max-age=2592000" env=WPINS_STATIC';
+        $lines[] = 'Header set Cache-Control "public, max-age=31536000, immutable" env=WPINS_IMMUTABLE';
         $lines[] = '</IfModule>';
 
         // 4) Output compression — only when LiteSpeed Cache doesn't own it.
@@ -222,7 +222,7 @@ class Htaccess_Manager {
     }
 
     private static function loopback_ok(): bool {
-        $url = add_query_arg('turbopress_htaccess_check', wp_rand(), home_url('/'));
+        $url = add_query_arg('wp_instant_htaccess_check', wp_rand(), home_url('/'));
         $response = wp_remote_get($url, [
             'timeout' => 8,
             'sslverify' => false,

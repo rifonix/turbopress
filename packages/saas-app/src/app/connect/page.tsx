@@ -289,7 +289,7 @@ function ConnectContent() {
               <div className="w-8 h-8 rounded-lg bg-[#171717] flex items-center justify-center text-white shadow-sm">
                 <Zap className="w-4 h-4 fill-current text-[#f03e2f]" />
               </div>
-              <span className="font-semibold text-sm tracking-tight text-[#171717]">TurboPress</span>
+              <span className="font-semibold text-sm tracking-tight text-[#171717]">WP Instant</span>
             </div>
             <span className="text-[10px] font-mono text-[#71717a] px-1.5 py-0.5 rounded bg-[#f4f4f5] border border-[#e4e4e7]">
               Edge Handshake
@@ -308,7 +308,7 @@ function ConnectContent() {
               </h1>
               <p className="text-xs text-[#71717a] leading-relaxed">
                 {isHandshakeMode
-                  ? 'Authorizing the 1-Click Edge handshake requires a TurboPress account.'
+                  ? 'Authorizing the 1-Click Edge handshake requires a WP Instant account.'
                   : 'Create or sign in to an account to register your WordPress site and get an API key.'}
               </p>
             </div>
@@ -356,7 +356,7 @@ function ConnectContent() {
               <Zap className="w-4 h-4 fill-current text-[#f03e2f]" />
             </div>
             <div>
-              <span className="font-semibold text-sm tracking-tight text-[#171717]">TurboPress</span>
+              <span className="font-semibold text-sm tracking-tight text-[#171717]">WP Instant</span>
               <span className="text-[10px] font-mono text-[#71717a] ml-2 px-1.5 py-0.5 rounded bg-[#f4f4f5] border border-[#e4e4e7]">
                 {isHandshakeMode ? 'Edge Handshake' : 'Manual Connect'}
               </span>
@@ -402,7 +402,7 @@ function ConnectContent() {
               <p className="text-xs text-[#71717a] max-w-sm mx-auto">
                 {isHandshakeMode
                   ? 'Authorize 1-Click Zero-DNS Edge Acceleration for your WordPress instance.'
-                  : 'Register your domain, copy the API key, and paste it into the TurboPress plugin settings.'}
+                  : 'Register your domain, copy the API key, and paste it into the WP Instant plugin settings.'}
               </p>
             </div>
 
@@ -445,7 +445,7 @@ function ConnectContent() {
                 <div className="flex justify-between items-center">
                   <span className="text-[#71717a] font-medium">Plugin & Core:</span>
                   <span className="font-mono text-[#52525b]">
-                    TurboPress v{pluginVersion} · WP {wpVersion}
+                    WP Instant v{pluginVersion} · WP {wpVersion}
                   </span>
                 </div>
               </div>
@@ -460,7 +460,7 @@ function ConnectContent() {
                   </span>
                   <div>
                     <p className="text-xs font-semibold text-[#166534]">
-                      {normalizeDomain(manualDomain)} connected to TurboPress Edge
+                      {normalizeDomain(manualDomain)} connected to WP Instant Edge
                     </p>
                     <p className="text-[11px] text-[#15803d]">Edge zone provisioned · API key issued</p>
                   </div>
@@ -487,7 +487,7 @@ function ConnectContent() {
                 <div className="p-4 bg-[#f8f8f7] border border-[#e4e4e7] rounded-xl space-y-2 text-xs text-[#3f3f46] text-left">
                   <p className="font-semibold text-[#171717]">Finish pairing in WordPress:</p>
                   <ol className="list-decimal pl-4 space-y-1">
-                    <li>Install the TurboPress optimizer plugin and open its settings.</li>
+                    <li>Install the WP Instant optimizer plugin and open its settings.</li>
                     <li>Paste the API key above into the license key field.</li>
                     <li>Save — the plugin will validate and arm the edge cache automatically.</li>
                   </ol>
@@ -520,7 +520,7 @@ function ConnectContent() {
                   </div>
                   <p className="text-xs text-[#78350f] leading-relaxed">
                     To pair and run Chromium Critical CSS & sub-15ms edge caching on{' '}
-                    <strong>{isHandshakeMode ? domain : 'your site'}</strong>, an active TurboPress
+                    <strong>{isHandshakeMode ? domain : 'your site'}</strong>, an active WP Instant
                     subscription is required.
                   </p>
                 </div>
@@ -532,7 +532,7 @@ function ConnectContent() {
                   </span>
                   <div className="flex justify-between items-baseline mb-2">
                     <div>
-                      <h3 className="font-semibold text-sm text-[#171717]">TurboPress Starter</h3>
+                      <h3 className="font-semibold text-sm text-[#171717]">WP Instant Starter</h3>
                       <p className="text-[11px] text-[#71717a]">1 Production Site Slot · Full Edge Engine</p>
                     </div>
                     <div className="text-right">
@@ -586,7 +586,7 @@ function ConnectContent() {
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-[#16a34a]" />
                     <span className="text-[#166534] font-medium">
-                      {billingData?.plan?.name || 'TurboPress Active'}
+                      {billingData?.plan?.name || 'WP Instant Active'}
                     </span>
                   </div>
                   <span className="font-mono text-[11px] text-[#15803d]">
@@ -638,7 +638,7 @@ function ConnectContent() {
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-[#16a34a]" />
                     <span className="text-[#166534] font-medium">
-                      {billingData?.plan?.name || 'TurboPress Active'}
+                      {billingData?.plan?.name || 'WP Instant Active'}
                     </span>
                   </div>
                   <span className="font-mono text-[11px] text-[#15803d]">
@@ -745,7 +745,7 @@ function ConnectContent() {
           {/* Footer note */}
           <div className="text-center mt-6">
             <p className="text-[11.5px] text-[#a1a1aa]">
-              TurboPress Cryptographic OAuth Handshake · Zero-DNS Edge Engine
+              WP Instant Cryptographic OAuth Handshake · Zero-DNS Edge Engine
             </p>
           </div>
         </div>

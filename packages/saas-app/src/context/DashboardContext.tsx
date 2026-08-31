@@ -11,7 +11,7 @@ import {
   POLAR_PRODUCT_IDS,
 } from '../types';
 import { api } from '../services/api';
-import { getPresetConfig, SiteConfig } from '@turbopress/shared';
+import { getPresetConfig, SiteConfig } from '@wpinstant/shared';
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
 
@@ -132,7 +132,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setBillingData(billing);
           setIsVerifyingPurchase(false);
           cleanCheckoutParams();
-          addToast('Plan activated — TurboPress Edge is unlocked!', 'success');
+          addToast('Plan activated — WP Instant Edge is unlocked!', 'success');
           return;
         }
       } catch {
@@ -231,7 +231,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       const token = await getToken();
       const data = await api.createSite(token, domain);
-      addToast(`Site ${domain} connected to TurboPress Edge`, 'success');
+      addToast(`Site ${domain} connected to WP Instant Edge`, 'success');
       await refreshFleetData();
       return data;
     } catch (err: any) {

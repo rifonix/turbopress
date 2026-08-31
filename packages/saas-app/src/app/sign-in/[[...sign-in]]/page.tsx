@@ -5,7 +5,7 @@ import { Zap, Activity, Globe, Sparkles, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { SignIn } from '@clerk/nextjs';
 import { useSearchParams } from 'next/navigation';
-import { turbopressClerkAppearance } from '@/components/auth/ClerkTheme';
+import { wpInstantClerkAppearance } from '@/components/auth/ClerkTheme';
 
 function SignInContent() {
   const searchParams = useSearchParams();
@@ -22,7 +22,7 @@ function SignInContent() {
             <Zap className="w-4 h-4 text-[#f03e2f] fill-current" />
           </span>
           <span className="font-semibold text-lg tracking-tight">
-            TurboPress <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
+            WP Instant <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
           </span>
         </Link>
 
@@ -104,7 +104,7 @@ function SignInContent() {
                   </span>
                   <div>
                     <h2 className="font-semibold text-sm text-[#171717]">Sign In to Dashboard</h2>
-                    <p className="text-[11px] text-[#71717a]">TurboPress Edge Control Plane</p>
+                    <p className="text-[11px] text-[#71717a]">WP Instant Edge Control Plane</p>
                   </div>
                 </div>
 
@@ -127,7 +127,7 @@ function SignInContent() {
 
               <div className="pt-1 flex justify-center">
                 <SignIn
-                  appearance={turbopressClerkAppearance}
+                  appearance={wpInstantClerkAppearance}
                   routing="path"
                   path="/sign-in"
                   signUpUrl="/sign-up"
@@ -141,7 +141,7 @@ function SignInContent() {
 
       {/* Footer */}
       <footer className="px-6 py-4 border-t border-[#e4e4e7] bg-white text-center text-xs text-[#71717a] font-mono">
-        TurboPress · High-Performance Zero-DNS WordPress Optimization Engine · Production Ready
+        WP Instant · High-Performance Zero-DNS WordPress Optimization Engine · Production Ready
       </footer>
     </div>
   );

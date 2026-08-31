@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -69,7 +69,7 @@ class SpeculationRules {
 
         $rules_json = json_encode($rules, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
         $script_tag = sprintf(
-            '<script type="speculationrules" id="turbopress-speculation-rules">%s</script>',
+            '<script type="speculationrules" id="wp-instant-speculation-rules">%s</script>',
             $rules_json
         );
 

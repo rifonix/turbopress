@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
  * Config shape (plugins.unload_rules):
  *   { '<post_type>': ['plugin-folder', 'theme:stylesheet', ...], '*': [...] }
  *
- * Per-post meta shape (_turbopress_asset_exclusions):
+ * Per-post meta shape (_wp_instant_asset_exclusions):
  *   { 'plugins': ['plugin-folder'], 'themes': ['stylesheet'], 'assets': ['keyword', 'regex:/…/i'] }
  *
  * A page can therefore exclude an entire installed plugin or theme, or
@@ -23,7 +23,7 @@ if (!defined('ABSPATH')) {
  * deferred, combined or offloaded by later stages.
  */
 class PluginAssets {
-    public const POST_META_KEY = '_turbopress_asset_exclusions';
+    public const POST_META_KEY = '_wp_instant_asset_exclusions';
 
     private Config $config;
 
@@ -78,7 +78,7 @@ class PluginAssets {
         $id_keywords = [];
         foreach (array_keys($slugs) as $slug) {
             $slug = trim(strtolower($slug));
-            if ($slug === '' || $slug === 'turbopress') {
+            if ($slug === '' || $slug === 'wp-instant') {
                 continue;
             }
             if (str_starts_with($slug, 'theme:')) {
@@ -91,7 +91,7 @@ class PluginAssets {
                 continue;
             }
             $slug = sanitize_key($slug);
-            if ($slug === '' || $slug === 'turbopress') {
+            if ($slug === '' || $slug === 'wp-instant') {
                 continue;
             }
             // Match the stable WordPress plugin directory segment rather
@@ -129,7 +129,7 @@ class PluginAssets {
 
         // Inline <style> blocks: reachable via custom keyword/regex patterns
         // and via slug-derived handle ids ("elementor-frontend-inline-css").
-        // Turbopress' own injected styles are never matched (they carry no
+        // WP Instant' own injected styles are never matched (they carry no
         // plugin/theme handle and ship after this stage anyway).
         $result = preg_replace_callback(
             '#<style\b[^>]*>[\s\S]*?</style\s*>#i',

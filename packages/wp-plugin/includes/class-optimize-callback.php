@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -10,14 +10,14 @@ if (!defined('ABSPATH')) {
  *
  * Replaces cron polling as the primary critical-CSS delivery path: when a
  * Puppeteer job completes, the edge POSTs the CSS + measured LCP image here
- * instantly. The signature (X-Turbopress-Signature: hex HMAC-SHA256 of the
+ * instantly. The signature (X-WP-Instant-Signature: hex HMAC-SHA256 of the
  * raw body, keyed by the per-site callback secret shared during
  * verify_connection) makes the public endpoint unforgeable.
  */
 class OptimizeCallback {
     public static function register_routes(): void {
         add_action('rest_api_init', static function (): void {
-            register_rest_route('turbopress/v1', '/optimize-callback', [
+            register_rest_route('wp-instant/v1', '/optimize-callback', [
                 'methods' => 'POST',
                 'callback' => [self::class, 'handle_callback'],
                 'permission_callback' => '__return_true', // HMAC is the auth
@@ -29,21 +29,21 @@ class OptimizeCallback {
     public static function handle_callback(\WP_REST_Request $request) {
         $raw_body = (string) $request->get_body();
         if ($raw_body === '') {
-            return new \WP_Error('turbopress_empty_body', 'Empty body', ['status' => 400]);
+            return new \WP_Error('wp_instant_empty_body', 'Empty body', ['status' => 400]);
         }
 
         // Signature check: constant-time compare against HMAC of raw body.
-        $signature = (string) $request->get_header('X-Turbopress-Signature');
+        $signature = (string) $request->get_header('X-WP-Instant-Signature');
         $secret = Config::get_callback_secret_static();
         $expected = hash_hmac('sha256', $raw_body, $secret);
 
         if ($signature === '' || !hash_equals($expected, strtolower($signature))) {
-            return new \WP_Error('turbopress_invalid_signature', 'Invalid signature', ['status' => 403]);
+            return new \WP_Error('wp_instant_invalid_signature', 'Invalid signature', ['status' => 403]);
         }
 
         $payload = json_decode($raw_body, true);
         if (!is_array($payload)) {
-            return new \WP_Error('turbopress_invalid_json', 'Invalid JSON', ['status' => 400]);
+            return new \WP_Error('wp_instant_invalid_json', 'Invalid JSON', ['status' => 400]);
         }
 
         // Command channel: dashboard Deploy/Test pushes ride the same
@@ -52,7 +52,7 @@ class OptimizeCallback {
         if (($payload['command'] ?? '') === 'deploy') {
             $status = (string) ($payload['deployment']['status'] ?? '');
             if (!in_array($status, ['test', 'live'], true)) {
-                return new \WP_Error('turbopress_invalid_deploy', 'Invalid deployment status', ['status' => 400]);
+                return new \WP_Error('wp_instant_invalid_deploy', 'Invalid deployment status', ['status' => 400]);
             }
             $config = new Config();
             ApiClient::apply_remote_deployment(
@@ -72,7 +72,7 @@ class OptimizeCallback {
         if (($payload['command'] ?? '') === 'config') {
             $incoming = $payload['config'] ?? null;
             if (!is_array($incoming)) {
-                return new \WP_Error('turbopress_invalid_config', 'Missing config payload', ['status' => 400]);
+                return new \WP_Error('wp_instant_invalid_config', 'Missing config payload', ['status' => 400]);
             }
             $config = new Config();
             $current = $config->get_all();
@@ -107,7 +107,7 @@ class OptimizeCallback {
             CacheIntegration::purge_foreign_caches('all');
 
             if (($now_offloading && !$was_offloading) || $widths_changed) {
-                wp_schedule_single_event(time(), 'turbopress_media_offload', []);
+                wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
                 spawn_cron();
             }
 
@@ -127,14 +127,14 @@ class OptimizeCallback {
         $lcp_image_url = isset($payload['lcpImageUrl']) ? esc_url_raw((string) $payload['lcpImageUrl']) : '';
 
         if ($url === '' || !in_array($viewport, ['mobile', 'desktop'], true)) {
-            return new \WP_Error('turbopress_invalid_payload', 'Invalid payload', ['status' => 400]);
+            return new \WP_Error('wp_instant_invalid_payload', 'Invalid payload', ['status' => 400]);
         }
 
         // Only accept pushes for this site's own host.
         $payload_host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $home_host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
         if ($payload_host === '' || $home_host === '' || $payload_host !== $home_host) {
-            return new \WP_Error('turbopress_foreign_url', 'URL does not belong to this site', ['status' => 403]);
+            return new \WP_Error('wp_instant_foreign_url', 'URL does not belong to this site', ['status' => 403]);
         }
 
         if ($css !== '') {

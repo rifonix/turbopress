@@ -7,7 +7,7 @@ export const corsMiddleware: MiddlewareHandler = async (c, next) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Site-Domain, X-Turbopress-Version, X-WP-Version',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Site-Domain, X-WP-Instant-Version, X-WP-Version',
         'Access-Control-Max-Age': '86400',
       },
     });
@@ -18,7 +18,7 @@ export const corsMiddleware: MiddlewareHandler = async (c, next) => {
   try {
     c.res.headers.set('Access-Control-Allow-Origin', '*');
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Site-Domain, X-Turbopress-Version, X-WP-Version');
+    c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Site-Domain, X-WP-Instant-Version, X-WP-Version');
   } catch {
     // Ignore error if headers are immutable (e.g. static responses)
   }

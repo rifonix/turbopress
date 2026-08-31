@@ -1,6 +1,6 @@
 import { MiddlewareHandler } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
-import { sha256, normalizeDomain, Site, SiteConfig } from '@turbopress/shared';
+import { sha256, normalizeDomain, Site, SiteConfig } from '@wpinstant/shared';
 
 export interface CachedSiteData {
   id: string;

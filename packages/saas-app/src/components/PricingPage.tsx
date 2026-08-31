@@ -30,7 +30,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
       id: 'starter',
       productIdMonthly: POLAR_PRODUCT_IDS.starterMonthly,
       productIdYearly: POLAR_PRODUCT_IDS.starterYearly,
-      name: 'TurboPress Starter',
+      name: 'WP Instant Starter',
       description: 'Perfect for single business sites and solo creators.',
       priceMonthly: 19,
       priceAnnual: 15,
@@ -50,7 +50,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
       id: 'pro',
       productIdMonthly: POLAR_PRODUCT_IDS.proMonthly,
       productIdYearly: POLAR_PRODUCT_IDS.proYearly,
-      name: 'TurboPress Pro',
+      name: 'WP Instant Pro',
       description: 'For growing brands, WooCommerce stores, and power users.',
       priceMonthly: 49,
       priceAnnual: 39,
@@ -71,7 +71,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
       id: 'agency',
       productIdMonthly: POLAR_PRODUCT_IDS.agencyMonthly,
       productIdYearly: POLAR_PRODUCT_IDS.agencyYearly,
-      name: 'TurboPress Agency',
+      name: 'WP Instant Agency',
       description: 'For digital agencies and client fleet managers.',
       priceMonthly: 79,
       priceAnnual: 63,
@@ -92,7 +92,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
       id: 'enterprise',
       productIdMonthly: 'prod_enterprise',
       productIdYearly: 'prod_enterprise',
-      name: 'TurboPress Enterprise',
+      name: 'WP Instant Enterprise',
       description: 'For large publishing networks and high-traffic fleets.',
       priceMonthly: null,
       priceAnnual: null,
@@ -117,7 +117,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
         <div className="flex items-start gap-3 p-4 rounded-2xl bg-[#fffbeb] border border-[#fed7aa]">
           <Info className="w-4 h-4 text-[#9a3412] flex-none mt-0.5" />
           <p className="text-xs text-[#78350f] leading-relaxed">
-            <strong className="font-semibold">A plan is required to use the TurboPress dashboard.</strong>{' '}
+            <strong className="font-semibold">A plan is required to use the WP Instant dashboard.</strong>{' '}
             Pick any plan below to unlock edge caching, Critical CSS extraction, and site pairing.
             After checkout you&apos;ll continue straight into onboarding.
           </p>
@@ -242,7 +242,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
               Do I need to change my nameservers or DNS?
             </h4>
             <p className="text-[#71717a] leading-relaxed">
-              No. TurboPress runs as a lightweight WordPress drop-in client paired with Cloudflare Workers. Your DNS and web host remain 100% unchanged.
+              No. WP Instant runs as a lightweight WordPress drop-in client paired with Cloudflare Workers. Your DNS and web host remain 100% unchanged.
             </p>
           </div>
           <div>

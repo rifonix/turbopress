@@ -1,5 +1,5 @@
 <?php
-namespace Turbopress;
+namespace WPInstant;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
  * on the live client site).
  */
 class CacheIntegration {
-    public const CONFLICT_OPTION = 'turbopress_dropin_conflict';
+    public const CONFLICT_OPTION = 'wp_instant_dropin_conflict';
 
     /** Re-entrancy guard: our own purge_foreign_caches() fires foreign purge
      *  actions, which our mirror handlers must not echo back. */
@@ -54,9 +54,9 @@ class CacheIntegration {
     ];
 
     public function init(): void {
-        // Self-heal: an outdated Turbopress drop-in (e.g. left by a plugin
+        // Self-heal: an outdated WP Instant drop-in (e.g. left by a plugin
         // update that couldn't rewrite it) is upgraded on admin requests.
-        if (is_admin() && !self::is_our_dropin_installed() && self::dropin_is_turbopress()) {
+        if (is_admin() && !self::is_our_dropin_installed() && self::dropin_is_wp_instant()) {
             self::install_dropin();
         }
 
@@ -77,7 +77,7 @@ class CacheIntegration {
     }
 
     public static function source_path(): string {
-        return TURBOPRESS_PATH . 'advanced-cache.php';
+        return WP_INSTANT_PATH . 'advanced-cache.php';
     }
 
     /**
@@ -92,14 +92,14 @@ class CacheIntegration {
     }
 
     /**
-     * Does the installed drop-in carry the Turbopress signature? Catches
-     * LEGACY Turbopress drop-ins (older plugin versions) and files whose
+     * Does the installed drop-in carry the WP Instant signature? Catches
+     * LEGACY WP Instant drop-ins (older plugin versions) and files whose
      * bytes drifted (FTP line-ending rewrites) — these are ours to manage,
      * never a foreign conflict.
      */
-    private static function dropin_is_turbopress(?string $content = null): bool {
+    private static function dropin_is_wp_instant(?string $content = null): bool {
         $content ??= ((string) @file_get_contents(self::dropin_path()));
-        return $content !== '' && stripos($content, 'turbopress') !== false;
+        return $content !== '' && stripos($content, 'wp-instant') !== false;
     }
 
     /**
@@ -114,9 +114,9 @@ class CacheIntegration {
 
         $content = (string) @file_get_contents($dest);
 
-        // Turbopress-signed file (e.g. a 1.1.0 drop-in left after update):
+        // WP Instant-signed file (e.g. a 1.1.0 drop-in left after update):
         // outdated but OURS — upgradable, never a foreign conflict.
-        if (self::dropin_is_turbopress($content)) {
+        if (self::dropin_is_wp_instant($content)) {
             return null;
         }
 
@@ -133,7 +133,7 @@ class CacheIntegration {
     }
 
     /**
-     * Install our drop-in when the slot is free OR holds a Turbopress
+     * Install our drop-in when the slot is free OR holds a WP Instant
      * (possibly legacy) file. Returns true when our current drop-in ends
      * up installed afterwards.
      */
@@ -160,11 +160,11 @@ class CacheIntegration {
     }
 
     /**
-     * Remove our drop-in — current, legacy Turbopress-signed versions, but
+     * Remove our drop-in — current, legacy WP Instant-signed versions, but
      * never a file owned by another plugin.
      */
     public static function remove_dropin(): bool {
-        if (self::is_our_dropin_installed() || self::dropin_is_turbopress()) {
+        if (self::is_our_dropin_installed() || self::dropin_is_wp_instant()) {
             return @unlink(self::dropin_path());
         }
         return false; // Foreign or missing: not ours to delete.
@@ -178,7 +178,7 @@ class CacheIntegration {
 
         $content = file_get_contents($wp_config);
         if ($content && strpos($content, "define('WP_CACHE'") === false && strpos($content, 'define("WP_CACHE"') === false) {
-            $content = preg_replace("/(<\?php)/i", "$1\ndefine('WP_CACHE', true); // Turbopress Drop-in", $content, 1);
+            $content = preg_replace("/(<\?php)/i", "$1\ndefine('WP_CACHE', true); // WP Instant Drop-in", $content, 1);
             @file_put_contents($wp_config, $content);
         }
     }
@@ -192,10 +192,10 @@ class CacheIntegration {
         return [
             'dropin_installed' => $current,
             'dropin_present' => file_exists(self::dropin_path()),
-            'dropin_outdated' => !$current && $foreign === null && self::dropin_is_turbopress(),
+            'dropin_outdated' => !$current && $foreign === null && self::dropin_is_wp_instant(),
             'foreign_owner' => $foreign['label'] ?? null,
             'wp_cache_constant' => defined('WP_CACHE') && WP_CACHE,
-            'turbopress_serving' => $current && (defined('WP_CACHE') && WP_CACHE),
+            'wp_instant_serving' => $current && (defined('WP_CACHE') && WP_CACHE),
         ];
     }
 
@@ -205,7 +205,7 @@ class CacheIntegration {
      * claims the job — the server-level LiteSpeed cache via response header.
      *
      * This is the piece that kept stale transformed HTML alive on the client
-     * site: our own purge removed Turbopress files, but the host's LiteSpeed
+     * site: our own purge removed WP Instant files, but the host's LiteSpeed
      * layer kept serving its copy of pre-1.2.1 HTML indefinitely.
      *
      * @param string $scope 'all' | 'url'
@@ -367,7 +367,7 @@ class CacheIntegration {
         }
 
         printf(
-            '<div class="notice notice-warning"><p><strong>Turbopress:</strong> %s is currently using the <code>advanced-cache.php</code> drop-in, so Turbopress page caching is paused to avoid a conflict. All DOM optimizations (Critical CSS, script deferral, font &amp; media optimization) remain fully active. Disable the other page cache (or let it handle page caching) to enable Turbopress page caching.</p></div>',
+            '<div class="notice notice-warning"><p><strong>WP Instant:</strong> %s is currently using the <code>advanced-cache.php</code> drop-in, so WP Instant page caching is paused to avoid a conflict. All DOM optimizations (Critical CSS, script deferral, font &amp; media optimization) remain fully active. Disable the other page cache (or let it handle page caching) to enable WP Instant page caching.</p></div>',
             esc_html($foreign['label'])
         );
     }

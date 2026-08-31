@@ -40,8 +40,8 @@ export const DEFAULT_EXCLUDED_URLS = [
  * consent banners, payments, bot checks, cart fragments.
  */
 export const DEFAULT_SCRIPT_EXCLUSIONS = [
-  'turbopress-loader',
-  'turbopress-hydrator',
+  'wp-instant-loader',
+  'wp-instant-hydrator',
   'cookiebot',
   'complianz',
   'onetrust',
