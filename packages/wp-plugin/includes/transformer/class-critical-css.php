@@ -102,10 +102,51 @@ class CriticalCssTransformer {
         $cache_file = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css/' . $url_hash . '.css';
 
         if (file_exists($cache_file)) {
-            return @file_get_contents($cache_file);
+            // TTL: content/layout edits invalidate via invalidate_url(), but
+            // theme/plugin updates and external stylesheet changes do not —
+            // force regeneration after 30 days regardless.
+            $mtime = @filemtime($cache_file);
+            if ($mtime && (time() - $mtime) < 30 * DAY_IN_SECONDS) {
+                return @file_get_contents($cache_file);
+            }
+            return null; // expired — caller re-dispatches extraction
         }
 
         return null;
+    }
+
+    /**
+     * Delete cached critical CSS for a URL (both viewports, all host
+     * variants). Called on content changes so the next request re-extracts
+     * instead of inlining stale rules indefinitely.
+     */
+    public static function invalidate_url(string $url): void {
+        $parsed = parse_url($url);
+        $path = $parsed['path'] ?? '/';
+
+        $hosts = [];
+        $url_host = isset($parsed['host']) ? strtolower($parsed['host']) : '';
+        if ($url_host) {
+            $hosts[] = $url_host;
+        }
+        $home_host = parse_url(get_home_url(), PHP_URL_HOST);
+        if ($home_host) {
+            $hosts[] = strtolower($home_host);
+        }
+        foreach (array_unique(array_filter($hosts)) as $h) {
+            $hosts[] = str_starts_with($h, 'www.') ? substr($h, 4) : 'www.' . $h;
+        }
+        $hosts = array_unique(array_filter($hosts));
+
+        foreach (['mobile', 'desktop'] as $viewport) {
+            $url_hash = md5($path . '_' . $viewport);
+            foreach ($hosts as $host) {
+                $file = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css/' . $url_hash . '.css';
+                if (file_exists($file)) {
+                    @unlink($file);
+                }
+            }
+        }
     }
 
     /**

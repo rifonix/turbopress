@@ -9,6 +9,7 @@ import { Topbar } from '@/components/Topbar';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ToastContainer } from '@/components/ToastContainer';
 import { AuthModal } from '@/components/auth/AuthModal';
+import { api } from '@/services/api';
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
@@ -31,6 +32,29 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCmdkOpen, setIsCmdkOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [attentionCount, setAttentionCount] = useState(0);
+
+  // Real notifications: the bell badge counts open attention-queue items
+  // (challenge-blocked jobs + site warnings); clicking jumps to Overview.
+  const { getToken } = useAuth();
+  useEffect(() => {
+    if (!isSignedIn || isLoading) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const feed = await api.getAttention(token);
+        if (!cancelled) {
+          setAttentionCount((feed.jobs?.length || 0) + (feed.warnings?.length || 0));
+        }
+      } catch {
+        // Attention feed is best-effort — never break the shell.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, isLoading, getToken, pathname]);
 
   // Determine current site from route if on /sites/[siteId]
   const currentSiteId = pathname?.startsWith('/sites/') ? pathname.split('/')[2] : null;
@@ -133,8 +157,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           onOpenCmdk={() => setIsCmdkOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onConnectClick={() => router.push('/connect')}
-          onNotificationClick={() => addToast('No unread fleet notifications', 'info')}
+          onNotificationClick={() => router.push('/')}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          notificationCount={attentionCount}
         />
 
         <main className="flex-1 p-4 sm:p-8 max-w-6xl w-full mx-auto pb-16">

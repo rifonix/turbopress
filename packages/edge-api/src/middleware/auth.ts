@@ -112,6 +112,7 @@ function getClerkFrontendDomain(env: Env): string | null {
 
 async function getClerkJWKS(env: Env): Promise<JWKS | null> {
   const kvKey = 'clerk:jwks';
+  const staleKey = 'clerk:jwks:stale';
   try {
     const cached = await env.KV.get<JWKS>(kvKey, 'json');
     if (cached && Array.isArray(cached.keys)) {
@@ -135,6 +136,8 @@ async function getClerkJWKS(env: Env): Promise<JWKS | null> {
       if (Array.isArray(data?.keys)) {
         try {
           await env.KV.put(kvKey, JSON.stringify(data), { expirationTtl: 3600 });
+          // Long-lived fallback copy for stale-if-error below.
+          await env.KV.put(staleKey, JSON.stringify(data), { expirationTtl: 7 * 86400 });
         } catch {
           //
         }
@@ -143,6 +146,20 @@ async function getClerkJWKS(env: Env): Promise<JWKS | null> {
     }
   } catch (err) {
     console.warn('[Clerk JWKS Fetch Error]', err);
+  }
+
+  // Stale-if-error: a Clerk JWKS outage must not 401 the whole dashboard.
+  // Re-arm the short cache for 5 min so we re-check Clerk on a fast cadence
+  // without hammering it per request.
+  try {
+    const stale = await env.KV.get<JWKS>(staleKey, 'json');
+    if (stale && Array.isArray(stale.keys)) {
+      console.warn('[Clerk JWKS] serving stale copy (fetch failed)');
+      await env.KV.put(kvKey, JSON.stringify(stale), { expirationTtl: 300 });
+      return stale;
+    }
+  } catch {
+    //
   }
 
   return null;

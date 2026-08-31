@@ -87,6 +87,11 @@ class CachePurger {
         $permalink = get_permalink($post_id);
         if ($permalink) {
             self::queue_url($permalink);
+            // Content/layout changed → cached critical CSS is stale; drop it
+            // so the next request re-extracts (no TTL-only waiting).
+            if (class_exists(CriticalCssTransformer::class)) {
+                CriticalCssTransformer::invalidate_url($permalink);
+            }
         }
 
         // Purge Homepage

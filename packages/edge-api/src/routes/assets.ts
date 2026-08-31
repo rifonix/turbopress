@@ -7,6 +7,24 @@ import { checkRateLimit } from '../middleware/rate-limit.js';
 export const assetRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 /**
+ * Public download of the latest WP Instant WordPress plugin zip.
+ * GET /api/v1/assets/plugin/download
+ */
+assetRoutes.get('/plugin/download', async (c) => {
+  const obj = await c.env.ASSETS_BUCKET.get('plugin/wp-instant.zip');
+  if (!obj) {
+    return c.json({ success: false, error: 'Plugin package not published yet' }, 404);
+  }
+  return new Response(obj.body as any, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="wp-instant.zip"',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
+
+/**
  * Proxy & Serve Generated Critical CSS directly from R2
  * GET /api/v1/assets/css/:site_id/:css_file
  */

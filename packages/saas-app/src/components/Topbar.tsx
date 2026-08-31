@@ -12,6 +12,7 @@ interface TopbarProps {
   onConnectClick: () => void;
   onNotificationClick: () => void;
   onOpenAuthModal?: () => void;
+  notificationCount?: number;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
@@ -20,6 +21,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   onConnectClick,
   onNotificationClick,
   onOpenAuthModal,
+  notificationCount = 0,
 }) => {
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 px-4 sm:px-8 py-2.5 bg-[#f8f8f7]/90 backdrop-blur-md border-b border-[#e4e4e7]">
@@ -55,7 +57,11 @@ export const Topbar: React.FC<TopbarProps> = ({
           className="relative w-8 h-8 grid place-items-center border border-[#e4e4e7] rounded-md bg-white text-[#3f3f46] hover:bg-[#f4f4f5] transition-colors"
         >
           <Bell className="w-3.5 h-3.5" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#f03e2f] border border-white" />
+          {notificationCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 grid place-items-center rounded-full bg-[#f03e2f] border border-white text-[9px] font-bold text-white leading-none">
+              {notificationCount > 9 ? '9+' : notificationCount}
+            </span>
+          )}
         </button>
 
         <button

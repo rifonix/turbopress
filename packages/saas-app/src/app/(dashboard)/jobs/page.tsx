@@ -14,6 +14,8 @@ export default function JobsPage() {
       onDispatchNewJob={ctx.handleDispatchNewJob}
       onRerunJob={ctx.handleRerunJob}
       onToast={ctx.addToast}
+      hasMoreJobs={ctx.hasMoreJobs}
+      onLoadMoreJobs={ctx.loadMoreJobs}
     />
   );
 }

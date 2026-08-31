@@ -4,6 +4,6 @@
   "private": true,
   "description": "WP Instant WordPress Client Plugin",
   "scripts": {
-    "build": "echo 'WordPress plugin assets ready'"
+    "build": "./build-zip.sh"
   }
 }

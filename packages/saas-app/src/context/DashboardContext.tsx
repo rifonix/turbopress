@@ -25,6 +25,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [sites, setSites] = useState<ExtendedSite[]>([]);
   const [jobs, setJobs] = useState<OptimizationJobItem[]>([]);
+  const [jobsCursor, setJobsCursor] = useState<number | null>(null);
   const [billingData, setBillingData] = useState<BillingStatusData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isVerifyingPurchase, setIsVerifyingPurchase] = useState(false);
@@ -53,7 +54,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const [sitesRes, jobsRes, billingRes] = await Promise.allSettled([
         api.getSites(token),
-        api.getJobs(token),
+        api.getJobsPage(token),
         api.getBillingStatus(token),
       ]);
 
@@ -62,11 +63,22 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       if (jobsRes.status === 'fulfilled') {
-        setJobs(jobsRes.value);
+        setJobs(jobsRes.value.jobs);
+        setJobsCursor(jobsRes.value.nextCursor);
       }
 
       if (billingRes.status === 'fulfilled') {
         setBillingData(billingRes.value);
+      } else {
+        // Fail closed: a billing-API outage must not silently grant
+        // unsubscribed users full dashboard access (previously billingData
+        // stayed null and the plan gate never engaged).
+        setBillingData({
+          hasActivePlan: false,
+          subscription: null,
+          plan: { id: 'unavailable', name: 'Unavailable', priceMonthly: 0, status: 'unavailable', maxSites: 0, usedSites: 0, maxRuns: 0, usedRuns: 0, currentPeriodEnd: 0 },
+          customer: { userId: '', email: '' },
+        });
       }
     } catch (err: any) {
       console.warn('[Data Refresh Warning]', err);
@@ -333,9 +345,23 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const loadMoreJobs = useCallback(async () => {
+    if (!isSignedIn || jobsCursor == null) return;
+    try {
+      const token = await getToken();
+      const page = await api.getJobsPage(token, jobsCursor);
+      setJobs((prev) => [...prev, ...page.jobs]);
+      setJobsCursor(page.nextCursor);
+    } catch (err: any) {
+      addToast(err?.message || 'Failed to load older jobs', 'error');
+    }
+  }, [isSignedIn, getToken, jobsCursor, addToast]);
+
   const value: DashboardContextType = {
     sites,
     jobs,
+    hasMoreJobs: jobsCursor != null,
+    loadMoreJobs,
     billingData,
     isLoading,
     isVerifyingPurchase,

@@ -154,6 +154,8 @@ export interface UserProfileData {
 export interface DashboardContextType {
   sites: ExtendedSite[];
   jobs: OptimizationJobItem[];
+  hasMoreJobs: boolean;
+  loadMoreJobs: () => Promise<void>;
   billingData: BillingStatusData | null;
   isLoading: boolean;
   isVerifyingPurchase: boolean;

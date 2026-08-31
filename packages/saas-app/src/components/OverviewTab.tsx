@@ -228,7 +228,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <ArrowRight className="w-4 h-4 ml-1.5" />
             </button>
             <button
-              onClick={() => onToast('Plugin download package: wp-instant.zip')}
+              onClick={() =>
+                window.open(
+                  `${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev'}/api/v1/assets/plugin/download`,
+                  '_blank',
+                  'noopener'
+                )
+              }
               className="w-full sm:w-auto btn btn-secondary px-5 py-2.5"
             >
               Download WP Plugin (.zip)

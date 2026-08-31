@@ -184,6 +184,22 @@ export const api = {
   },
 
   /**
+   * Paginated jobs fetch (cursor = created_at of the last job of the
+   * previous page). Returns the page plus the cursor for the next page.
+   */
+  async getJobsPage(token: string | null, before?: number): Promise<{ jobs: OptimizationJobItem[]; nextCursor: number | null }> {
+    const qs = before ? `?before=${before}` : '';
+    const headers = new Headers({ 'Content-Type': 'application/json' });
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(`${API_BASE}/api/v1/optimize/jobs${qs}`, { headers });
+    const body = await res.json();
+    if (!res.ok || body.success === false) {
+      throw new ApiError(body.error || `Request failed with status ${res.status}`, res.status);
+    }
+    return { jobs: body.data || [], nextCursor: body.nextCursor ?? null };
+  },
+
+  /**
    * Dispatch an optimization job
    */
   async dispatchJob(

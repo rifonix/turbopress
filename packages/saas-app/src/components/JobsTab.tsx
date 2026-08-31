@@ -12,6 +12,8 @@ interface JobsTabProps {
   onDispatchNewJob: (url: string, viewport: 'mobile' | 'desktop') => void;
   onRerunJob: (jobId: string) => void;
   onToast: (msg: string) => void;
+  hasMoreJobs?: boolean;
+  onLoadMoreJobs?: () => void;
 }
 
 interface OffloadLogEntry {
@@ -28,6 +30,8 @@ export const JobsTab: React.FC<JobsTabProps> = ({
   onDispatchNewJob,
   onRerunJob,
   onToast,
+  hasMoreJobs = false,
+  onLoadMoreJobs,
 }) => {
   const { getToken } = useAuth();
   const [filter, setFilter] = useState<'all' | 'completed' | 'processing' | 'failed' | 'needs_attention'>('all');
@@ -244,6 +248,13 @@ export const JobsTab: React.FC<JobsTabProps> = ({
             </tbody>
           </table>
         </div>
+        {hasMoreJobs && onLoadMoreJobs && (
+          <div className="px-5 py-3 border-t border-[#e4e4e7] text-center">
+            <button type="button" onClick={onLoadMoreJobs} className="btn btn-secondary text-xs py-1.5 px-4">
+              Load older jobs
+            </button>
+          </div>
+        )}
       </div>
 
       {/* R2 Offload Log */}

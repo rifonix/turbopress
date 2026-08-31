@@ -396,8 +396,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <p className="font-semibold text-[#171717]">Finish pairing in WordPress:</p>
                 <ol className="list-decimal pl-4 space-y-1">
                   <li>
-                    Download <code>wp-instant.zip</code> and upload it under WordPress →
-                    Plugins → Add New.
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev'}/api/v1/assets/plugin/download`}
+                      className="text-[#f03e2f] underline underline-offset-2 font-medium"
+                    >
+                      Download <code>wp-instant.zip</code>
+                    </a>{' '}
+                    and upload it under WordPress → Plugins → Add New.
                   </li>
                   <li>Activate the plugin, then open WP Instant settings.</li>
                   <li>

@@ -94,9 +94,31 @@ class CacheManager {
         }
 
         $file_path = $sub_dir . '/' . $url_hash . '.html';
+        $tmp_base = $sub_dir . '/.' . $url_hash . '.' . getmypid();
 
-        // 1. Write raw HTML
-        $result = @file_put_contents($file_path, $html);
+        // Atomic writes: every file lands via tmp + rename, so concurrent
+        // readers never stream a half-written entry. Twins are written
+        // FIRST so a fresh .html can never coexist with stale .br/.gz
+        // (the drop-in prefers .br — stale twins used to survive rewrites).
+        if (function_exists('gzencode')) {
+            $gz_data = gzencode($html, 9);
+            if ($gz_data) {
+                if (@file_put_contents($tmp_base . '.gz', $gz_data, LOCK_EX) !== false) {
+                    @rename($tmp_base . '.gz', $file_path . '.gz');
+                }
+            }
+        }
+        if (function_exists('brotli_compress')) {
+            $br_data = brotli_compress($html, 11, BROTLI_GENERIC_MODE);
+            if ($br_data !== false) {
+                if (@file_put_contents($tmp_base . '.br', $br_data, LOCK_EX) !== false) {
+                    @rename($tmp_base . '.br', $file_path . '.br');
+                }
+            }
+        }
+
+        $result = @file_put_contents($tmp_base . '.html', $html, LOCK_EX) !== false
+            && @rename($tmp_base . '.html', $file_path);
 
         // A fresh entry supersedes any stale twin left by a soft purge.
         if ($result) {
@@ -105,22 +127,6 @@ class CacheManager {
                 if (file_exists($stale)) {
                     @unlink($stale);
                 }
-            }
-        }
-
-        // 2. Pre-compress Gzip for sub-10ms delivery
-        if ($result && function_exists('gzencode')) {
-            $gz_data = gzencode($html, 9);
-            if ($gz_data) {
-                @file_put_contents($file_path . '.gz', $gz_data);
-            }
-        }
-
-        // 3. Pre-compress Brotli if extension available
-        if ($result && function_exists('brotli_compress')) {
-            $br_data = brotli_compress($html, 11, BROTLI_GENERIC_MODE);
-            if ($br_data !== false) {
-                @file_put_contents($file_path . '.br', $br_data);
             }
         }
 

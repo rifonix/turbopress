@@ -20,16 +20,18 @@ function formatRelativeTime(timestampSec: number): string {
  */
 optimizeRoutes.get('/jobs', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
+  const before = Math.min(parseInt(c.req.query('before') || '0', 10) || 0, 2147483647);
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10) || 50, 100);
 
   const { results: jobs } = await c.env.DB.prepare(`
     SELECT j.*, s.domain as site_domain
     FROM optimization_jobs j
     JOIN sites s ON j.site_id = s.id
-    WHERE s.user_id = ?
+    WHERE s.user_id = ? ${before > 0 ? 'AND j.created_at < ?' : ''}
     ORDER BY j.created_at DESC
-    LIMIT 100
+    LIMIT ?
   `)
-    .bind(userId)
+    .bind(...(before > 0 ? [userId, before, limit + 1] : [userId, limit + 1]))
     .all<{
       id: string;
       site_id: string;
@@ -47,9 +49,13 @@ optimizeRoutes.get('/jobs', saasUserAuthMiddleware, async (c) => {
       site_domain: string;
     }>();
 
+  const hasMore = jobs.length > limit;
+  const page = hasMore ? jobs.slice(0, limit) : jobs;
+  const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].created_at : null;
+
   return c.json({
     success: true,
-    data: jobs.map((job) => ({
+    data: page.map((job) => ({
       id: job.id,
       siteDomain: job.site_domain,
       url: job.url,
@@ -64,6 +70,7 @@ optimizeRoutes.get('/jobs', saasUserAuthMiddleware, async (c) => {
       createdAt: formatRelativeTime(job.created_at),
       errorMessage: job.error_message || null,
     })),
+    nextCursor,
   });
 });
 
