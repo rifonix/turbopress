@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
 import { OptimizationDispatchSchema, generateJobId, ViewportMode, normalizeDomain, sha256 } from '@wpinstant/shared';
 import { saasUserAuthMiddleware, verifyClerkJwt } from '../middleware/auth.js';
+import { checkRateLimit } from '../middleware/rate-limit.js';
 
 export const optimizeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -137,6 +138,21 @@ optimizeRoutes.post('/dispatch', async (c) => {
   const viewports: ViewportMode[] = payload.viewports && payload.viewports.length > 0 ? payload.viewports : ['mobile', 'desktop'];
   const createdJobs: Array<{ jobId: string; viewport: ViewportMode; status: string }> = [];
 
+  // Abuse guards: per-site dispatch rate limit + active job cap (the cap
+  // previously only existed in the crawl fan-out, not user-facing dispatch).
+  const allowed = await checkRateLimit(c.env, 'dispatch', siteId, 20, 60);
+  if (!allowed) {
+    return c.json({ success: false, error: 'Rate limit exceeded — max 20 dispatches per minute per site' }, 429);
+  }
+  const activeRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) as count FROM optimization_jobs WHERE site_id = ? AND status IN ('queued','processing')"
+  )
+    .bind(siteId)
+    .first<{ count: number }>();
+  if ((activeRow?.count || 0) >= 12) {
+    return c.json({ success: false, error: 'Too many active optimization jobs for this site — wait for running jobs to finish' }, 429);
+  }
+
   for (const viewport of viewports) {
     const jobId = generateJobId();
 
@@ -209,7 +225,9 @@ optimizeRoutes.post('/dispatch', async (c) => {
       { expirationTtl: 3600 }
     );
 
-    // Push message to Cloudflare Queue if bound
+    // Push message to Cloudflare Queue if bound. On failure, roll back the
+    // D1 row + KV marker instead of leaving a zombie 'queued' job while
+    // falsely reporting 202.
     if (c.env.OPTIMIZATION_QUEUE) {
       try {
         await c.env.OPTIMIZATION_QUEUE.send({
@@ -221,7 +239,10 @@ optimizeRoutes.post('/dispatch', async (c) => {
           structureHash: payload.structure_hash,
         });
       } catch (err) {
-        console.warn('[Optimization Queue Warning]', err);
+        console.error('[Optimization Queue Error — rolling back job]', err);
+        await c.env.DB.prepare('DELETE FROM optimization_jobs WHERE id = ?').bind(jobId).run();
+        await c.env.KV.delete(`job:${jobId}`);
+        return c.json({ success: false, error: 'Failed to enqueue optimization job — please retry' }, 503);
       }
     }
 
@@ -381,7 +402,7 @@ optimizeRoutes.post('/jobs/:job_id/rerun', saasUserAuthMiddleware, async (c) => 
     { expirationTtl: 3600 }
   );
 
-  // Send to queue
+  // Send to queue — roll back the re-queue if the send fails
   if (c.env.OPTIMIZATION_QUEUE) {
     try {
       await c.env.OPTIMIZATION_QUEUE.send({
@@ -392,7 +413,10 @@ optimizeRoutes.post('/jobs/:job_id/rerun', saasUserAuthMiddleware, async (c) => 
         attempt: 1,
       });
     } catch (err) {
-      console.warn('[Optimization Queue Warning]', err);
+      console.error('[Optimization Queue Error — reverting requeue]', err);
+      await c.env.DB.prepare('UPDATE optimization_jobs SET status = "failed" WHERE id = ?').bind(jobId).run();
+      await c.env.KV.delete(`job:${jobId}`);
+      return c.json({ success: false, error: 'Failed to enqueue job — please retry' }, 503);
     }
   }
 
@@ -409,22 +433,63 @@ optimizeRoutes.post('/jobs/:job_id/rerun', saasUserAuthMiddleware, async (c) => 
 /**
  * Check Optimization Job Status
  * GET /api/v1/optimize/status/:job_id
+ * Auth: site API key of the job's site, or a user token for the owning account.
  */
 optimizeRoutes.get('/status/:job_id', async (c) => {
   const jobId = c.req.param('job_id');
 
-  // Fast KV cache lookup
-  const cached = await c.env.KV.get(`job:${jobId}`, 'json');
-  if (cached) {
-    return c.json({
-      success: true,
-      data: cached,
-    });
+  // Resolve the owning site (KV fast path, then D1)
+  let siteId: string | null = null;
+  let cached: any = await c.env.KV.get(`job:${jobId}`, 'json');
+  if (cached?.siteId) {
+    siteId = cached.siteId;
+  } else {
+    const row = await c.env.DB.prepare('SELECT site_id FROM optimization_jobs WHERE id = ?')
+      .bind(jobId)
+      .first<{ site_id: string }>();
+    if (!row) {
+      return c.json({ success: false, error: 'Job not found' }, 404);
+    }
+    siteId = row.site_id;
   }
 
-  // Fallback to D1
+  // Authorize: site key matching this job's site, or user owning the site.
+  const authHeader = c.req.header('Authorization') || '';
+  if (authHeader.startsWith('Bearer sk_live_')) {
+    const rawDomain = c.req.header('X-Site-Domain') || '';
+    const apiKeyHash = await sha256(authHeader.replace('Bearer ', '').trim());
+    const site = await c.env.DB.prepare(
+      'SELECT id FROM sites WHERE id = ? AND domain = ? AND site_api_key_hash = ?'
+    )
+      .bind(siteId, normalizeDomain(rawDomain), apiKeyHash)
+      .first<{ id: string }>();
+    if (!site) {
+      return c.json({ success: false, error: 'Invalid site credentials' }, 403);
+    }
+  } else {
+    const token = authHeader.replace('Bearer ', '').trim();
+    const verified = token ? await verifyClerkJwt(token, c.env) : null;
+    let userId = verified?.sub || '';
+    if (!userId && c.env.ENVIRONMENT !== 'production' && token.startsWith('user_')) {
+      userId = token;
+    }
+    if (!userId) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    const owned = await c.env.DB.prepare('SELECT id FROM sites WHERE id = ? AND user_id = ?')
+      .bind(siteId, userId)
+      .first<{ id: string }>();
+    if (!owned) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
+  }
+
+  if (cached) {
+    return c.json({ success: true, data: cached });
+  }
+
   const job = await c.env.DB.prepare(
-    'SELECT * FROM optimization_jobs WHERE id = ?'
+    'SELECT id, site_id, url, viewport, status, critical_css_bytes, lcp_selector, lcp_image_url, error_message, attempts, created_at, completed_at FROM optimization_jobs WHERE id = ?'
   )
     .bind(jobId)
     .first();

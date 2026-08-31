@@ -11,6 +11,7 @@ import { billingRoutes } from './routes/billing.js';
 import { assetRoutes } from './routes/assets.js';
 import { embedRoutes } from './routes/embed.js';
 import { processOptimizationQueue } from './services/queue-consumer.js';
+import { processDlqBatch, runSweeper } from './services/maintenance.js';
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -74,6 +75,15 @@ export default {
   },
 
   async queue(batch: any, env: Env): Promise<void> {
+    if (batch.queue === 'wpinstant-dlq') {
+      await processDlqBatch(batch, env);
+      return;
+    }
     await processOptimizationQueue(batch, env);
+  },
+
+  // Cron: reap zombie jobs + enforce end-of-period deactivation.
+  async scheduled(_event: any, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await runSweeper(env);
   },
 };

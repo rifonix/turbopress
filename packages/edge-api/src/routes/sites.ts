@@ -85,8 +85,12 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
         status = 'optimized';
       }
 
+      // Never leak server-side secrets to the dashboard: site_api_key_hash
+      // is the site credential, callback_secret signs plugin push commands.
+      const { site_api_key_hash: _hash, callback_secret: _secret, ...publicSite } = s;
+
       return {
-        ...s,
+        ...publicSite,
         config: parsedConfig,
         score,
         mobileScore: s.mobile_score,
@@ -265,10 +269,13 @@ siteRoutes.get('/:site_id', saasUserAuthMiddleware, async (c) => {
     //
   }
 
+  // Strip server-side secrets before returning the row to the dashboard.
+  const { site_api_key_hash: _hash, callback_secret: _secret, ...publicSite } = site;
+
   return c.json({
     success: true,
     data: {
-      site,
+      site: publicSite,
       config,
       jobs,
       audits,

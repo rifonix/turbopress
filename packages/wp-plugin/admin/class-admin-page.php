@@ -29,6 +29,22 @@ class AdminPage {
     public const PAGE_CONNECT = 'wp-instant-connect';
     public const ACTIVATION_REDIRECT_OPTION = 'wp_instant_do_activation_redirect';
 
+    /**
+     * Front-end registration for logged-in admins: the admin-bar Purge/Warm
+     * links point at front-end URLs, so without this the handler never runs
+     * and the clicks are dead. Static-safe: the handler/menu renderer use
+     * only statics (CacheManager, CacheIntegration, Config).
+     */
+    public function register_frontend_bar_hooks(): void {
+        add_action('admin_bar_menu', [$this, 'register_admin_bar'], 100);
+        add_action('init', [$this, 'handle_admin_bar_action']);
+        add_action('wp_enqueue_scripts', static function (): void {
+            if (current_user_can('manage_options')) {
+                wp_enqueue_style('dashicons');
+            }
+        });
+    }
+
     public static function get_instance(): AdminPage {
         if (self::$instance === null) {
             self::$instance = new self();

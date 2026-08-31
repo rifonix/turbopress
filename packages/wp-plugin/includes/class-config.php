@@ -302,9 +302,10 @@ class Config {
                 'mobile_cache' => true,
                 'purge_on_post_update' => true,
                 'purge_on_comment' => false,
-                'strip_query_params' => ['utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'msclkid'],
+                // Keep in sync with advanced-cache.php $wp_instant_ignored_params
+                'strip_query_params' => ['utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid', 'msclkid', 'adgroupid', 'campaignid', 'vgo_ee'],
                 'excluded_urls' => ['/wp-admin/*', '/wp-login.php', '/cart/*', '/checkout/*', '/my-account/*'],
-                'excluded_cookies' => ['wordpress_logged_in_*', 'wp-postpass_*', 'comment_author_*'],
+                'excluded_cookies' => ['wordpress_logged_in_*', 'wp-postpass_*', 'comment_author_*', 'wp_woocommerce_session_*', 'woocommerce_items_in_cart', 'woocommerce_cart_hash', 'woocommerce_recently_viewed'],
                 // When non-empty, ONLY these paths are optimized/cached
                 // (inverse of excluded_urls — "Optimize-only URLs").
                 'optimize_only_urls' => []

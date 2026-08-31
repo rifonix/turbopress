@@ -160,6 +160,10 @@ class Plugin {
         if (is_admin()) {
             \WPInstant\AdminPage::get_instance()->init($this->config, $this->api_client, $this->cache_manager);
             $this->health_check->maybe_run();
+        } elseif (is_user_logged_in() && current_user_can('manage_options')) {
+            // Admin-bar Purge/Warm links target front-end URLs — register
+            // the handler here or they are dead clicks outside wp-admin.
+            \WPInstant\AdminPage::get_instance()->register_frontend_bar_hooks();
         }
 
         // Initialize Frontend Output Buffering for Cache & DOM Transformation

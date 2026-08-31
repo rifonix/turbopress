@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { optimizeImage } from 'wasm-image-optimization';
 import { Env, AppVariables } from '../types/env.js';
 import { siteAuthMiddleware } from '../middleware/auth.js';
+import { checkRateLimit } from '../middleware/rate-limit.js';
 
 export const assetRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -195,6 +196,13 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   }
 
   /* ------------------------- MISS path ------------------------- */
+
+  // MISSes trigger origin fetches + edge transcoding — throttle per site so
+  // a hostile crawler can't burn CPU through freshly-minted signed URLs.
+  const allowed = await checkRateLimit(c.env, 'media-miss', siteId, 120, 60);
+  if (!allowed) {
+    return c.json({ success: false, error: 'Rate limit exceeded' }, 429);
+  }
 
   // Videos: fill in the background, redirect meanwhile (unchanged).
   if (f === 'raw') {

@@ -631,21 +631,42 @@ billingRoutes.post('/polar-webhook', async (c) => {
         break;
       }
 
-      case 'subscription.revoked':
+      // Polar semantics: `canceled` = subscription runs until
+      // current_period_end (user keeps paid service); `revoked` = immediate
+      // cutoff. End-of-period deactivation for canceled subs is handled by
+      // the cron sweeper (maintenance.ts).
       case 'subscription.canceled': {
-        const subId = data.id;
         await c.env.DB.prepare(
           'UPDATE subscriptions SET status = "canceled", updated_at = unixepoch() WHERE id = ?'
+        )
+          .bind(data.id)
+          .run();
+        break;
+      }
+
+      case 'subscription.revoked': {
+        const subId = data.id;
+        await c.env.DB.prepare(
+          'UPDATE subscriptions SET status = "revoked", updated_at = unixepoch() WHERE id = ?'
         )
           .bind(subId)
           .run();
 
-        // Deactivate associated sites
+        // Deactivate associated sites immediately + drop their KV auth
+        // caches (otherwise revoked keys stay valid up to the 1h KV TTL).
+        const affected = await c.env.DB.prepare(
+          'SELECT domain FROM sites WHERE subscription_id = ? AND is_active = 1'
+        )
+          .bind(subId)
+          .all<{ domain: string }>();
         await c.env.DB.prepare(
           'UPDATE sites SET is_active = 0, updated_at = unixepoch() WHERE subscription_id = ?'
         )
           .bind(subId)
           .run();
+        for (const row of affected.results || []) {
+          await c.env.KV.delete(`site:${row.domain}`);
+        }
 
         break;
       }

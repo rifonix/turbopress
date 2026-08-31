@@ -85,10 +85,20 @@ clerkWebhookRoutes.post('/clerk-webhook', async (c) => {
       case 'user.deleted': {
         const userId = data.id;
 
+        // Drop KV site-auth caches BEFORE the cascade delete — otherwise
+        // deleted users' site keys stay authorized for up to the 1h TTL.
+        const orphaned = await c.env.DB.prepare('SELECT domain FROM sites WHERE user_id = ?')
+          .bind(userId)
+          .all<{ domain: string }>();
+
         // Delete user (foreign keys with ON DELETE CASCADE will clean up sites and subscriptions)
         await c.env.DB.prepare('DELETE FROM users WHERE id = ?')
           .bind(userId)
           .run();
+
+        for (const row of orphaned.results || []) {
+          await c.env.KV.delete(`site:${row.domain}`);
+        }
 
         break;
       }

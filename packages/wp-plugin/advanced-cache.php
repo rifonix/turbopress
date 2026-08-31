@@ -34,13 +34,17 @@ if (isset($_GET['wp_instant_extract'])) {
     return;
 }
 
-// 2. Bypass for Logged-In Users & Password-Protected Posts
+// 2. Bypass for Logged-In Users, Password-Protected Posts & WooCommerce sessions
 if (!empty($_COOKIE)) {
     foreach ($_COOKIE as $key => $val) {
         if (
             strpos($key, 'wordpress_logged_in_') === 0 ||
             strpos($key, 'wp-postpass_') === 0 ||
-            strpos($key, 'comment_author_') === 0
+            strpos($key, 'comment_author_') === 0 ||
+            strpos($key, 'wp_woocommerce_session_') === 0 ||
+            $key === 'woocommerce_items_in_cart' ||
+            $key === 'woocommerce_cart_hash' ||
+            $key === 'woocommerce_recently_viewed'
         ) {
             return;
         }

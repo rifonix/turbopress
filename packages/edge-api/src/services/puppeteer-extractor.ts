@@ -1,6 +1,6 @@
 import puppeteer, { Browser } from '@cloudflare/puppeteer';
 import { Env } from '../types/env.js';
-import { ViewportMode } from '@wpinstant/shared';
+import { ViewportMode, sha256 } from '@wpinstant/shared';
 
 export interface PageMetrics {
   ttfbMs: number | null;
@@ -280,6 +280,23 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
  * Extract only the used ranges for specific stylesheet URLs from coverage entries.
  * Used as fallback for cross-origin stylesheets that block cssRules access.
  */
+/**
+ * Rewrite relative url() references in a raw CSS slice against the
+ * stylesheet's URL — inlined into a page with a different base, relative
+ * (and root-relative, for cross-origin sheets) asset URLs would 404.
+ */
+function rebaseCssUrls(css: string, baseHref: string): string {
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (m, q: string, u: string) => {
+    const t = u.trim();
+    if (/^(?:data:|blob:|https?:|#|\/\/)/i.test(t)) return m;
+    try {
+      return `url(${q}${new URL(t, baseHref).href}${q})`;
+    } catch {
+      return m;
+    }
+  });
+}
+
 function coverageSlicesForUrls(
   coverage: Array<{ url: string; text: string; ranges: Array<{ start: number; end: number }> }>,
   urls: string[]
@@ -289,7 +306,8 @@ function coverageSlicesForUrls(
   for (const entry of coverage) {
     if (!wanted.has(entry.url.split('?')[0])) continue;
     for (const range of entry.ranges) {
-      parts.push(entry.text.slice(range.start, range.end));
+      // Raw text slices are NOT browser-serialized — rebase relative urls.
+      parts.push(rebaseCssUrls(entry.text.slice(range.start, range.end), entry.url));
     }
   }
   return parts.join('\n');
@@ -532,7 +550,8 @@ export async function extractCriticalCssAndLcp(
     };
 
     // 8. Store Critical CSS in Cloudflare R2
-    const urlHash = btoa(url).replace(/[/+=]/g, '_').slice(0, 32);
+    // SHA-256 hash (hex): btoa() throws on non-Latin-1 URLs (i18n slugs).
+    const urlHash = (await sha256(url)).slice(0, 32);
     const r2Key = `sites/${siteId}/css/${urlHash}_${viewport}.css`;
 
     await env.ASSETS_BUCKET.put(r2Key, fullCriticalCss, {

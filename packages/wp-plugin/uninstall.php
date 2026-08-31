@@ -18,7 +18,9 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 }
 
 $wp_instant_options = [
-    'wp_instant_config',            // includes api_key + site_id (connection keys)
+    'wp_instant_config',
+    'wp_instant_api_key',           // connection credentials (separate options —
+    'wp_instant_site_id',           // NOT inside wp_instant_config)
     'wp_instant_callback_secret',
     'wp_instant_api_url',
     'wp_instant_version',

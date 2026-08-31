@@ -60,8 +60,17 @@
         "max_batch_timeout": 30,
         "max_retries": 3,
         "dead_letter_queue": "wpinstant-dlq"
+      },
+      {
+        "queue": "wpinstant-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30,
+        "max_retries": 1
       }
     ]
+  },
+  "triggers": {
+    "crons": ["*/15 * * * *"]
   },
   "browser": {
     "binding": "BROWSER"

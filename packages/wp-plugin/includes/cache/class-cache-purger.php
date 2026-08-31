@@ -39,6 +39,7 @@ class CachePurger {
     public function init(): void {
         add_action('save_post', [$this, 'on_save_post'], 10, 2);
         add_action('deleted_post', [$this, 'on_deleted_post'], 10, 2);
+        add_action('transition_post_status', [$this, 'on_transition_post_status'], 10, 3);
         add_action('edit_terms', [$this, 'on_edit_terms']);
         add_action('wp_update_nav_menu', [$this, 'on_menu_update']);
         add_action('comment_post', [$this, 'on_comment_post'], 10, 2);
@@ -110,6 +111,29 @@ class CachePurger {
             self::queue_url($permalink, true);
         }
         self::queue_url(get_home_url());
+    }
+
+    /**
+     * Unpublish purge: publish → draft/private/trash fires save_post with a
+     * non-publish status (which on_save_post intentionally skips), so without
+     * this the cached page stays live up to the full TTL.
+     */
+    public function on_transition_post_status(string $new_status, string $old_status, \WP_Post $post): void {
+        if ($old_status !== 'publish' || $new_status === 'publish') {
+            return;
+        }
+        $permalink = get_permalink($post);
+        if ($permalink) {
+            self::queue_url($permalink, true);
+        }
+        self::queue_url(get_home_url());
+        $page_for_posts = get_option('page_for_posts');
+        if ($page_for_posts) {
+            $blog_url = get_permalink((int) $page_for_posts);
+            if ($blog_url) {
+                self::queue_url($blog_url);
+            }
+        }
     }
 
     public function on_edit_terms(): void {

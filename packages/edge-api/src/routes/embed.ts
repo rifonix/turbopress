@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
 import { hmacSha256Hex, normalizeDomain, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
 import type { ViewportMode } from '@wpinstant/shared';
+import { checkRateLimit } from '../middleware/rate-limit.js';
 
 /**
  * Embed routes: let the WP-admin iframe drive the SaaS control plane
@@ -244,6 +245,11 @@ embedRoutes.post('/site/dispatch', async (c) => {
     return c.json({ success: false, error: 'URL does not belong to this site' }, 400);
   }
 
+  const allowed = await checkRateLimit(c.env, 'embed-dispatch', site.id, 20, 60);
+  if (!allowed) {
+    return c.json({ success: false, error: 'Rate limit exceeded — max 20 dispatches per minute' }, 429);
+  }
+
   const createdJobs: Array<{ jobId: string; viewport: ViewportMode; status: string }> = [];
   for (const viewport of viewports) {
     const jobId = generateJobId();
@@ -270,7 +276,11 @@ embedRoutes.post('/site/dispatch', async (c) => {
           attempt: 1,
         });
       } catch (err) {
-        console.warn('[Embed Dispatch Queue Warning]', err);
+        // Roll back instead of leaving a zombie 'queued' job + false 200.
+        console.error('[Embed Dispatch Queue Error — rolling back]', err);
+        await c.env.DB.prepare('DELETE FROM optimization_jobs WHERE id = ?').bind(jobId).run();
+        await c.env.KV.delete(`job:${jobId}`);
+        return c.json({ success: false, error: 'Failed to enqueue optimization job — please retry' }, 503);
       }
     }
 
