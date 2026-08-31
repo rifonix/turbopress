@@ -549,7 +549,7 @@ optimizeRoutes.get('/css', async (c) => {
 
   const job = await c.env.DB.prepare(
     `SELECT critical_css_r2_key FROM optimization_jobs
-     WHERE site_id = ? AND viewport = ? AND status = 'completed'
+     WHERE site_id = ? AND viewport = ? AND status = "completed"
        AND critical_css_r2_key IS NOT NULL
        AND (lower(url) = lower(?) OR lower(url) = lower(?) OR lower(rtrim(url, '/')) = lower(?))
      ORDER BY created_at DESC LIMIT 1`

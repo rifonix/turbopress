@@ -4,6 +4,7 @@
   "private": true,
   "description": "WP Instant WordPress Client Plugin",
   "scripts": {
-    "build": "./build-zip.sh"
+    "build": "./build-zip.sh",
+    "test": "php tests/boot-smoke.php"
   }
 }

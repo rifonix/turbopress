@@ -304,12 +304,12 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
   const { results: pageRows } = await c.env.DB.prepare(`
     SELECT url,
       COUNT(*) as total_jobs,
-      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
+      SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_jobs,
       SUM(CASE WHEN status IN ('failed', 'needs_attention') THEN 1 ELSE 0 END) as failed_jobs,
       MAX(created_at) as last_run_at,
-      MAX(CASE WHEN status = 'completed' THEN created_at END) as last_completed_at,
-      MAX(CASE WHEN status = 'completed' THEN critical_css_bytes END) as critical_css_bytes,
-      MAX(CASE WHEN status = 'completed' THEN lcp_image_url END) as lcp_image_url
+      MAX(CASE WHEN status = "completed" THEN created_at END) as last_completed_at,
+      MAX(CASE WHEN status = "completed" THEN critical_css_bytes END) as critical_css_bytes,
+      MAX(CASE WHEN status = "completed" THEN lcp_image_url END) as lcp_image_url
     FROM optimization_jobs
     WHERE site_id = ?
     GROUP BY lower(rtrim(url, '/'))
