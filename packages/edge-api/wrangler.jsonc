@@ -1,17 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // Canonical worker name. MUST stay "turbopress": this is the worker that
-  // owns the queue consumer and serves the plugin/dashboard default URL
-  // (turbopress.webaccessibility.workers.dev). Deploying anywhere else
-  // splits producers/consumers across code versions.
-  "name": "turbopress",
+  // WP Instant Edge API — the only producer/consumer for the optimization
+  // queue. Custom domain: api.wpinstant.dev
+  "name": "wpinstant-api",
   "main": "src/index.ts",
   "compatibility_date": "2025-02-14",
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "routes": [
+    { "pattern": "api.wpinstant.dev", "custom_domain": true }
+  ],
   "observability": {
-    "enabled": false,
+    "enabled": true,
     "head_sampling_rate": 1,
     "logs": {
       "enabled": true,
@@ -25,46 +26,40 @@
       "head_sampling_rate": 1
     }
   },
-  "assets": {
-    "directory": "../saas-app/.open-next/assets",
-    "binding": "ASSETS",
-    "html_handling": "auto-trailing-slash",
-    "not_found_handling": "single-page-application"
-  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "turbopress-db",
-      "database_id": "b18efb43-46d8-4273-8fe8-4a82d64238ef",
+      "database_name": "wpinstant-db",
+      "database_id": "a6ffe36b-3e1a-46a2-895b-91693b1538e1",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "KV",
-      "id": "e4d1d13005314aebbe15c5606b7ac23b"
+      "id": "5883ffa03f40476faf654faa8e531e48"
     }
   ],
   "r2_buckets": [
     {
       "binding": "ASSETS_BUCKET",
-      "bucket_name": "turbopress-assets"
+      "bucket_name": "wpinstant-assets"
     }
   ],
   "queues": {
     "producers": [
       {
-        "queue": "turbopress-optimization-queue",
+        "queue": "wpinstant-optimization-queue",
         "binding": "OPTIMIZATION_QUEUE"
       }
     ],
     "consumers": [
       {
-        "queue": "turbopress-optimization-queue",
+        "queue": "wpinstant-optimization-queue",
         "max_batch_size": 5,
         "max_batch_timeout": 30,
         "max_retries": 3,
-        "dead_letter_queue": "turbopress-dlq"
+        "dead_letter_queue": "wpinstant-dlq"
       }
     ]
   },
@@ -73,10 +68,11 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "SAAS_APP_URL": "https://turbopress.webaccessibility.workers.dev",
-    // OpenNext serves the SaaS app from this worker and reads these at
-    // runtime (process.env population), so they must exist as worker vars.
-    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk",
-    "NEXT_PUBLIC_API_BASE_URL": "https://turbopress.webaccessibility.workers.dev"
+    "SAAS_APP_URL": "https://app.wpinstant.dev",
+    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev"
   }
+  // TODO(billing): add POLAR_PRODUCT_* plan IDs once Polar products exist.
+  // Secrets (set via `wrangler secret put`, currently TODO placeholders):
+  //   CLERK_SECRET_KEY, CLERK_WEBHOOK_SIGNING_SECRET,
+  //   POLAR_ACCESS_TOKEN, POLAR_WEBHOOK_SECRET
 }

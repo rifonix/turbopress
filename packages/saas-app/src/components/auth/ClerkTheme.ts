@@ -1,7 +1,7 @@
 /**
  * WP Instant Custom Clerk Appearance Theme
  * Tailored to match WP Instant's high-performance, minimalist aesthetic:
- * Jet Black (#171717), Turbo Red (#f03e2f), Neutral (#f8f8f7), Subtle Slate (#e4e4e7).
+ * Jet Black (#171717), Signal Red (#f03e2f), Neutral (#f8f8f7), Subtle Slate (#e4e4e7).
  */
 
 export const wpInstantClerkAppearance = {

@@ -1,15 +1,19 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "turbopress-saas-app",
+  // WP Instant SaaS Dashboard (OpenNext). Custom domain: app.wpinstant.dev
+  "name": "wpinstant-app",
   "main": ".open-next/worker.js",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": [
     "nodejs_compat",
     "global_fetch_strictly_public"
   ],
+  "routes": [
+    { "pattern": "app.wpinstant.dev", "custom_domain": true }
+  ],
   "observability": {
     "logs": {
-      "enabled": false,
+      "enabled": true,
       "invocation_logs": true
     }
   },
@@ -20,12 +24,14 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "turbopress-saas-app"
+      "service": "wpinstant-app"
     }
   ],
   "vars": {
+    // TODO(clerk): replace with the production pk_live_ key once a Clerk
+    // production instance exists (this is the dev-instance test key).
     "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk",
-    "NEXT_PUBLIC_API_BASE_URL": "https://turbopress.webaccessibility.workers.dev",
+    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev",
     "ENVIRONMENT": "production"
   }
 }
