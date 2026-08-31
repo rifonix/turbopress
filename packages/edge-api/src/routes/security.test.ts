@@ -144,6 +144,50 @@ describe('Security regression tests (review criticals)', () => {
     expect(raw).not.toContain('supersecret_cb');
   });
 
+  it('Redeem: state exchanges for API key once, bound to domain', async () => {
+    const env = createTestEnv();
+    const app = buildApp(env);
+    await env.KV.put(
+      'pair_redeem:state123',
+      JSON.stringify({ apiKey: 'sk_live_secret', siteId: 'site_1', domain: 'a.com' })
+    );
+
+    const ok = await app.fetch(
+      new Request('https://api.test/api/v1/auth/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'state123', domain: 'a.com' }),
+      })
+    );
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as any;
+    expect(body.data.apiKey).toBe('sk_live_secret');
+
+    // Single-use: replay is rejected
+    const replay = await app.fetch(
+      new Request('https://api.test/api/v1/auth/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'state123', domain: 'a.com' }),
+      })
+    );
+    expect(replay.status).toBe(403);
+
+    // Domain binding: state issued for b.com cannot redeem as a.com
+    await env.KV.put(
+      'pair_redeem:state456',
+      JSON.stringify({ apiKey: 'sk_live_other', siteId: 'site_2', domain: 'b.com' })
+    );
+    const bad = await app.fetch(
+      new Request('https://api.test/api/v1/auth/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'state456', domain: 'a.com' }),
+      })
+    );
+    expect(bad.status).toBe(403);
+  });
+
   it('Sweeper: zombie queued jobs older than 30min are reaped as failed', async () => {
     const env = createTestEnv();
     await seedSubscription(env, 'user_a');

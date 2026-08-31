@@ -66,6 +66,28 @@ class ApiClient {
     }
 
     /**
+     * OAuth-style redeem: exchange the single-use handshake state for the
+     * API key, server-to-server. The key never appears in a browser URL.
+     */
+    public function redeem_handshake(string $state, string $domain): array {
+        $api_url = rtrim($this->config->get_api_url(), '/') . '/api/v1/auth/redeem';
+        $response = wp_remote_post($api_url, [
+            'timeout' => 10,
+            'headers' => ['Content-Type' => 'application/json'],
+            'body' => json_encode(['state' => $state, 'domain' => $domain]),
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['success' => false, 'error' => $response->get_error_message()];
+        }
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!empty($body['success']) && !empty($body['data']['apiKey'])) {
+            return ['success' => true, 'api_key' => $body['data']['apiKey'], 'site_id' => $body['data']['siteId'] ?? ''];
+        }
+        return ['success' => false, 'error' => $body['error'] ?? 'Redeem failed'];
+    }
+
+    /**
      * E3 command channel: apply a remote deployment status (test|live).
      * Authority model: the PLUGIN owns deployment.status unless the edge
      * explicitly marks it dashboard-issued (deployment.source ===

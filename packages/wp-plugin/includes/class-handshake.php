@@ -44,8 +44,8 @@ class Handshake {
         $api_key = sanitize_text_field($_GET['api_key'] ?? '');
         $site_id = sanitize_text_field($_GET['site_id'] ?? '');
 
-        if (empty($state) || empty($api_key)) {
-            add_settings_error('wp-instant', 'invalid_handshake', 'Invalid handshake payload received.', 'error');
+        if (empty($state)) {
+            add_settings_error('wp_instant', 'invalid_handshake', 'Invalid handshake payload received.', 'error');
             return;
         }
 
@@ -53,8 +53,24 @@ class Handshake {
         $stored_time = get_transient($transient_key);
 
         if (!$stored_time) {
-            add_settings_error('wp-instant', 'expired_state', 'Handshake session expired or invalid. Please try connecting again.', 'error');
+            add_settings_error('wp_instant', 'expired_state', 'Handshake session expired or invalid. Please try connecting again.', 'error');
             return;
+        }
+
+        // OAuth-style redeem (v1.12.1+ edge): the key is not in the URL —
+        // exchange the validated state for it server-to-server. The legacy
+        // api_key-in-URL path is kept for older edge deployments.
+        if (empty($api_key)) {
+            $config = new Config();
+            $parsed = parse_url(home_url());
+            $domain = strtolower($parsed['host'] ?? '');
+            $redeem = (new ApiClient($config))->redeem_handshake($state, $domain);
+            if (empty($redeem['success'])) {
+                add_settings_error('wp_instant', 'redeem_failed', 'Handshake key exchange failed: ' . ($redeem['error'] ?? 'Unknown'), 'error');
+                return;
+            }
+            $api_key = $redeem['api_key'];
+            $site_id = $redeem['site_id'] ?? '';
         }
 
         delete_transient($transient_key);

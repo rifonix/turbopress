@@ -180,21 +180,27 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     { expirationTtl: 3600 }
   );
 
-  // 7. Construct Callback URL for WordPress return
-  let callbackUrl = payload.return_url;
-  try {
-    const parsed = new URL(payload.return_url);
-    parsed.searchParams.set('wp_instant_pair', '1');
-    parsed.searchParams.set('state', payload.state);
-    parsed.searchParams.set('api_key', apiKey);
-    parsed.searchParams.set('site_id', activeSiteId);
-    callbackUrl = parsed.toString();
-  } catch {
-    const sep = payload.return_url.includes('?') ? '&' : '?';
-    callbackUrl = `${payload.return_url}${sep}wp_instant_pair=1&state=${encodeURIComponent(
-      payload.state
-    )}&api_key=${encodeURIComponent(apiKey)}&site_id=${encodeURIComponent(activeSiteId)}`;
-  }
+  // 6c. OAuth-style redeem: the API key NEVER travels in the browser
+  // redirect URL. It waits in KV (single-use, 10 min); the plugin exchanges
+  // the state for it server-to-server via POST /auth/redeem.
+  await c.env.KV.put(
+    `pair_redeem:${payload.state}`,
+    JSON.stringify({ apiKey, siteId: activeSiteId, domain }),
+    { expirationTtl: 600 }
+  );
+
+  // 7. Construct Callback URL for WordPress return (no credentials in URL)
+  const callbackUrl = (() => {
+    try {
+      const parsed = new URL(payload.return_url);
+      parsed.searchParams.set('wp_instant_pair', '1');
+      parsed.searchParams.set('state', payload.state);
+      return parsed.toString();
+    } catch {
+      const sep = payload.return_url.includes('?') ? '&' : '?';
+      return `${payload.return_url}${sep}wp_instant_pair=1&state=${encodeURIComponent(payload.state)}`;
+    }
+  })();
 
   return c.json({
     success: true,
@@ -210,10 +216,40 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
 });
 
 /**
+ * Redeem Handshake API Key (OAuth-style code exchange)
+ * POST /api/v1/auth/redeem
+ *
+ * The plugin exchanges the single-use state nonce (delivered through the
+ * host-validated return URL) for the actual API key, server-to-server.
+ * No browser URL ever carries the key.
+ */
+authRoutes.post('/redeem', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const state = typeof body.state === 'string' ? body.state : '';
+  const domain = typeof body.domain === 'string' ? normalizeDomain(body.domain) : '';
+  if (state.length < 6 || !domain) {
+    return c.json({ success: false, error: 'state and domain are required' }, 400);
+  }
+
+  const key = `pair_redeem:${state}`;
+  const pending = await c.env.KV.get<{ apiKey: string; siteId: string; domain: string }>(key, 'json');
+  if (!pending || pending.domain !== domain) {
+    return c.json({ success: false, error: 'Invalid or expired handshake state' }, 403);
+  }
+
+  // Single-use: consume before responding.
+  await c.env.KV.delete(key);
+
+  return c.json({
+    success: true,
+    data: { apiKey: pending.apiKey, siteId: pending.siteId },
+  });
+});
+/**
  * Verify Site Token & Sync Settings
  * POST /api/v1/auth/verify
  *
- * Body: { callback_secret?: string, site_url?: string }
+ * Body: { callback_secret?: string, site_url?: string, state?: string }
  * The plugin shares its HMAC callback secret here so the queue consumer can
  * sign optimization-callback pushes (instant critical CSS delivery instead
  * of plugin-side cron polling).

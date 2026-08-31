@@ -179,6 +179,29 @@ class Config {
         }
 
         update_option(self::OPTION_KEY, $this->data);
+        $this->write_rules_manifest();
+    }
+
+    /**
+     * Write the drop-in rules manifest. advanced-cache.php executes before
+     * WordPress loads and cannot read options — it reads this JSON instead,
+     * so drop-in and plugin cache keys/TTL/exclusions can never drift.
+     */
+    private function write_rules_manifest(): void {
+        if (!defined('WP_INSTANT_CACHE_DIR')) {
+            return;
+        }
+        $caching = $this->data['caching'] ?? [];
+        $rules = [
+            'ttl' => (int) ($caching['ttl'] ?? 604800),
+            'mobile_cache' => (bool) ($caching['mobile_cache'] ?? true),
+            'strip_query_params' => array_values((array) ($caching['strip_query_params'] ?? [])),
+            'excluded_cookies' => array_values((array) ($caching['excluded_cookies'] ?? [])),
+        ];
+        if (!file_exists(WP_INSTANT_CACHE_DIR)) {
+            wp_mkdir_p(WP_INSTANT_CACHE_DIR);
+        }
+        @file_put_contents(WP_INSTANT_CACHE_DIR . '/rules.json', json_encode($rules), LOCK_EX);
     }
 
     /**
@@ -199,7 +222,9 @@ class Config {
         $defaults = $this->get_default_config($preset);
         $this->data = self::merge_config($defaults, $new_data);
         $this->data['version'] = self::CONFIG_VERSION;
-        return update_option(self::OPTION_KEY, $this->data);
+        $result = update_option(self::OPTION_KEY, $this->data);
+        $this->write_rules_manifest();
+        return $result;
     }
 
     public function get(string $key, mixed $default = null): mixed {
@@ -225,6 +250,7 @@ class Config {
         }
         $curr = $value;
         update_option(self::OPTION_KEY, $this->data);
+        $this->write_rules_manifest();
     }
 
     public function get_api_key(): string {

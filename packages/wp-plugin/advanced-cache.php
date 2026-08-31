@@ -34,19 +34,36 @@ if (isset($_GET['wp_instant_extract'])) {
     return;
 }
 
+// 1b2. Rules manifest: written by the plugin on every config save so this
+// drop-in (which runs before WordPress, no DB access) honors the SAME cache
+// keys, TTL, and cookie exclusions as the plugin write side. Defaults below
+// are the factory config; drift is impossible once rules.json exists.
+$wpins_rules = [];
+$wpins_rules_file = WP_CONTENT_DIR . '/cache/wp-instant/rules.json';
+if (file_exists($wpins_rules_file)) {
+    $wpins_decoded = json_decode((string) @file_get_contents($wpins_rules_file), true);
+    if (is_array($wpins_decoded)) {
+        $wpins_rules = $wpins_decoded;
+    }
+}
+$wpins_ttl = isset($wpins_rules['ttl']) ? (int) $wpins_rules['ttl'] : 604800;
+
 // 2. Bypass for Logged-In Users, Password-Protected Posts & WooCommerce sessions
+$wpins_cookie_rules = !empty($wpins_rules['excluded_cookies']) && is_array($wpins_rules['excluded_cookies'])
+    ? $wpins_rules['excluded_cookies']
+    : ['wordpress_logged_in_*', 'wp-postpass_*', 'comment_author_*', 'wp_woocommerce_session_*', 'woocommerce_items_in_cart', 'woocommerce_cart_hash', 'woocommerce_recently_viewed'];
 if (!empty($_COOKIE)) {
     foreach ($_COOKIE as $key => $val) {
-        if (
-            strpos($key, 'wordpress_logged_in_') === 0 ||
-            strpos($key, 'wp-postpass_') === 0 ||
-            strpos($key, 'comment_author_') === 0 ||
-            strpos($key, 'wp_woocommerce_session_') === 0 ||
-            $key === 'woocommerce_items_in_cart' ||
-            $key === 'woocommerce_cart_hash' ||
-            $key === 'woocommerce_recently_viewed'
-        ) {
-            return;
+        foreach ($wpins_cookie_rules as $rule) {
+            $rule = (string) $rule;
+            $prefix = rtrim($rule, '*');
+            if ($prefix === '') {
+                continue;
+            }
+            $matches = (substr($rule, -1) === '*') ? strpos($key, $prefix) === 0 : $key === $rule;
+            if ($matches) {
+                return;
+            }
         }
     }
 }
@@ -71,10 +88,12 @@ $parsed_url = parse_url($request_uri);
 $path = isset($parsed_url['path']) ? $parsed_url['path'] : '/';
 $query = isset($parsed_url['query']) ? $parsed_url['query'] : '';
 
-$wp_instant_ignored_params = [
-    'utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid',
-    'msclkid', 'adgroupid', 'campaignid', 'vgo_ee',
-];
+$wp_instant_ignored_params = !empty($wpins_rules['strip_query_params']) && is_array($wpins_rules['strip_query_params'])
+    ? $wpins_rules['strip_query_params']
+    : [
+        'utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid',
+        'msclkid', 'adgroupid', 'campaignid', 'vgo_ee',
+    ];
 
 $clean_query = '';
 if (!empty($query)) {
@@ -120,10 +139,10 @@ if (!file_exists($cache_file) && !file_exists($cache_file . '.stale') && $is_mob
     }
 }
 
-// 6. Check if Cache File Exists and is Fresh (e.g. 7 days TTL)
+// 6. Check if Cache File Exists and is Fresh (TTL from rules.json, default 7d)
 if (file_exists($cache_file)) {
     $file_mtime = filemtime($cache_file);
-    if ((time() - $file_mtime) < 604800) {
+    if ((time() - $file_mtime) < $wpins_ttl) {
         $accept_encoding = isset($_SERVER['HTTP_ACCEPT_ENCODING']) ? $_SERVER['HTTP_ACCEPT_ENCODING'] : '';
 
         header('Content-Type: text/html; charset=UTF-8');

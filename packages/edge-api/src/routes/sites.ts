@@ -553,6 +553,21 @@ siteRoutes.delete('/:site_id', saasUserAuthMiddleware, async (c) => {
   await c.env.KV.delete(`site:${site.domain}`);
   await c.env.KV.delete(`sitelogs:${siteId}`);
 
+  // Purge the site's R2 artifacts (critical CSS, media derivatives) so
+  // deleted sites don't leave orphaned objects forever. Best-effort.
+  try {
+    let cursor: string | undefined;
+    do {
+      const page = await c.env.ASSETS_BUCKET.list({ prefix: `sites/${siteId}/`, cursor });
+      if (page.objects.length > 0) {
+        await c.env.ASSETS_BUCKET.delete(page.objects.map((o) => o.key));
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  } catch (err) {
+    console.warn('[Site Delete] R2 orphan purge failed (non-fatal):', err);
+  }
+
   return c.json({
     success: true,
     message: `Site ${site.domain} successfully deleted`,
