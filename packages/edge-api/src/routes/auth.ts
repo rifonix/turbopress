@@ -24,6 +24,28 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
   const userEmail = c.get('userEmail') || 'user@turbopress.io';
   const domain = normalizeDomain(payload.domain);
 
+  // Open-redirect hardening: the API key is appended to return_url, so the
+  // return URL must provably belong to the site being paired. Host must
+  // match the paired domain (www-insensitive) and be https (http allowed
+  // only for localhost dev).
+  let parsedReturn: URL;
+  try {
+    parsedReturn = new URL(payload.return_url);
+  } catch {
+    return c.json({ success: false, error: 'Invalid return_url' }, 400);
+  }
+  const returnHost = normalizeDomain(parsedReturn.hostname);
+  const isLocalhost = returnHost === 'localhost' || returnHost === '127.0.0.1';
+  if (parsedReturn.protocol !== 'https:' && !isLocalhost) {
+    return c.json({ success: false, error: 'return_url must use https' }, 400);
+  }
+  if (returnHost !== domain) {
+    return c.json(
+      { success: false, error: 'return_url host does not match the paired domain' },
+      400
+    );
+  }
+
   // 1. Ensure User exists in D1
   await c.env.DB.prepare(
     'INSERT OR IGNORE INTO users (id, email) VALUES (?, ?)'
@@ -86,8 +108,11 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
   const initialConfig = PRESET_LUDICROUS;
   const configJson = JSON.stringify(initialConfig);
 
-  // 5. Insert or Update in D1
-  await c.env.DB.prepare(`
+  // 5. Insert or Update in D1. The WHERE clause on the UPSERT is the
+  // ownership check: if the domain row exists but belongs to a DIFFERENT
+  // user, the update is a no-op (0 changes) and we refuse the pairing —
+  // otherwise an attacker could overwrite another tenant's API key hash.
+  const upsert = await c.env.DB.prepare(`
     INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(domain) DO UPDATE SET
@@ -98,6 +123,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       plugin_version = excluded.plugin_version,
       last_ping_at = unixepoch(),
       updated_at = unixepoch()
+    WHERE sites.user_id = excluded.user_id
   `)
     .bind(
       siteId,
@@ -111,11 +137,22 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     )
     .run();
 
+  if ((upsert.meta?.changes ?? 0) === 0) {
+    return c.json(
+      {
+        success: false,
+        code: 'DOMAIN_OWNED_BY_OTHER_ACCOUNT',
+        error: 'This domain is already paired to a different TurboPress account. Contact support to transfer ownership.',
+      },
+      409
+    );
+  }
+
   // Retrieve actual site ID in case of conflict update
   const siteRow = await c.env.DB.prepare(
-    'SELECT id FROM sites WHERE domain = ?'
+    'SELECT id FROM sites WHERE domain = ? AND user_id = ?'
   )
-    .bind(domain)
+    .bind(domain, userId)
     .first<{ id: string }>();
 
   const activeSiteId = siteRow?.id || siteId;
@@ -131,6 +168,15 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
       config_json: configJson,
       is_active: 1,
     }),
+    { expirationTtl: 3600 }
+  );
+
+  // 6b. Bind the handshake state nonce to this domain+user (single-use,
+  // 1h TTL). The plugin presents it on /verify, closing the loop on
+  // "state was issued for THIS pairing" instead of just echoing it back.
+  await c.env.KV.put(
+    `pair_state:${payload.state}`,
+    JSON.stringify({ domain, userId }),
     { expirationTtl: 3600 }
   );
 
@@ -181,11 +227,13 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
   let callbackSecret: string | null = null;
   let siteUrl: string | null = null;
   let wpConfig: Record<string, any> | null = null;
+  let handshakeState: string | null = null;
   try {
     const body = (await c.req.json()) as {
       callback_secret?: string;
       site_url?: string;
       config?: Record<string, any>;
+      state?: string;
     };
     if (typeof body?.callback_secret === 'string' && body.callback_secret.length >= 32) {
       callbackSecret = body.callback_secret;
@@ -196,8 +244,23 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
     if (body?.config && typeof body.config === 'object' && !Array.isArray(body.config)) {
       wpConfig = body.config;
     }
+    if (typeof body?.state === 'string' && body.state.length >= 6) {
+      handshakeState = body.state;
+    }
   } catch {
     // Empty/invalid body: header-only verify (legacy plugin versions).
+  }
+
+  // Handshake state binding (single-use): when the plugin presents the
+  // state from its pairing redirect, it MUST map to this site in KV —
+  // proves the key was delivered through the legitimate handshake.
+  if (handshakeState) {
+    const stateKey = `pair_state:${handshakeState}`;
+    const binding = await c.env.KV.get<{ domain: string; userId: string }>(stateKey, 'json');
+    if (!binding || binding.domain !== site.domain) {
+      return c.json({ success: false, error: 'Invalid or expired handshake state' }, 403);
+    }
+    await c.env.KV.delete(stateKey);
   }
 
   // Sync the plugin's effective config into D1. Authority model: the

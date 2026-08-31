@@ -124,6 +124,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             strip_query_params: [],
             excluded_urls: [],
             excluded_cookies: [],
+            optimize_only_urls: [],
           },
           critical_css: {
             enabled: true,
@@ -153,6 +154,10 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             offload_images: false,
             offload_video: false,
             offload_widths: [320, 480, 768, 1200, 1600],
+            image_quality: 82,
+            lazyload_backgrounds: true,
+            video_facades: true,
+            video_lazyload_selfhosted: true,
           },
           dynamic: {
             speculation_rules_prerender: true,
@@ -236,6 +241,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         strip_query_params: [],
         excluded_urls: [],
         excluded_cookies: [],
+        optimize_only_urls: [],
       },
       critical_css: {
         enabled: enableCriticalCss,
@@ -287,6 +293,10 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         offload_images: false,
         offload_video: false,
         offload_widths: [320, 480, 768, 1200, 1600],
+        image_quality: 82,
+        lazyload_backgrounds: true,
+        video_facades: true,
+        video_lazyload_selfhosted: true,
       },
       dynamic: {
         speculation_rules_prerender: enableSpeculation,

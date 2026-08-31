@@ -66,9 +66,10 @@ class Handshake {
             $config->set_site_id($site_id);
         }
 
-        // Test verify with Edge API
+        // Test verify with Edge API (state closes the handshake loop:
+        // single-use, bound to this domain edge-side)
         $api_client = new ApiClient($config);
-        $verify = $api_client->verify_connection();
+        $verify = $api_client->verify_connection($state);
 
         if ($verify['success']) {
             // Set-and-forget kickoff: the moment the site is connected,
@@ -85,7 +86,7 @@ class Handshake {
                     $dispatch['data']['jobs']
                 );
                 set_transient('tp_jobs_' . md5($home), $jobs, 30 * MINUTE_IN_SECONDS);
-                wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', ['url' => $home, 'attempt' => 1]);
+                wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', [$home, 1]);
             }
             wp_schedule_single_event(time(), 'turbopress_media_offload', []);
             spawn_cron();

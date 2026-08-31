@@ -101,7 +101,7 @@ class Plugin {
         $this->auto_purge->init();
 
         // Async optimization pipeline: dispatch to edge, poll, download critical CSS
-        add_action('turbopress_async_optimize', [$this, 'run_async_optimize'], 10, 1);
+        add_action('turbopress_async_optimize', [$this, 'run_async_optimize'], 10, 2);
 
         // Daily health heartbeat to the SaaS control plane
         add_action('turbopress_health_heartbeat', [$this, 'run_health_heartbeat']);
@@ -278,10 +278,13 @@ class Plugin {
      * Cron handler for 'turbopress_async_optimize'.
      * Lifecycle: dispatch job(s) -> poll every 60s -> download CSS per viewport
      * -> write local cache -> purge page cache. Reschedules itself until done.
+     *
+     * Args are positional: associative arrays become PHP 8 named arguments
+     * under WP-Cron (do_action_ref_array) and fatal with "Unknown named
+     * parameter". Param names double as back-compat named args for any
+     * legacy ['url'=>…,'attempt'=>…] events already in the cron option.
      */
-    public function run_async_optimize(array $args = []): void {
-        $url = $args['url'] ?? '';
-        $attempt = (int) ($args['attempt'] ?? 0);
+    public function run_async_optimize(string $url = '', int $attempt = 0): void {
 
         if (empty($url) || !$this->config->is_connected()) {
             return;
@@ -302,7 +305,7 @@ class Plugin {
 
             $jobs = array_map(static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']], $created);
             set_transient($transient_key, $jobs, 30 * MINUTE_IN_SECONDS);
-            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', ['url' => $url, 'attempt' => 1]);
+            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', [$url, 1]);
             return;
         }
 
@@ -341,7 +344,7 @@ class Plugin {
 
         // Keep polling (cap ~30 attempts / 30 min).
         if ($attempt < 30) {
-            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', ['url' => $url, 'attempt' => $attempt + 1]);
+            wp_schedule_single_event(time() + 60, 'turbopress_async_optimize', [$url, $attempt + 1]);
         } else {
             delete_transient($transient_key);
         }

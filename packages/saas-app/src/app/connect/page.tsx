@@ -439,7 +439,7 @@ function ConnectContent() {
                   <span className="text-[#71717a] font-medium">Security Handshake:</span>
                   <span className="font-medium text-[#16a34a] flex items-center gap-1">
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    State Nonce Verified
+                    State nonce issued — verified on return
                   </span>
                 </div>
                 <div className="flex justify-between items-center">

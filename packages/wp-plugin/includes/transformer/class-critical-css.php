@@ -284,8 +284,9 @@ class CriticalCssTransformer {
         }
         update_option('turbopress_css_dispatched', $dispatched);
 
-        // Non-blocking asynchronous dispatch
-        wp_schedule_single_event(time(), 'turbopress_async_optimize', ['url' => $url]);
+        // Non-blocking asynchronous dispatch (positional args: PHP 8 turns
+        // associative cron args into named parameters and fatals)
+        wp_schedule_single_event(time(), 'turbopress_async_optimize', [$url]);
     }
 
     private function get_current_url(): string {

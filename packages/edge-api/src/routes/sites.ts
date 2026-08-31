@@ -165,22 +165,46 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
   const initialConfig = PRESET_LUDICROUS;
   const configJson = JSON.stringify(initialConfig);
 
-  await c.env.DB.prepare(`
+  // Ownership check lives in the WHERE clause: re-registering your OWN
+  // domain rotates its key; a domain owned by someone else is a no-op
+  // (0 changes) and returns 409 instead of silently hijacking the site.
+  const upsert = await c.env.DB.prepare(`
     INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 1, NULL, NULL, NULL, unixepoch(), unixepoch())
     ON CONFLICT(domain) DO UPDATE SET
       site_api_key_hash = excluded.site_api_key_hash,
       is_active = 1,
       updated_at = unixepoch()
+    WHERE sites.user_id = excluded.user_id
   `)
     .bind(siteId, userId, subscriptionId, domain, apiKeyHash, configJson)
     .run();
+
+  if ((upsert.meta?.changes ?? 0) === 0) {
+    return c.json(
+      {
+        success: false,
+        code: 'DOMAIN_OWNED_BY_OTHER_ACCOUNT',
+        error: 'This domain is already registered to a different TurboPress account. Contact support to transfer ownership.',
+      },
+      409
+    );
+  }
+
+  // On conflict-update the row keeps its original id — fetch the real one
+  // (returning the freshly generated id here would desync KV from D1).
+  const siteRow = await c.env.DB.prepare(
+    'SELECT id FROM sites WHERE domain = ? AND user_id = ?'
+  )
+    .bind(domain, userId)
+    .first<{ id: string }>();
+  const activeSiteId = siteRow?.id || siteId;
 
   // Populate KV cache
   await c.env.KV.put(
     `site:${domain}`,
     JSON.stringify({
-      id: siteId,
+      id: activeSiteId,
       user_id: userId,
       domain,
       site_api_key_hash: apiKeyHash,
@@ -193,7 +217,7 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
   return c.json({
     success: true,
     data: {
-      siteId,
+      siteId: activeSiteId,
       domain,
       apiKey,
       config: initialConfig,

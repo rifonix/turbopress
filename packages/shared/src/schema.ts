@@ -150,7 +150,7 @@ export const HandshakeRequestSchema = z
     site_url: z.string().optional(),
     state: z.string().optional(),
     state_nonce: z.string().optional(),
-    return_url: z.string(),
+    return_url: z.string().url(),
     wp_version: z.string().optional(),
     plugin_version: z.string().optional(),
   })

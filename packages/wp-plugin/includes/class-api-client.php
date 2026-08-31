@@ -12,7 +12,7 @@ class ApiClient {
         $this->config = $config;
     }
 
-    public function verify_connection(): array {
+    public function verify_connection(string $state = ''): array {
         $api_key = $this->config->get_api_key();
         if (empty($api_key)) {
             return ['success' => false, 'error' => 'API Key is missing'];
@@ -20,6 +20,21 @@ class ApiClient {
 
         $domain = $this->get_site_domain();
         $api_url = rtrim($this->config->get_api_url(), '/') . '/api/v1/auth/verify';
+
+        $payload = [
+            // Shared once per verify so the edge can sign push callbacks.
+            'callback_secret' => Config::get_callback_secret_static(),
+            'site_url' => home_url('/'),
+            // Sync the live plugin config to the SaaS (E3 mirror). The
+            // edge preserves its own `deployment` section — the
+            // dashboard is the authority for Deploy/Test only.
+            'config' => $this->config->get_all(),
+        ];
+        // Handshake-only: single-use state binding, verified edge-side
+        // against the KV entry written by /pair for this domain.
+        if ($state !== '') {
+            $payload['state'] = $state;
+        }
 
         $response = wp_remote_post($api_url, [
             'timeout' => 10,
@@ -30,15 +45,7 @@ class ApiClient {
                 'X-WP-Version' => get_bloginfo('version'),
                 'Content-Type' => 'application/json',
             ],
-            'body' => json_encode([
-                // Shared once per verify so the edge can sign push callbacks.
-                'callback_secret' => Config::get_callback_secret_static(),
-                'site_url' => home_url('/'),
-                // Sync the live plugin config to the SaaS (E3 mirror). The
-                // edge preserves its own `deployment` section — the
-                // dashboard is the authority for Deploy/Test only.
-                'config' => $this->config->get_all(),
-            ]),
+            'body' => json_encode($payload),
         ]);
 
         if (is_wp_error($response)) {

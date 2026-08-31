@@ -144,14 +144,22 @@ class Htaccess_Manager {
         $lines[] = 'RewriteEngine On';
 
         // 1) Pre-compressed .br / .gz twins (Brotli preferred, gzip fallback).
-        foreach (['css' => 'text/css', 'js' => 'application/javascript', 'svg' => 'image/svg+xml'] as $ext => $mime) {
+        //    The rewrite only swaps the FILE; the FilesMatch blocks in the
+        //    mod_headers section below set the matching Content-Type and —
+        //    critically — Content-Encoding. Without Content-Encoding the
+        //    browser receives raw brotli/gzip bytes labeled as plain CSS/JS.
+        foreach (['css', 'js', 'svg'] as $ext) {
             $lines[] = "RewriteCond %{HTTP:Accept-Encoding} br";
             $lines[] = "RewriteCond %{REQUEST_FILENAME}.br -f";
-            $lines[] = "RewriteRule \\.{$ext}$ %{REQUEST_URI}.br [L,T={$mime}]";
+            $lines[] = "RewriteRule ^(.+\\.{$ext})$ $1.br [L]";
             $lines[] = "RewriteCond %{HTTP:Accept-Encoding} gzip";
             $lines[] = "RewriteCond %{REQUEST_FILENAME}.gz -f";
-            $lines[] = "RewriteRule \\.{$ext}$ %{REQUEST_URI}.gz [L,T={$mime}]";
+            $lines[] = "RewriteRule ^(.+\\.{$ext})$ $1.gz [L]";
         }
+        // Never let mod_brotli/mod_deflate re-compress the already-compressed twins.
+        $lines[] = '<IfModule mod_setenvif.c>';
+        $lines[] = 'SetEnvIfNoCase Request_URI "\.(br|gz)$" no-gzip no-brotli';
+        $lines[] = '</IfModule>';
 
         // 2) Immutable buckets: content-hashed cache dir + ?ver= assets.
         $lines[] = 'RewriteRule ^wp-content/cache/turbopress/ - [E=TP_IMMUTABLE:1]';
@@ -163,6 +171,22 @@ class Htaccess_Manager {
         $lines[] = '</IfModule>';
 
         $lines[] = '<IfModule mod_headers.c>';
+        // Declare the encoding of pre-compressed twins (keyed on the final
+        // filename after the internal rewrite — robust on Apache + LiteSpeed).
+        foreach (['css' => 'text/css', 'js' => 'application/javascript', 'svg' => 'image/svg+xml'] as $ext => $mime) {
+            $lines[] = "<FilesMatch \"\\.{$ext}\\.br$\">";
+            $lines[] = "Header set Content-Type \"{$mime}\"";
+            $lines[] = 'Header set Content-Encoding br';
+            $lines[] = '</FilesMatch>';
+            $lines[] = "<FilesMatch \"\\.{$ext}\\.gz$\">";
+            $lines[] = "Header set Content-Type \"{$mime}\"";
+            $lines[] = 'Header set Content-Encoding gzip';
+            $lines[] = '</FilesMatch>';
+        }
+        // Shared caches must key on Accept-Encoding for all negotiable assets.
+        $lines[] = '<FilesMatch "\.(css|js|svg)(\.(br|gz))?$">';
+        $lines[] = 'Header merge Vary Accept-Encoding';
+        $lines[] = '</FilesMatch>';
         $lines[] = 'Header set Cache-Control "public, max-age=2592000" env=TP_STATIC';
         $lines[] = 'Header set Cache-Control "public, max-age=31536000, immutable" env=TP_IMMUTABLE';
         $lines[] = '</IfModule>';

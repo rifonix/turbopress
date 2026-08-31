@@ -40,6 +40,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }, 3200);
   }, []);
 
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   // Fetch Live Fleet Data
   const refreshFleetData = useCallback(async () => {
     if (!isSignedIn) return;
@@ -335,8 +339,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     billingData,
     isLoading,
     isVerifyingPurchase,
+    toasts,
     refreshFleetData,
     addToast,
+    dismissToast,
     handlePurgeSite,
     handleRunOptimization,
     handleCreateSite,

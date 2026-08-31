@@ -2,7 +2,7 @@ export type PresetType = 'safe' | 'aggressive' | 'ludicrous' | 'custom';
 
 export type ViewportMode = 'mobile' | 'desktop';
 
-export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'needs_attention';
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'revoked' | 'trialing';
 

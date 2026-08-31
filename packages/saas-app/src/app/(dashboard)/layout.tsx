@@ -21,7 +21,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     billingData,
     isLoading,
     isVerifyingPurchase,
+    toasts,
     addToast,
+    dismissToast,
     handleRunOptimization,
     handleOpenPortal,
   } = useDashboard();
@@ -58,6 +60,14 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }, [isLoading, isSignedIn, billingData, pathname, router]);
 
+  // Not Signed In -> Redirect to custom sign-in page (inside an effect:
+  // router.replace during render is a React state-update violation)
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.replace('/sign-in');
+    }
+  }, [isLoaded, isSignedIn, router]);
+
   // Auth Loading Screen
   if (!isLoaded) {
     return (
@@ -91,9 +101,8 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Not Signed In -> Redirect to custom sign-in page
+  // Not Signed In -> Redirect handled by the effect above; show spinner.
   if (!isSignedIn) {
-    router.replace('/sign-in');
     return (
       <div className="min-h-screen bg-[#f8f8f7] flex items-center justify-center">
         <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border border-[#e4e4e7] shadow-sm">
@@ -177,6 +186,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           addToast('Authenticated successfully', 'success');
         }}
       />
+
+      {/* Global Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

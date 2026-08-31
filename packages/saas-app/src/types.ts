@@ -157,8 +157,10 @@ export interface DashboardContextType {
   billingData: BillingStatusData | null;
   isLoading: boolean;
   isVerifyingPurchase: boolean;
+  toasts: ToastMessage[];
   refreshFleetData: () => Promise<void>;
   addToast: (text: string, type?: 'success' | 'info' | 'error') => void;
+  dismissToast: (id: string) => void;
   handlePurgeSite: (domain: string) => Promise<void>;
   handleRunOptimization: (domain: string) => Promise<void>;
   handleCreateSite: (domain: string) => Promise<{ apiKey?: string; siteId?: string } | void>;

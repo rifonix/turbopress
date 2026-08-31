@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
 import { OptimizationDispatchSchema, generateJobId, ViewportMode, normalizeDomain, sha256 } from '@turbopress/shared';
-import { saasUserAuthMiddleware } from '../middleware/auth.js';
+import { saasUserAuthMiddleware, verifyClerkJwt } from '../middleware/auth.js';
 
 export const optimizeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -85,7 +85,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
     targetDomain = normalizeDomain(rawDomain);
     const apiKeyHash = await sha256(authHeader.replace('Bearer ', '').trim());
     const site = await c.env.DB.prepare(
-      'SELECT id FROM sites WHERE domain = ? AND site_api_key_hash = ?'
+      'SELECT id FROM sites WHERE domain = ? AND site_api_key_hash = ? AND is_active = 1'
     )
       .bind(targetDomain, apiKeyHash)
       .first<{ id: string }>();
@@ -94,22 +94,22 @@ optimizeRoutes.post('/dispatch', async (c) => {
     }
     siteId = site.id;
   } else {
-    // User-authenticated request (from SaaS Dashboard)
+    // User-authenticated request (from SaaS Dashboard): full Clerk JWKS
+    // verification — identical to saasUserAuthMiddleware. NEVER trust
+    // user_* prefixes or unverified JWT payloads in production.
     const token = authHeader.replace('Bearer ', '').trim();
     if (!token) {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
 
-    let userId = 'user_demo_admin';
-    if (token.startsWith('user_')) {
+    const verified = await verifyClerkJwt(token, c.env);
+    let userId = verified?.sub || '';
+    // Dev-only bypass (mirrors saasUserAuthMiddleware)
+    if (!userId && c.env.ENVIRONMENT !== 'production' && token.startsWith('user_')) {
       userId = token;
-    } else if (token.includes('.')) {
-      try {
-        const payloadObj = JSON.parse(atob(token.split('.')[1]));
-        userId = payloadObj.sub || userId;
-      } catch {
-        //
-      }
+    }
+    if (!userId) {
+      return c.json({ success: false, error: 'Unauthorized: Invalid or expired token' }, 401);
     }
 
     // Extract domain from target URL
@@ -121,27 +121,17 @@ optimizeRoutes.post('/dispatch', async (c) => {
     targetDomain = normalizeDomain(targetDomain);
 
     const site = await c.env.DB.prepare(
-      'SELECT id FROM sites WHERE (domain = ? OR id = ?) AND user_id = ?'
+      'SELECT id FROM sites WHERE (domain = ? OR id = ?) AND user_id = ? AND is_active = 1'
     )
       .bind(targetDomain, body.site_id || '', userId)
       .first<{ id: string }>();
 
     if (!site) {
-      // Auto-create site if it does not exist for this user yet
-      const newSiteId = `site_${Math.random().toString(36).substring(2, 10)}`;
-      await c.env.DB.prepare(`
-        INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at)
-        VALUES (?, ?, 'sub_default', ?, 'hash_auto', '{}', 1, unixepoch(), unixepoch())
-        ON CONFLICT(domain) DO UPDATE SET updated_at = unixepoch()
-      `)
-        .bind(newSiteId, userId, targetDomain)
-        .run();
-
-      const created = await c.env.DB.prepare('SELECT id FROM sites WHERE domain = ?').bind(targetDomain).first<{ id: string }>();
-      siteId = created?.id || newSiteId;
-    } else {
-      siteId = site.id;
+      // No auto-create: sites are established exclusively via the pairing
+      // handshake (POST /api/v1/auth/pair), which enforces plan limits.
+      return c.json({ success: false, error: 'Site not registered. Pair the site from your WordPress admin first.' }, 404);
     }
+    siteId = site.id;
   }
 
   const viewports: ViewportMode[] = payload.viewports && payload.viewports.length > 0 ? payload.viewports : ['mobile', 'desktop'];

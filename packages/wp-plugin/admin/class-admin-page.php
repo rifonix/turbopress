@@ -837,7 +837,7 @@ class AdminPage {
                 }
                 $home = home_url('/');
                 if ($config->is_connected()) {
-                    wp_schedule_single_event(time(), 'turbopress_async_optimize', ['url' => $home, 'attempt' => 1]);
+                    wp_schedule_single_event(time(), 'turbopress_async_optimize', [$home, 1]);
                     wp_schedule_single_event(time(), 'turbopress_media_offload', []);
                     spawn_cron();
                 }
@@ -887,7 +887,7 @@ class AdminPage {
 
         $home = home_url('/');
         if ($config->is_connected()) {
-            wp_schedule_single_event(time(), 'turbopress_async_optimize', ['url' => $home, 'attempt' => 1]);
+            wp_schedule_single_event(time(), 'turbopress_async_optimize', [$home, 1]);
             wp_schedule_single_event(time(), 'turbopress_media_offload', []);
             spawn_cron();
         }
