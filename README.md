@@ -51,12 +51,14 @@ The edge API worker runs on Cloudflare Workers with native bindings provisioned 
 
 | Resource | Binding Name | Cloudflare Target / ID | Purpose |
 |---|---|---|---|
-| **D1 SQL Database** | `DB` | `wp-instant-db` (`b18efb43-46d8-4273-8fe8-4a82d64238ef`) | Users, Subscriptions, Sites, and Jobs relational store |
-| **KV Namespace** | `KV` | `wp-instant-kv` (`e4d1d13005314aebbe15c5606b7ac23b`) | Sub-3ms edge authorization & job status fast-path |
-| **R2 Object Storage** | `ASSETS_BUCKET` | `wp-instant-assets` | Zero-egress storage for generated Critical CSS & media assets |
-| **Queue Producer/Consumer**| `OPTIMIZATION_QUEUE` | `wp-instant-optimization-queue` | Background batch dispatch for Chromium Puppeteer tasks |
-| **Dead-Letter Queue** | `DLQ` | `wp-instant-dlq` | Fault-tolerant retry buffer for failed optimization jobs |
+| **D1 SQL Database** | `DB` | `wpinstant-db` (`a6ffe36b-3e1a-46a2-895b-91693b1538e1`) | Users, Subscriptions, Sites, and Jobs relational store |
+| **KV Namespace** | `KV` | `wpinstant-kv` (`5883ffa03f40476faf654faa8e531e48`) | Sub-3ms edge authorization & job status fast-path |
+| **R2 Object Storage** | `ASSETS_BUCKET` | `wpinstant-assets` | Zero-egress storage for generated Critical CSS & media assets |
+| **Queue Producer/Consumer**| `OPTIMIZATION_QUEUE` | `wpinstant-optimization-queue` | Background batch dispatch for Chromium Puppeteer tasks |
+| **Dead-Letter Queue** | (consumer: `wpinstant-api`) | `wpinstant-dlq` | Terminal failure handling for exhausted optimization jobs |
 | **Browser Rendering** | `BROWSER` | Cloudflare Browser Rendering | Headless Chromium instance pool for DOM & CSS analysis |
+
+The dashboard runs as a separate OpenNext worker (`wpinstant-app` on `app.wpinstant.dev`); the API is `wpinstant-api` on `api.wpinstant.dev`.
 
 ---
 
@@ -126,7 +128,7 @@ npm run dev:saas
 
 ## 🚢 Deployment Guide
 
-### A. Deploy Unified Worker (Edge API + OpenNext Next.js 15 SaaS App)
+### A. Deploy Workers (Edge API + OpenNext dashboard)
 ```bash
 # 1. Build shared library & Next.js worker bundle
 npm run build
@@ -138,7 +140,7 @@ npx wrangler secret put POLAR_WEBHOOK_SECRET
 npx wrangler secret put CLERK_SECRET_KEY
 npx wrangler secret put CLERK_WEBHOOK_SIGNING_SECRET
 
-# 3. Deploy Unified Worker to Cloudflare
+# 3. Deploy wpinstant-api Worker to Cloudflare
 npx wrangler deploy
 ```
 
