@@ -85,7 +85,7 @@ export function createTestEnv(overrides: Partial<Env> = {}): Env {
     } as any,
     ASSETS_BUCKET: { put: async () => ({}), get: async () => null } as any,
     ENVIRONMENT: 'development',
-    SAAS_APP_URL: 'https://app.wpinstant.dev',
+    SAAS_APP_URL: 'https://wpinstant.com',
     __db: db,
     __queueSent: sent,
     ...overrides,

@@ -11,8 +11,8 @@ function SignUpContent() {
   const searchParams = useSearchParams();
   // New accounts land in onboarding (plan purchase -> site connect) unless a
   // deep-link destination was provided (e.g. the /connect handshake).
-  const redirectUrl = searchParams?.get('redirect_url') || '/onboarding';
-  const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/onboarding';
+  const redirectUrl = searchParams?.get('redirect_url') || '/dashboard/onboarding';
+  const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/dashboard/onboarding';
 
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
@@ -112,7 +112,7 @@ function SignUpContent() {
                 <div className="flex gap-1 bg-[#f4f4f5] p-0.5 rounded-lg text-xs font-medium">
                   <Link
                     href={
-                      redirectUrl && redirectUrl !== '/onboarding'
+                      redirectUrl && redirectUrl !== '/dashboard/onboarding'
                         ? `/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`
                         : '/sign-in'
                     }

@@ -57,7 +57,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [isSignedIn, isLoading, getToken, pathname]);
 
   // Determine current site from route if on /sites/[siteId]
-  const currentSiteId = pathname?.startsWith('/sites/') ? pathname.split('/')[2] : null;
+  const currentSiteId = pathname?.startsWith('/dashboard/sites/') ? pathname.split('/')[3] : null;
   const selectedSite = currentSiteId
     ? sites.find((s) => s.id === currentSiteId || s.domain === currentSiteId) || null
     : null;
@@ -78,8 +78,8 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   // purchase → connect). They may also visit /pricing & /billing freely.
   useEffect(() => {
     if (!isLoading && isSignedIn && billingData && !billingData.hasActivePlan) {
-      if (pathname !== '/onboarding' && pathname !== '/pricing' && pathname !== '/billing') {
-        router.replace('/onboarding');
+      if (pathname !== '/dashboard/onboarding' && pathname !== '/dashboard/pricing' && pathname !== '/dashboard/billing') {
+        router.replace('/dashboard/onboarding');
       }
     }
   }, [isLoading, isSignedIn, billingData, pathname, router]);
@@ -186,12 +186,12 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         sites={sites}
         onNavigate={(view) => {
           if (view === 'overview') router.push('/');
-          else if (view === 'sites') router.push('/sites');
-          else if (view === 'jobs') router.push('/jobs');
-          else if (view === 'billing') router.push('/billing');
-          else if (view === 'pricing') router.push('/pricing');
+          else if (view === 'sites') router.push('/dashboard/sites');
+          else if (view === 'jobs') router.push('/dashboard/jobs');
+          else if (view === 'billing') router.push('/dashboard/billing');
+          else if (view === 'pricing') router.push('/dashboard/pricing');
           else if (view === 'connect') router.push('/connect');
-          else if (view === 'onboarding') router.push('/onboarding');
+          else if (view === 'onboarding') router.push('/dashboard/onboarding');
         }}
         onSelectSite={(site) => {
           router.push(`/sites/${site.id}`);

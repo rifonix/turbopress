@@ -8,8 +8,8 @@ interface __BaseEnv_Env {
 	OPTIMIZATION_QUEUE: Queue;
 	BROWSER: BrowserRun;
 	ENVIRONMENT: "production";
-	SAAS_APP_URL: "https://app.wpinstant.dev";
-	NEXT_PUBLIC_API_BASE_URL: "https://api.wpinstant.dev";
+	SAAS_APP_URL: "https://wpinstant.com";
+	NEXT_PUBLIC_API_BASE_URL: "https://api.wpinstant.com";
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

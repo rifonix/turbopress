@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // WP Instant Edge API — the only producer/consumer for the optimization
-  // queue. Custom domain: api.wpinstant.dev
+  // queue. Custom domain: api.wpinstant.com
   "name": "wpinstant-api",
   "main": "src/index.ts",
   "compatibility_date": "2025-02-14",
@@ -9,8 +9,8 @@
     "nodejs_compat"
   ],
   "routes": [
-    { "pattern": "api.wpinstant.dev", "custom_domain": true },
-    { "pattern": "cdn.wpinstant.dev", "custom_domain": true }
+    { "pattern": "api.wpinstant.com", "custom_domain": true },
+    { "pattern": "cdn.wpinstant.com", "custom_domain": true }
   ],
   "observability": {
     "enabled": true,
@@ -78,8 +78,8 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    "SAAS_APP_URL": "https://app.wpinstant.dev",
-    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev"
+    "SAAS_APP_URL": "https://wpinstant.com",
+    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.com"
   }
   // TODO(billing): add POLAR_PRODUCT_* plan IDs once Polar products exist.
   // Secrets (set via `wrangler secret put`, currently TODO placeholders):

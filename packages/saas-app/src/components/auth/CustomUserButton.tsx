@@ -158,7 +158,7 @@ export const CustomUserButton: React.FC<CustomUserButtonProps> = ({
             </button>
 
             <Link
-              href="/billing"
+              href="/dashboard/billing"
               onClick={() => setIsOpen(false)}
               className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717] transition-colors"
             >

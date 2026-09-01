@@ -4,10 +4,10 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 const isEmbedRoute = createRouteMatcher(['/embed(.*)']);
 
 const isPublicRoute = createRouteMatcher([
+  '/',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/sso-callback(.*)',
-  '/pricing(.*)',
   '/connect(.*)',
   '/embed(.*)',
   '/api/(.*)',

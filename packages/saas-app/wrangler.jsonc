@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // WP Instant SaaS Dashboard (OpenNext). Custom domain: app.wpinstant.dev
+  // WP Instant SaaS Dashboard (OpenNext). Custom domain: wpinstant.com
   "name": "wpinstant-app",
   "main": ".open-next/worker.js",
   "compatibility_date": "2024-12-30",
@@ -9,7 +9,7 @@
     "global_fetch_strictly_public"
   ],
   "routes": [
-    { "pattern": "app.wpinstant.dev", "custom_domain": true }
+    { "pattern": "wpinstant.com", "custom_domain": true }
   ],
   "observability": {
     "logs": {
@@ -31,7 +31,7 @@
     // TODO(clerk): replace with the production pk_live_ key once a Clerk
     // production instance exists (this is the dev-instance test key).
     "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZWYtbWVlcmthdC0zMC5jbGVyay5hY2NvdW50cy5kZXYk",
-    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev",
+    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.com",
     "ENVIRONMENT": "production"
   }
 }

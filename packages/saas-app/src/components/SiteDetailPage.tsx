@@ -1009,7 +1009,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
             </div>
             <div className="flex justify-between">
               <span className="text-[#71717a]">Edge API Gateway:</span>
-              <code className="text-[#171717]">https://api.wpinstant.dev</code>
+              <code className="text-[#171717]">https://api.wpinstant.com</code>
             </div>
             <div className="flex justify-between">
               <span className="text-[#71717a]">WordPress Version:</span>

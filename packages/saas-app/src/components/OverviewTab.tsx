@@ -230,7 +230,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <button
               onClick={() =>
                 window.open(
-                  `${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev'}/api/v1/assets/plugin/download`,
+                  `${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.com'}/api/v1/assets/plugin/download`,
                   '_blank',
                   'noopener'
                 )

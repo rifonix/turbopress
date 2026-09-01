@@ -25,7 +25,7 @@ export default function SiteDetailPage() {
         <p className="text-xs text-[#71717a]">
           The site with ID <code className="font-mono">{siteId}</code> could not be found in your connected fleet.
         </p>
-        <Link href="/sites" className="btn btn-primary text-xs inline-flex items-center gap-1.5">
+        <Link href="/dashboard/sites" className="btn btn-primary text-xs inline-flex items-center gap-1.5">
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to all sites</span>
         </Link>
@@ -37,7 +37,7 @@ export default function SiteDetailPage() {
     <SiteDetailView
       site={site}
       jobs={ctx.jobs}
-      onBack={() => router.push('/sites')}
+      onBack={() => router.push('/dashboard/sites')}
       onUpdatePreset={ctx.handleUpdatePreset}
       onUpdateConfig={ctx.handleUpdateConfig}
       onPurgeCache={ctx.handlePurgeSite}

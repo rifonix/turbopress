@@ -58,7 +58,7 @@ The edge API worker runs on Cloudflare Workers with native bindings provisioned 
 | **Dead-Letter Queue** | (consumer: `wpinstant-api`) | `wpinstant-dlq` | Terminal failure handling for exhausted optimization jobs |
 | **Browser Rendering** | `BROWSER` | Cloudflare Browser Rendering | Headless Chromium instance pool for DOM & CSS analysis |
 
-The dashboard runs as a separate OpenNext worker (`wpinstant-app` on `app.wpinstant.dev`); the API is `wpinstant-api` on `api.wpinstant.dev`.
+The dashboard runs as a separate OpenNext worker (`wpinstant-app` on `wpinstant.com`); the API is `wpinstant-api` on `api.wpinstant.com`.
 
 ---
 

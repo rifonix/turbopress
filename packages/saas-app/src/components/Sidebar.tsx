@@ -64,7 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </Link>
 
         {/* Current Site Quick Pill (If on Site Detail Page) */}
-        {pathname?.startsWith('/sites/') && selectedSite && (
+        {pathname?.startsWith('/dashboard/sites/') && selectedSite && (
           <Link
             href={`/sites/${selectedSite.id}`}
             onClick={onClose}
@@ -97,15 +97,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </Link>
 
               <Link
-                href="/sites"
+                href="/dashboard/sites"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname?.startsWith('/sites')
+                  pathname?.startsWith('/dashboard/sites')
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Globe className={`w-4 h-4 ${pathname?.startsWith('/sites') ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Globe className={`w-4 h-4 ${pathname?.startsWith('/dashboard/sites') ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Sites</span>
                 {siteCount > 0 && (
                   <span className="ml-auto font-mono text-[11px] px-1.5 py-0.5 rounded bg-[#f4f4f5] text-[#71717a]">
@@ -115,15 +115,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </Link>
 
               <Link
-                href="/jobs"
+                href="/dashboard/jobs"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/jobs'
+                  pathname === '/dashboard/jobs'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Activity className={`w-4 h-4 ${pathname === '/jobs' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Activity className={`w-4 h-4 ${pathname === '/dashboard/jobs' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Jobs Queue</span>
                 {jobCount > 0 && (
                   <span className="ml-auto font-mono text-[11px] px-1.5 py-0.5 rounded bg-[#fff1ef] text-[#f03e2f] font-semibold">
@@ -141,28 +141,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </p>
             <nav className="space-y-0.5">
               <Link
-                href="/billing"
+                href="/dashboard/billing"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/billing'
+                  pathname === '/dashboard/billing'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <CreditCard className={`w-4 h-4 ${pathname === '/billing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <CreditCard className={`w-4 h-4 ${pathname === '/dashboard/billing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Billing & Polar</span>
               </Link>
 
               <Link
-                href="/pricing"
+                href="/dashboard/pricing"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/pricing'
+                  pathname === '/dashboard/pricing'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Tag className={`w-4 h-4 ${pathname === '/pricing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Tag className={`w-4 h-4 ${pathname === '/dashboard/pricing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Plans & Upgrade</span>
               </Link>
 
@@ -180,15 +180,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </Link>
 
               <Link
-                href="/onboarding"
+                href="/dashboard/onboarding"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/onboarding'
+                  pathname === '/dashboard/onboarding'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <Sparkles className={`w-4 h-4 ${pathname === '/onboarding' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <Sparkles className={`w-4 h-4 ${pathname === '/dashboard/onboarding' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Onboarding Flow</span>
               </Link>
             </nav>

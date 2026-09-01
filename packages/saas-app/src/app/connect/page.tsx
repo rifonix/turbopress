@@ -495,13 +495,13 @@ function ConnectContent() {
 
                 <div className="flex gap-2.5">
                   <button
-                    onClick={() => (window.location.href = '/onboarding')}
+                    onClick={() => (window.location.href = '/dashboard/onboarding')}
                     className="flex-1 py-3 px-4 rounded-xl bg-[#171717] hover:bg-[#262626] text-white font-semibold text-xs shadow-md transition-all"
                   >
                     Run First Optimization →
                   </button>
                   <button
-                    onClick={() => (window.location.href = '/sites')}
+                    onClick={() => (window.location.href = '/dashboard/sites')}
                     className="flex-1 py-3 px-4 rounded-xl border border-[#e4e4e7] hover:bg-[#f8f8f7] text-[#171717] font-semibold text-xs transition-all"
                   >
                     View in Dashboard
@@ -572,7 +572,7 @@ function ConnectContent() {
                   >
                     Switch to Annual ($15/mo · Save 20%)
                   </button>
-                  <Link href="/pricing" className="text-[#f03e2f] hover:underline font-medium">
+                  <Link href="/dashboard/pricing" className="text-[#f03e2f] hover:underline font-medium">
                     Compare all plans →
                   </Link>
                 </div>

@@ -283,7 +283,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </ul>
 
                 <button
-                  onClick={() => onSelectPlan('starter', billingInterval, '/onboarding')}
+                  onClick={() => onSelectPlan('starter', billingInterval, '/dashboard/onboarding')}
                   className="w-full btn btn-primary py-2.5 text-xs font-semibold"
                 >
                   Activate Starter Plan via Polar Checkout →
@@ -291,7 +291,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
                 <p className="text-center text-xs text-[#71717a]">
                   Need more sites or runs?{' '}
-                  <a href="/pricing" className="text-[#f03e2f] underline font-medium">
+                  <a href="/dashboard/pricing" className="text-[#f03e2f] underline font-medium">
                     Compare all plans →
                   </a>
                 </p>
@@ -397,7 +397,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <ol className="list-decimal pl-4 space-y-1">
                   <li>
                     <a
-                      href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev'}/api/v1/assets/plugin/download`}
+                      href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.com'}/api/v1/assets/plugin/download`}
                       className="text-[#f03e2f] underline underline-offset-2 font-medium"
                     >
                       Download <code>wp-instant.zip</code>

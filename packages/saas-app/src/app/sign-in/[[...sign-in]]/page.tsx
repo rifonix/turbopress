@@ -10,8 +10,8 @@ import { wpInstantClerkAppearance } from '@/components/auth/ClerkTheme';
 function SignInContent() {
   const searchParams = useSearchParams();
   // Deep-link support: send users back where they came from (e.g. /connect handshake)
-  const redirectUrl = searchParams?.get('redirect_url') || '/';
-  const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/';
+  const redirectUrl = searchParams?.get('redirect_url') || '/dashboard';
+  const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/dashboard';
 
   return (
     <div className="min-h-screen bg-[#f8f8f7] flex flex-col justify-between animate-fade-in text-[#171717]">
@@ -114,7 +114,7 @@ function SignInContent() {
                   </span>
                   <Link
                     href={
-                      redirectUrl && redirectUrl !== '/'
+                      redirectUrl && redirectUrl !== '/dashboard'
                         ? `/sign-up?redirect_url=${encodeURIComponent(redirectUrl)}`
                         : '/sign-up'
                     }

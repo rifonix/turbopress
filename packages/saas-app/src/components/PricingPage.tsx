@@ -22,7 +22,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
   const handleSelect = (planId: string) => {
     // After checkout, new subscribers return to onboarding to connect their site;
     // existing subscribers simply come back to the billing page.
-    onSelectPlan(planId, interval, hasActivePlan ? '/billing' : '/onboarding');
+    onSelectPlan(planId, interval, hasActivePlan ? '/dashboard/billing' : '/dashboard/onboarding');
   };
 
   const plans = [

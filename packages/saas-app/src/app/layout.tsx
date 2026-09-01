@@ -4,9 +4,12 @@ import { wpInstantClerkAppearance } from '@/components/auth/ClerkTheme';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'WP Instant Engine · Zero-DNS WordPress Optimization SaaS',
+  title: {
+    default: 'WP Instant — Edge performance for WordPress',
+    template: '%s · WP Instant',
+  },
   description:
-    'High-Performance Zero-DNS WordPress Performance Platform. Automated Critical CSS, sub-15ms edge caching, 3-tier JavaScript deferral, and dynamic nonce micro-hydration on Cloudflare Workers.',
+    'Automatic critical CSS, image transcoding, script delay, and full-page caching on Cloudflare\'s edge. Install the plugin and your WordPress site loads instantly.',
   icons: {
     icon: '/favicon.ico',
   },
@@ -27,8 +30,8 @@ export default function RootLayout({
       appearance={wpInstantClerkAppearance}
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
-      signInFallbackRedirectUrl="/"
-      signUpFallbackRedirectUrl="/"
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/dashboard"
     >
       <html lang="en">
         <head>

@@ -100,7 +100,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     if (!isSignedIn) return;
     const hasActiveJobs = jobs.some((j) => j.status === 'processing' || j.status === 'queued');
-    if (!hasActiveJobs && pathname !== '/jobs') return;
+    if (!hasActiveJobs && pathname !== '/dashboard/jobs') return;
 
     const interval = setInterval(() => {
       refreshFleetData();
@@ -203,7 +203,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const handleOpenPortal = async () => {
     if (!billingData?.hasActivePlan) {
       addToast('Please select and activate a plan first to access the Polar customer portal', 'info');
-      router.push('/pricing');
+      router.push('/dashboard/pricing');
       return;
     }
 
@@ -218,7 +218,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     } catch (err: any) {
       addToast(err?.message || 'No active billing customer found. Please subscribe to a plan first.', 'error');
-      router.push('/pricing');
+      router.push('/dashboard/pricing');
     }
   };
 
@@ -338,7 +338,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const token = await getToken();
       await api.deleteSite(token, siteId);
       addToast(`Site ${domain} removed from fleet`, 'info');
-      router.push('/sites');
+      router.push('/dashboard/sites');
       await refreshFleetData();
     } catch (err: any) {
       addToast(err?.message || `Failed to delete ${domain}`, 'error');

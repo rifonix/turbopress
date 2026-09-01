@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) {
 class Handshake {
     public const STATE_TRANSIENT_PREFIX = 'wpins_auth_state_';
 
-    public static function generate_connect_url(string $saas_app_url = 'https://app.wpinstant.dev'): string {
+    public static function generate_connect_url(string $saas_app_url = 'https://wpinstant.com'): string {
         $state = wp_generate_password(32, false);
         set_transient(self::STATE_TRANSIENT_PREFIX . $state, time(), 3600);
 
