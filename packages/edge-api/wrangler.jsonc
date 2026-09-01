@@ -9,7 +9,8 @@
     "nodejs_compat"
   ],
   "routes": [
-    { "pattern": "api.wpinstant.dev", "custom_domain": true }
+    { "pattern": "api.wpinstant.dev", "custom_domain": true },
+    { "pattern": "cdn.wpinstant.dev", "custom_domain": true }
   ],
   "observability": {
     "enabled": true,

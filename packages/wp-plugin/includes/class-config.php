@@ -10,6 +10,7 @@ class Config {
     public const API_KEY_OPTION = 'wp_instant_api_key';
     public const SITE_ID_OPTION = 'wp_instant_site_id';
     public const API_URL_OPTION = 'wp_instant_api_url';
+    public const CDN_URL_OPTION = 'wp_instant_cdn_url';
     public const CALLBACK_SECRET_OPTION = 'wp_instant_callback_secret';
 
     /**
@@ -271,6 +272,19 @@ class Config {
 
     public function get_api_url(): string {
         return (string) get_option(self::API_URL_OPTION, WP_INSTANT_DEFAULT_API_BASE);
+    }
+
+    /**
+     * CDN base for visitor-facing asset URLs (media derivatives, proxied
+     * CSS/JS). Falls back to the API base when unset so older edge
+     * deployments without a CDN hostname keep working.
+     */
+    public function get_cdn_url(): string {
+        $cdn = (string) get_option(self::CDN_URL_OPTION, '');
+        if ($cdn !== '') {
+            return $cdn;
+        }
+        return defined('WP_INSTANT_DEFAULT_CDN_BASE') ? WP_INSTANT_DEFAULT_CDN_BASE : $this->get_api_url();
     }
 
     public function is_connected(): bool {

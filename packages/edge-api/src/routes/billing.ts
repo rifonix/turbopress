@@ -185,8 +185,17 @@ const POLAR_PRODUCTS: Record<PolarServer, Record<string, Record<string, string>>
   },
 };
 
-function productForServer(server: PolarServer, planId: string, interval: string): string | null {
+function productForServer(env: Env | undefined, server: PolarServer, planId: string, interval: string): string | null {
   const normalizedInterval = ['annual', 'yearly', 'year'].includes(interval) ? 'annual' : 'monthly';
+  // Production product IDs from worker vars take top priority:
+  // POLAR_PRODUCT_STARTER_MONTHLY, POLAR_PRODUCT_PRO_ANNUAL, etc.
+  if (env) {
+    const envKey = `POLAR_PRODUCT_${String(planId || '').toUpperCase()}_${normalizedInterval.toUpperCase()}`;
+    const fromEnv = (env as unknown as Record<string, unknown>)[envKey];
+    if (typeof fromEnv === 'string' && fromEnv.length > 8) {
+      return fromEnv;
+    }
+  }
   return POLAR_PRODUCTS[server]?.[planId]?.[normalizedInterval] || null;
 }
 
@@ -356,7 +365,7 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
     !candidateEmail.endsWith('@user.local') &&
     !candidateEmail.includes('wp-instant.internal');
 
-  const saasUrl = c.env.SAAS_APP_URL || 'https://api.wpinstant.dev';
+  const saasUrl = c.env.SAAS_APP_URL || 'https://app.wpinstant.dev';
   const successUrl = returnTo
     ? `${saasUrl}${returnTo.startsWith('/') ? returnTo : `/${returnTo}`}${
         returnTo.includes('?') ? '&' : '?'
@@ -388,7 +397,7 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
 
     const createSession = (client: Polar, srv: PolarServer) => {
       // Prefer the environment-specific catalog ID when we know the plan
-      const mapped = planId ? productForServer(srv, planId, interval) : null;
+      const mapped = planId ? productForServer(c.env, srv, planId, interval) : null;
       if (mapped) effectiveProductId = mapped;
       const payload: any = { ...checkoutPayload, products: [effectiveProductId] };
       if (srv === 'sandbox' && sandboxDiscountId) {

@@ -23,6 +23,16 @@ export interface Env {
   POLAR_SERVER?: string;
   POLAR_ENVIRONMENT?: string;
   POLAR_SANDBOX_DISCOUNT_ID?: string;
+  // Production catalog product IDs (worker vars). Resolution order at
+  // checkout: these vars → static starter map → catalog auto-resolve by name.
+  POLAR_PRODUCT_STARTER_MONTHLY?: string;
+  POLAR_PRODUCT_STARTER_ANNUAL?: string;
+  POLAR_PRODUCT_PRO_MONTHLY?: string;
+  POLAR_PRODUCT_PRO_ANNUAL?: string;
+  POLAR_PRODUCT_AGENCY_MONTHLY?: string;
+  POLAR_PRODUCT_AGENCY_ANNUAL?: string;
+  POLAR_PRODUCT_ENTERPRISE_MONTHLY?: string;
+  POLAR_PRODUCT_ENTERPRISE_ANNUAL?: string;
   CLERK_SECRET_KEY?: string;
   CLERK_WEBHOOK_SIGNING_SECRET?: string;
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string;

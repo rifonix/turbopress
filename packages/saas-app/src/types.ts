@@ -176,11 +176,21 @@ export interface DashboardContextType {
   handleAuthorizeConnect: (domain: string, state: string, returnUrl: string) => Promise<string>;
 }
 
+// Client product IDs are advisory only — the API resolves the authoritative
+// product server-side (env POLAR_PRODUCT_{PLAN}_{MONTHLY|ANNUAL} on the
+// wpinstant-api worker, then catalog auto-resolution). Set these to keep the
+// client's initial guess aligned; NEXT_PUBLIC_POLAR_PRODUCT_* are inlined at
+// build time, so they must be present when the dashboard is built.
+const envProduct = (key: string, fallback: string) => {
+  const v = process.env[`NEXT_PUBLIC_POLAR_PRODUCT_${key}`];
+  return v && v.length > 8 ? v : fallback;
+};
+
 export const POLAR_PRODUCT_IDS = {
-  starterMonthly: 'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
-  starterYearly: '3907e862-b1e1-4006-9289-040cabe18c2d',
-  proMonthly: 'prod_pro_monthly',
-  proYearly: 'prod_pro_yearly',
-  agencyMonthly: 'prod_agency_monthly',
-  agencyYearly: 'prod_agency_yearly',
+  starterMonthly: envProduct('STARTER_MONTHLY', 'ca0c63de-5a98-4829-8b0f-8e81f579b58a'),
+  starterYearly: envProduct('STARTER_ANNUAL', '3907e862-b1e1-4006-9289-040cabe18c2d'),
+  proMonthly: envProduct('PRO_MONTHLY', 'prod_pro_monthly'),
+  proYearly: envProduct('PRO_ANNUAL', 'prod_pro_yearly'),
+  agencyMonthly: envProduct('AGENCY_MONTHLY', 'prod_agency_monthly'),
+  agencyYearly: envProduct('AGENCY_ANNUAL', 'prod_agency_yearly'),
 };

@@ -149,9 +149,10 @@ class AssetProxy {
                 return false;
             }
         }
-        // Never re-proxy our own worker URLs.
+        // Never re-proxy our own worker/CDN URLs.
         $api_base = rtrim($this->config->get_api_url(), '/');
-        if ($api_base !== '' && stripos($url, $api_base) === 0) {
+        $cdn_base = rtrim($this->config->get_cdn_url(), '/');
+        if (($api_base !== '' && stripos($url, $api_base) === 0) || ($cdn_base !== '' && stripos($url, $cdn_base) === 0)) {
             return false;
         }
         return true;

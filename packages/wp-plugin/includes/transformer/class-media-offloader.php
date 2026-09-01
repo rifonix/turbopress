@@ -284,8 +284,9 @@ class MediaOffloader {
             return null; // data:, blob:, relative, protocol-relative
         }
         $api_base = rtrim($this->config->get_api_url(), '/');
-        if ($api_base !== '' && stripos($src, $api_base) === 0) {
-            return null; // already a worker URL
+        $cdn_base = rtrim($this->config->get_cdn_url(), '/');
+        if (($api_base !== '' && stripos($src, $api_base) === 0) || ($cdn_base !== '' && stripos($src, $cdn_base) === 0)) {
+            return null; // already a worker/CDN URL
         }
         foreach ($excluded as $ex) {
             if ($ex !== '' && stripos($src, $ex) !== false) {
@@ -310,7 +311,9 @@ class MediaOffloader {
     }
 
     public function media_url(string $src, int $w, string $f): ?string {
-        $api_base = rtrim($this->config->get_api_url(), '/');
+        // Visitor-facing URL: goes through the CDN hostname (R2-backed),
+        // not the control-plane API host.
+        $api_base = rtrim($this->config->get_cdn_url(), '/');
         $site_id = $this->config->get_site_id();
         if ($api_base === '' || $site_id === '') {
             return null;

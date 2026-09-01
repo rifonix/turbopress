@@ -66,8 +66,9 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    // This worker is API-only (api.wpinstant.dev); the dashboard lives on
-    // the wpinstant-app worker (app.wpinstant.dev).
+    // This worker is API + CDN only (api.wpinstant.dev serves the control
+    // plane; cdn.wpinstant.dev serves visitor-facing media/CSS from R2).
+    // The dashboard lives on the wpinstant-app worker (app.wpinstant.dev).
     return new Response(JSON.stringify({ success: false, error: 'Not found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
