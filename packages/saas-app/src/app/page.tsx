@@ -20,7 +20,7 @@ const features = [
   {
     icon: ImageIcon,
     title: 'Media CDN with on-the-fly transforms',
-    body: 'Images are served from cdn.wpinstant.com as WebP/AVIF at the right size for each viewport. Originals are fetched once, derivatives are cached at the edge.',
+    body: 'Images are served from cdn.wpinstant.dev as WebP/AVIF at the right size for each viewport. Originals are fetched once, derivatives are cached at the edge.',
   },
   {
     icon: Layers,

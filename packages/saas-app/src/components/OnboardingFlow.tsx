@@ -397,7 +397,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 <ol className="list-decimal pl-4 space-y-1">
                   <li>
                     <a
-                      href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.com'}/api/v1/assets/plugin/download`}
+                      href={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev'}/api/v1/assets/plugin/download`}
                       className="text-[#f03e2f] underline underline-offset-2 font-medium"
                     >
                       Download <code>wp-instant.zip</code>

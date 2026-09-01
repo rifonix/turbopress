@@ -3,7 +3,7 @@ import { SiteConfig } from '@wpinstant/shared';
 
 const API_BASE =
   (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
-  'https://api.wpinstant.com';
+  'https://api.wpinstant.dev';
 
 class ApiError extends Error {
   status: number;

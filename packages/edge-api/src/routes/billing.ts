@@ -255,7 +255,7 @@ async function resolveProductFromCatalog(
  */
 billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'customer@wpinstant.com';
+  const userEmail = c.get('userEmail') || 'customer@wpinstant.dev';
 
   const subscription = await c.env.DB.prepare(
     'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
@@ -361,11 +361,11 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const candidateEmail = (bodyEmail || authUserEmail || '').trim().toLowerCase();
   const isValidRealEmail =
     candidateEmail.includes('@') &&
-    !candidateEmail.endsWith('@users.wpinstant.com') &&
+    !candidateEmail.endsWith('@users.wpinstant.dev') &&
     !candidateEmail.endsWith('@user.local') &&
     !candidateEmail.includes('wp-instant.internal');
 
-  const saasUrl = c.env.SAAS_APP_URL || 'https://wpinstant.com';
+  const saasUrl = c.env.SAAS_APP_URL || 'https://wpinstant.dev';
   const successUrl = returnTo
     ? `${saasUrl}${returnTo.startsWith('/') ? returnTo : `/${returnTo}`}${
         returnTo.includes('?') ? '&' : '?'

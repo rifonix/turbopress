@@ -9,37 +9,22 @@ Audience: you, once you have your production Clerk and Polar credentials.
 
 | Hostname | Worker | Purpose |
 |---|---|---|
-| `wpinstant.com` | `wpinstant-app` | Marketing homepage (`/`) + portal (`/dashboard/…`), sign-in, connect |
-| `api.wpinstant.com` | `wpinstant-api` | Control plane: REST API, auth, pairing, billing webhooks, queue consumer |
-| `cdn.wpinstant.com` | `wpinstant-api` (same worker) | Visitor-facing asset delivery: media derivatives, critical CSS, plugin zip — R2-backed |
+| `wpinstant.dev` | `wpinstant-app` | Marketing homepage (`/`) + portal (`/dashboard/…`), sign-in, connect |
+| `api.wpinstant.dev` | `wpinstant-api` | Control plane: REST API, auth, pairing, billing webhooks, queue consumer |
+| `cdn.wpinstant.dev` | `wpinstant-api` (same worker) | Visitor-facing asset delivery: media derivatives, critical CSS, plugin zip — R2-backed |
 
-All hostnames are Workers custom domains on the `wpinstant.com` zone
-(id `f166570fcc4847c3f1f65836817566c2` — created **pending**; see §1.1).
-The WordPress plugin builds all visitor-facing asset URLs from `cdn.wpinstant.com`
+All hostnames are Workers custom domains on the `wpinstant.dev` zone
+(id `731977825d1dde521498998580dd5e11`, **active**).
+The WordPress plugin builds all visitor-facing asset URLs from `cdn.wpinstant.dev`
 (`WP_INSTANT_DEFAULT_CDN_BASE` in `wp-instant.php`, overridable via the
-`wp_instant_cdn_url` option) and sends all control-plane calls to `api.wpinstant.com`.
+`wp_instant_cdn_url` option) and sends all control-plane calls to `api.wpinstant.dev`.
 
 The dashboard lives under the `/dashboard` path prefix (Next.js route segment);
 the marketing homepage is served at `/`. Clerk sign-in/up stay at `/sign-in`,
 `/sign-up`; the pairing authorize screen at `/connect`; public embed panels at `/embed/…`.
 
-### 1.1 Activate the wpinstant.com zone (required before deploys)
-
-The zone exists in the account but is **pending** delegation. At your domain
-registrar, replace the current nameservers with:
-
-```
-algin.ns.cloudflare.com
-nova.ns.cloudflare.com
-```
-
-Cloudflare activates the zone automatically once delegation propagates
-(minutes to ~24h). Until then, deploys attaching `*.wpinstant.com` custom
-domains cannot succeed — run `npx wrangler deploy` after the zone is active.
-
-(The legacy `wpinstant.dev` zone remains in the account with the old
-`api.wpinstant.dev` / `cdn.wpinstant.dev` / `app.wpinstant.dev` deployments
-still serving until cutover; retire them per §7.)
+The old `app.wpinstant.dev` dashboard hostname is retired — the portal is
+`wpinstant.dev/dashboard`.
 
 ### Cloudflare resources (account `8bf11cd648b64d5dc88ba50312319c8a`)
 
@@ -108,7 +93,7 @@ then redeploy **both** workers (see §6) — the dashboard one needs a full rebu
 
 In the Clerk dashboard → **Webhooks → Add Endpoint**:
 
-- **Endpoint URL:** `https://api.wpinstant.com/api/v1/auth/clerk-webhook`
+- **Endpoint URL:** `https://api.wpinstant.dev/api/v1/auth/clerk-webhook`
 - **Events:** `user.created`, `user.updated`, `user.deleted`
 - Copy the **Signing Secret** → `CLERK_WEBHOOK_SIGNING_SECRET` (command above).
 
@@ -118,9 +103,9 @@ In the Clerk dashboard → **Webhooks → Add Endpoint**:
 
 Under **Configure → URLs / Domains** for the production instance:
 
-- Add production domain: `wpinstant.com`
-- Sign-in / sign-up redirect URLs: `https://wpinstant.com/**`
-- Allowed origins: `https://wpinstant.com`
+- Add production domain: `wpinstant.dev`
+- Sign-in / sign-up redirect URLs: `https://wpinstant.dev/**`
+- Allowed origins: `https://wpinstant.dev`
 
 ---
 
@@ -213,7 +198,7 @@ The checkout code auto-detects whether the token belongs to the sandbox or produ
 
 Polar dashboard → **Webhooks → Add Endpoint**:
 
-- **URL:** `https://api.wpinstant.com/api/v1/billing/polar-webhook`
+- **URL:** `https://api.wpinstant.dev/api/v1/billing/polar-webhook`
 - **Events:** `subscription.created`, `subscription.updated`, `subscription.active`, `subscription.canceled`, `subscription.revoked`
 - Copy the signing secret → `POLAR_WEBHOOK_SECRET` (command above).
 
@@ -235,8 +220,8 @@ These are set to `TODO_…` placeholder values on `wpinstant-api` right now. All
 Verify after setting (no restarts needed — next request picks them up):
 
 ```bash
-curl -s https://api.wpinstant.com/health
-curl -s -o /dev/null -w "%{http_code}\n" https://wpinstant.com/sign-in   # expect 200 once Clerk key set
+curl -s https://api.wpinstant.dev/health
+curl -s -o /dev/null -w "%{http_code}\n" https://wpinstant.dev/sign-in   # expect 200 once Clerk key set
 ```
 
 ---
@@ -244,7 +229,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://wpinstant.com/sign-in   # expec
 ## 5. Plugin zip (dashboard download + install)
 
 The dashboard's "Download WP Plugin" button streams `plugin/wp-instant.zip` from R2 via
-`https://api.wpinstant.com/api/v1/assets/plugin/download` (also reachable on the CDN host).
+`https://api.wpinstant.dev/api/v1/assets/plugin/download` (also reachable on the CDN host).
 
 Rebuild + upload after plugin changes:
 
@@ -264,10 +249,10 @@ npx wrangler r2 object put wpinstant-assets/plugin/wp-instant.zip \
 ## 6. Deploy quick reference
 
 ```bash
-# API worker (api.wpinstant.com + cdn.wpinstant.com)
+# API worker (api.wpinstant.dev + cdn.wpinstant.dev)
 cd packages/edge-api && npx wrangler deploy
 
-# Dashboard (wpinstant.com) — full rebuild required when NEXT_PUBLIC_* vars change
+# Dashboard (wpinstant.dev) — full rebuild required when NEXT_PUBLIC_* vars change
 cd packages/saas-app && npm run build && npx wrangler deploy
 
 # D1 migrations (if you add one)
@@ -278,18 +263,17 @@ cd packages/edge-api && npx wrangler d1 migrations apply wpinstant-db --remote
 
 ## 7. Go-live checklist
 
-1. **Zone active**: nameservers for `wpinstant.com` pointed at Cloudflare (§1.1) — zone shows `active`
-2. **Deploy both workers** (custom domains attach at deploy time):
+1. **Deploy both workers** (custom domains attach at deploy time; zone is already active):
    ```bash
-   cd packages/edge-api && npx wrangler deploy    # api.wpinstant.com + cdn.wpinstant.com
-   cd ../saas-app && npm run build:worker && npx wrangler deploy   # wpinstant.com
+   cd packages/edge-api && npx wrangler deploy    # api.wpinstant.dev + cdn.wpinstant.dev
+   cd ../saas-app && npm run build:worker && npx wrangler deploy   # wpinstant.dev (homepage + /dashboard)
    ```
-3. Clerk production instance created; keys set per §2; webhook + domains configured
-4. Polar products created (names per §3.2 or IDs pinned per §3.3); secrets set per §3.4; webhook per §3.5
-5. `pk_live_` baked into both `wrangler.jsonc`; **dashboard rebuilt + redeployed**
-6. `https://wpinstant.com` (homepage) and `https://wpinstant.com/dashboard` (portal) load; sign-in works
-7. Dashboard → Connect a site → install plugin from the zip → pairing handshake completes
-8. Run an optimization job end-to-end; verify media URLs point at `cdn.wpinstant.com`
-9. Test checkout for each plan in production
-10. Retire legacy deployments: remove `api/cdn/app.wpinstant.dev` custom domains (or add a `wpinstant.dev → wpinstant.com` redirect rule on the old zone)
-11. Delete legacy `turbopress-*` resources (workers `turbopress`, `turbopress-edge-api`, D1 `turbopress-db`, KV, R2 bucket, both queues) once verified
+2. Clerk production instance created; keys set per §2; webhook + domains configured
+3. Polar products created (names per §3.2 or IDs pinned per §3.3); secrets set per §3.4; webhook per §3.5
+4. `pk_live_` baked into both `wrangler.jsonc`; **dashboard rebuilt + redeployed**
+5. `https://wpinstant.dev` (homepage) and `https://wpinstant.dev/dashboard` (portal) load; sign-in works
+6. Dashboard → Connect a site → install plugin from the zip → pairing handshake completes
+7. Run an optimization job end-to-end; verify media URLs point at `cdn.wpinstant.dev`
+8. Test checkout for each plan in production
+9. Optionally redirect the retired `app.wpinstant.dev` → `wpinstant.dev` (redirect rule on the zone)
+10. Delete legacy `turbopress-*` resources (workers `turbopress`, `turbopress-edge-api`, D1 `turbopress-db`, KV, R2 bucket, both queues) once verified

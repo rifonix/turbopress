@@ -21,7 +21,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
   const payload = HandshakeRequestSchema.parse(body);
 
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'user@wpinstant.com';
+  const userEmail = c.get('userEmail') || 'user@wpinstant.dev';
   const domain = normalizeDomain(payload.domain);
 
   // Open-redirect hardening: the API key is appended to return_url, so the
@@ -539,7 +539,7 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
  */
 authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
-  const userEmail = c.get('userEmail') || 'user@wpinstant.com';
+  const userEmail = c.get('userEmail') || 'user@wpinstant.dev';
 
   const user = await c.env.DB.prepare(
     'SELECT * FROM users WHERE id = ?'

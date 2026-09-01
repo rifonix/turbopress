@@ -1,11 +1,11 @@
 # WP Instant Production Deployment Guide
 
-Production topology (two Workers on the `wpinstant.com` zone):
+Production topology (two Workers on the `wpinstant.dev` zone):
 
 | Worker | Domain | Package | Purpose |
 |---|---|---|---|
-| `wpinstant-api` | `api.wpinstant.com` | `packages/edge-api` | Hono Edge API, queue producer/consumer, DLQ consumer, cron sweeper, browser extraction |
-| `wpinstant-app` | `wpinstant.com` | `packages/saas-app` | Next.js 15 dashboard (OpenNext) — marketing homepage at `/` + portal at `/dashboard` |
+| `wpinstant-api` | `api.wpinstant.dev` | `packages/edge-api` | Hono Edge API, queue producer/consumer, DLQ consumer, cron sweeper, browser extraction |
+| `wpinstant-app` | `wpinstant.dev` | `packages/saas-app` | Next.js 15 dashboard (OpenNext) — marketing homepage at `/` + portal at `/dashboard` |
 
 Resources: D1 `wpinstant-db`, KV `wpinstant-kv`, R2 `wpinstant-assets`, Queues `wpinstant-optimization-queue` + `wpinstant-dlq`.
 
@@ -52,17 +52,17 @@ Also update `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `packages/saas-app/wrangler.j
 ```bash
 npm run build --workspace=@wpinstant/shared
 
-# Edge API (api.wpinstant.com, queue consumers, cron trigger)
+# Edge API (api.wpinstant.dev, queue consumers, cron trigger)
 cd packages/edge-api && npx wrangler deploy
 
-# Dashboard (wpinstant.com)
+# Dashboard (wpinstant.dev)
 cd packages/saas-app && npx wrangler deploy
 ```
 
 ## 4. Webhooks
 
-- **Polar**: Dashboard → Settings → Webhooks → `https://api.wpinstant.com/api/v1/billing/polar-webhook`, events: `subscription.created/updated/active/canceled/revoked`. Secret → `POLAR_WEBHOOK_SECRET`.
-- **Clerk**: Dashboard → Webhooks → `https://api.wpinstant.com/api/v1/auth/clerk-webhook`, events: `user.created/updated/deleted`. Secret → `CLERK_WEBHOOK_SIGNING_SECRET`.
+- **Polar**: Dashboard → Settings → Webhooks → `https://api.wpinstant.dev/api/v1/billing/polar-webhook`, events: `subscription.created/updated/active/canceled/revoked`. Secret → `POLAR_WEBHOOK_SECRET`.
+- **Clerk**: Dashboard → Webhooks → `https://api.wpinstant.dev/api/v1/auth/clerk-webhook`, events: `user.created/updated/deleted`. Secret → `CLERK_WEBHOOK_SIGNING_SECRET`.
 
 ## 5. WordPress Plugin Release
 
@@ -72,4 +72,4 @@ npm run build          # produces wp-instant-<version>.zip with the correct wp-i
 npx wrangler r2 object put "wpinstant-assets/plugin/wp-instant.zip" --file=wp-instant-<version>.zip --content-type application/zip --remote
 ```
 
-The zip is then publicly available at `https://api.wpinstant.com/api/v1/assets/plugin/download` (linked from the dashboard Overview and Onboarding screens).
+The zip is then publicly available at `https://api.wpinstant.dev/api/v1/assets/plugin/download` (linked from the dashboard Overview and Onboarding screens).

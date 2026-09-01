@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: WP Instant - Next-Gen Page Optimizer
- * Plugin URI: https://wpinstant.com
+ * Plugin URI: https://wpinstant.dev
  * Description: Ultra-high performance WordPress page speed optimization engine powered by Cloudflare Edge & Browser Rendering.
  * Version: 1.12.1
  * Author: WP Instant Team
- * Author URI: https://wpinstant.com
+ * Author URI: https://wpinstant.dev
  * License: GPLv2 or later
  * Text Domain: wp-instant
  * Requires at least: 6.0
@@ -24,10 +24,10 @@ define('WP_INSTANT_CACHE_DIR', WP_CONTENT_DIR . '/cache/wp-instant');
 // Static page cache lives in its own subtree so full purges never destroy
 // expensive artifacts (critical CSS, combined CSS, localized fonts).
 define('WP_INSTANT_PAGES_DIR', WP_INSTANT_CACHE_DIR . '/pages');
-define('WP_INSTANT_DEFAULT_API_BASE', 'https://api.wpinstant.com');
+define('WP_INSTANT_DEFAULT_API_BASE', 'https://api.wpinstant.dev');
 // Visitor-facing asset delivery (media derivatives, proxied CSS/JS) goes
-// through the CDN hostname; the control plane stays on api.wpinstant.com.
-define('WP_INSTANT_DEFAULT_CDN_BASE', 'https://cdn.wpinstant.com');
+// through the CDN hostname; the control plane stays on api.wpinstant.dev.
+define('WP_INSTANT_DEFAULT_CDN_BASE', 'https://cdn.wpinstant.dev');
 
 // Autoload Includes
 require_once WP_INSTANT_PATH . 'includes/class-plugin.php';
