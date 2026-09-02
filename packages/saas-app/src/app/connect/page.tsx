@@ -16,7 +16,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { api } from '@/services/api';
-import { BillingStatusData, POLAR_PRODUCT_IDS } from '@/types';
+import { BillingStatusData } from '@/types';
 
 function normalizeDomain(raw: string): string {
   return raw
@@ -180,8 +180,6 @@ function ConnectContent() {
   const handlePurchasePlan = async (interval: 'monthly' | 'annual' = 'monthly') => {
     try {
       const token = await getToken();
-      const productId =
-        interval === 'annual' ? POLAR_PRODUCT_IDS.starterYearly : POLAR_PRODUCT_IDS.starterMonthly;
 
       // Construct returnTo back to this exact connect URL
       const currentParams = new URLSearchParams();
@@ -193,7 +191,7 @@ function ConnectContent() {
       const qs = currentParams.toString();
       const returnTo = qs ? `/connect?${qs}` : '/connect';
 
-      const res = await api.createCheckout(token, productId, returnTo, userEmail);
+      const res = await api.createCheckout(token, 'starter', interval, returnTo, userEmail);
       if (res?.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       } else {
@@ -548,11 +546,11 @@ function ConnectContent() {
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                      <span>200 Cloudflare Chromium Puppeteer runs / mo</span>
+                      <span>250 Optimization Credits / mo (1 URL + 1 viewport = 1 credit)</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                      <span>Unlimited free local and staging development seats</span>
+                      <span>60k contractual pageviews & 25 GB bandwidth</span>
                     </li>
                   </ul>
 
@@ -570,7 +568,7 @@ function ConnectContent() {
                     onClick={() => handlePurchasePlan('annual')}
                     className="text-[#71717a] hover:text-[#171717] underline"
                   >
-                    Switch to Annual ($15/mo · Save 20%)
+                    Switch to Annual ($15.20/mo · Save 20% · $182.40/yr)
                   </button>
                   <Link href="/dashboard/pricing" className="text-[#f03e2f] hover:underline font-medium">
                     Compare all plans →

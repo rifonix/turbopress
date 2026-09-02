@@ -122,13 +122,35 @@ export interface ToastMessage {
 export interface PlanDetails {
   id: string;
   name: string;
-  priceMonthly: number;
   status: string;
+  billingInterval?: 'monthly' | 'annual';
+  priceMonthly: number;
+  priceMonthlyCents?: number;
+  priceAnnualCents?: number | null;
+  priceAnnualMonthlyEquivalentCents?: number | null;
   maxSites: number;
   usedSites: number;
+  monthlyCredits?: number;
+  creditsUsed?: number;
+  creditsReserved?: number;
+  creditsRemaining?: number;
+  maxConcurrentJobs?: number;
+  concurrencyUsed?: number;
+  monthlyPageviews?: number;
+  pageviewsUsed?: number;
+  pageviewsSource?: 'reported';
+  monthlyBytes?: number;
+  bytesUsed?: number;
+  bytesSource?: 'reported';
+  overageEnabled?: boolean;
+  overageLimitCredits?: number;
+  overageCreditsUsed?: number;
+  overageCreditsReserved?: number;
+  currentPeriodStart?: number;
+  currentPeriodEnd: number;
+  // Compatibility aliases
   maxRuns: number;
   usedRuns: number;
-  currentPeriodEnd: number;
 }
 
 export interface BillingStatusData {

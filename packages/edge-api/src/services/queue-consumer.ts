@@ -3,6 +3,12 @@ import puppeteer, { Browser } from '@cloudflare/puppeteer';
 import { Env, OptimizationQueueMessage } from '../types/env.js';
 import { extractCriticalCssAndLcp, OriginChallengeError } from './puppeteer-extractor.js';
 import { generateJobId, hmacSha256Hex, ViewportMode } from '@wpinstant/shared';
+import {
+  consumeReservationForJob,
+  loadSubscriptionForSite,
+  releaseReservationForJob,
+  reserveCredits,
+} from './entitlements.js';
 
 /** How many additional internal pages to optimize after the homepage. */
 const MAX_CRAWL_PAGES = 5;
@@ -85,6 +91,16 @@ async function enqueueCrawlJobs(
     }
     if (path !== '/') return;
 
+    // Plan gate: crawling is only available on Growth, Agency, Scale plans.
+    const loaded = await loadSubscriptionForSite(env, siteId);
+    if (!loaded || !loaded.plan.crawlEnabled) {
+      return;
+    }
+    const { subscription, plan } = loaded;
+    const maxCrawl = Math.max(1, plan.maxCrawlPages);
+    const jobPriority: 'high' | 'normal' =
+      plan.priority === 'priority' || plan.priority === 'dedicated' ? 'high' : 'normal';
+
     const active = await env.DB.prepare(
       "SELECT COUNT(*) as n FROM optimization_jobs WHERE site_id = ? AND status IN ('queued', 'processing')"
     )
@@ -95,7 +111,7 @@ async function enqueueCrawlJobs(
 
     const picked: string[] = [];
     for (const link of links) {
-      if (picked.length >= MAX_CRAWL_PAGES || activeCount + picked.length * 2 >= MAX_ACTIVE_JOBS_PER_SITE) break;
+      if (picked.length >= maxCrawl || activeCount + picked.length * 2 >= MAX_ACTIVE_JOBS_PER_SITE) break;
       const normalized = link.replace(/\/+$/, '');
       const exists = await env.DB.prepare(
         "SELECT id FROM optimization_jobs WHERE site_id = ? AND status != 'failed' AND lower(rtrim(url, '/')) = lower(?) LIMIT 1"
@@ -106,14 +122,28 @@ async function enqueueCrawlJobs(
     }
     if (picked.length === 0) return;
 
-    console.log(`[Crawl] Enqueueing ${picked.length} internal pages for site ${siteId}`);
+    console.log(`[Crawl] Enqueueing ${picked.length} internal pages for site ${siteId} (plan max: ${maxCrawl})`);
     for (const url of picked) {
       for (const viewport of ['mobile', 'desktop'] as ViewportMode[]) {
         const jobId = generateJobId();
+
+        // 1 credit = 1 URL + 1 viewport (including crawl-discovered pages).
+        const reservation = await reserveCredits(env, subscription, {
+          units: 1,
+          runKey: `job_${jobId}`,
+          jobId,
+          source: 'crawl',
+        });
+        if (!reservation.ok) {
+          console.log(`[Crawl] Stopped enqueueing: monthly credits exhausted for site ${siteId}`);
+          return;
+        }
+
         await env.DB.prepare(
-          "INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, created_at) VALUES (?, ?, ?, ?, 'queued', 0, unixepoch())"
+          `INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, priority, credit_reservation_id, created_at)
+           VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, unixepoch())`
         )
-          .bind(jobId, siteId, url, viewport)
+          .bind(jobId, siteId, url, viewport, jobPriority, reservation.reservationId)
           .run();
         await env.KV.put(
           `job:${jobId}`,
@@ -124,6 +154,7 @@ async function enqueueCrawlJobs(
           await env.OPTIMIZATION_QUEUE.send({ jobId, siteId, url, viewport, attempt: 1 });
         } catch (sendErr) {
           console.warn('[Crawl] queue send failed:', sendErr);
+          await releaseReservationForJob(env, jobId);
         }
       }
     }
@@ -304,6 +335,9 @@ export async function processOptimizationQueue(
           metrics: result.metrics as unknown as Record<string, unknown>,
         });
 
+        // Finalize billing reservation: move from reserved to used.
+        await consumeReservationForJob(env, jobId);
+
         msg.ack();
       } catch (err: any) {
         console.error(`[Queue Error] Job ${jobId} failed:`, err);
@@ -352,6 +386,10 @@ export async function processOptimizationQueue(
             }),
             { expirationTtl: 3600 }
           );
+
+          // Failed infrastructure/terminal attempts are NEVER charged:
+          // release the credit reservation back to the customer's monthly allowance.
+          await releaseReservationForJob(env, jobId);
 
           msg.ack();
         }

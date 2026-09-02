@@ -257,9 +257,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   <h3 className="text-lg font-semibold text-[#171717]">WP Instant Starter</h3>
                   <div className="flex items-baseline gap-1 mt-3">
                     <span className="font-mono text-3xl font-bold text-[#171717]">
-                      ${billingInterval === 'monthly' ? '19' : '15'}
+                      ${billingInterval === 'monthly' ? '19' : '15.20'}
                     </span>
                     <span className="font-mono text-xs text-[#71717a]">/ month</span>
+                    {billingInterval === 'annual' && (
+                      <span className="font-mono text-[11px] text-[#71717a] ml-2">
+                        ($182.40 billed annually)
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -270,15 +275,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                    <span>Unlimited free local and staging seats</span>
+                    <span>250 Optimization Credits / mo (1 URL + 1 viewport = 1 credit)</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                    <span>200 Cloudflare Chromium Puppeteer runs / month</span>
+                    <span>60k contractual pageviews & 25 GB bandwidth</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-[#16a34a] flex-none" />
-                    <span>Sub-15ms advanced-cache.php drop-in caching</span>
+                    <span>Sub-15ms advanced-cache.php drop-in caching & 30-day RUM</span>
                   </li>
                 </ul>
 

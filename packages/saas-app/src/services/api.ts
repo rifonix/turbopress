@@ -263,11 +263,10 @@ export const api = {
    */
   async createCheckout(
     token: string | null,
-    productId: string,
+    planId: string,
+    interval: 'monthly' | 'annual' = 'monthly',
     returnTo?: string,
-    userEmail?: string | null,
-    planId?: string,
-    interval?: 'monthly' | 'annual'
+    userEmail?: string | null
   ): Promise<{ checkoutUrl: string; checkoutId: string; server?: 'sandbox' | 'production'; discountApplied?: boolean }> {
     return request<{
       checkoutUrl: string;
@@ -278,10 +277,28 @@ export const api = {
       '/api/v1/billing/checkout',
       {
         method: 'POST',
-        body: JSON.stringify({ productId, returnTo, customerEmail: userEmail, planId, interval }),
+        body: JSON.stringify({ planId, interval, returnTo, customerEmail: userEmail }),
       },
       token,
       userEmail
+    );
+  },
+
+  /**
+   * Update opt-in overage configuration
+   */
+  async updateOverage(
+    token: string | null,
+    enabled: boolean,
+    limitCredits: number
+  ): Promise<{ enabled: boolean; limitCredits: number }> {
+    return request<{ enabled: boolean; limitCredits: number }>(
+      '/api/v1/billing/overage',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ enabled, limitCredits }),
+      },
+      token
     );
   },
 

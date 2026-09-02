@@ -165,9 +165,25 @@ async function getClerkJWKS(env: Env): Promise<JWKS | null> {
   return null;
 }
 
+function identityFromPayload(payload: Record<string, any>): ClerkIdentity {
+  return {
+    sub: payload.sub,
+    email: payload.email || payload.primary_email_address || payload.email_address,
+    orgId: typeof payload.org_id === 'string' ? payload.org_id : undefined,
+    orgRole: typeof payload.org_role === 'string' ? payload.org_role : undefined,
+  };
+}
+
 const cryptoKeyCache = new Map<string, CryptoKey>();
 
-export async function verifyClerkJwt(token: string, env: Env): Promise<{ sub: string; email?: string } | null> {
+export interface ClerkIdentity {
+  sub: string;
+  email?: string;
+  orgId?: string;
+  orgRole?: string;
+}
+
+export async function verifyClerkJwt(token: string, env: Env): Promise<ClerkIdentity | null> {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
 
@@ -198,7 +214,7 @@ export async function verifyClerkJwt(token: string, env: Env): Promise<{ sub: st
   if (!jwks || !Array.isArray(jwks.keys)) {
     // In dev / test environments only, allow fallback if JWKS fetch is impossible
     if (env.ENVIRONMENT !== 'production') {
-      return { sub: payload.sub, email: payload.email || payload.primary_email_address || payload.email_address };
+      return identityFromPayload(payload);
     }
     return null;
   }
@@ -236,10 +252,7 @@ export async function verifyClerkJwt(token: string, env: Env): Promise<{ sub: st
       return null;
     }
 
-    return {
-      sub: payload.sub,
-      email: payload.email || payload.primary_email_address || payload.email_address,
-    };
+    return identityFromPayload(payload);
   } catch (err) {
     console.warn('[Clerk JWT Crypto Verify Error]', err);
     return null;
@@ -278,8 +291,16 @@ export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variable
     userEmail = headerEmail.trim().toLowerCase();
   }
 
+  let organizationId = verified.orgId || undefined;
+  const headerOrg = c.req.header('X-Organization-Id');
+  if (!organizationId && headerOrg && /^[a-zA-Z0-9_-]+$/.test(headerOrg)) {
+    organizationId = headerOrg;
+  }
+
   c.set('userId', userId);
   c.set('userEmail', userEmail);
+  if (organizationId) c.set('organizationId', organizationId);
+  if (verified.orgRole) c.set('organizationRole', verified.orgRole);
 
   // Auto-provision user in D1 if not present
   try {

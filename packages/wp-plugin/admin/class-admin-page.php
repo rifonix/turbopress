@@ -242,7 +242,8 @@ class AdminPage {
         // mid-session and every subsequent save silently failed with 401.
         $exp = time() + 12 * HOUR_IN_SECONDS;
         $sig = hash_hmac('sha256', $site_id . '.' . $exp, Config::get_callback_secret_static());
-        $embed_url = rtrim($config->get_api_url(), '/')
+        $saas_url = defined('WP_INSTANT_SAAS_URL') ? WP_INSTANT_SAAS_URL : 'https://wpinstant.dev';
+        $embed_url = rtrim($saas_url, '/')
             . '/embed/sites/' . rawurlencode($site_id)
             . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
 
@@ -646,7 +647,7 @@ class AdminPage {
                     </a>
                     <p class="wpins-connect-note">
                         One click — you will be returned here automatically once the handshake completes.
-                        A free WP Instant account is created on first connect.
+                        An active WP Instant plan or trial is required to connect your site.
                     </p>
                 </div>
 

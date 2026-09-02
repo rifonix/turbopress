@@ -1,8 +1,15 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
 import { hmacSha256Hex, normalizeDomain, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
-import type { ViewportMode } from '@wpinstant/shared';
+import type { ViewportMode, PlanContract } from '@wpinstant/shared';
 import { checkRateLimit } from '../middleware/rate-limit.js';
+import {
+  consumeReservationForJob,
+  countActiveFleetJobs,
+  loadSubscriptionForSite,
+  releaseReservationForJob,
+  reserveCredits,
+} from '../services/entitlements.js';
 
 /**
  * Embed routes: let the WP-admin iframe drive the SaaS control plane
@@ -245,19 +252,67 @@ embedRoutes.post('/site/dispatch', async (c) => {
     return c.json({ success: false, error: 'URL does not belong to this site' }, 400);
   }
 
+  // Commercial gate: active subscription + plan concurrency + credits.
+  const loaded = await loadSubscriptionForSite(c.env, site.id);
+  if (!loaded) {
+    return c.json(
+      { success: false, code: 'SUBSCRIPTION_REQUIRED', error: 'No active subscription for this site.' },
+      402
+    );
+  }
+  const { subscription, plan } = loaded;
+  const jobPriority: 'high' | 'normal' =
+    plan.priority === 'priority' || plan.priority === 'dedicated' ? 'high' : 'normal';
+
   const allowed = await checkRateLimit(c.env, 'embed-dispatch', site.id, 20, 60);
   if (!allowed) {
     return c.json({ success: false, error: 'Rate limit exceeded — max 20 dispatches per minute' }, 429);
   }
+  const fleetActive = await countActiveFleetJobs(c.env, subscription.id);
+  if (fleetActive >= plan.maxConcurrentJobs) {
+    return c.json(
+      {
+        success: false,
+        code: 'CONCURRENCY_LIMIT',
+        error: `Plan concurrency limit reached (${plan.maxConcurrentJobs} concurrent optimizations). Wait for running jobs to finish.`,
+      },
+      429
+    );
+  }
 
   const createdJobs: Array<{ jobId: string; viewport: ViewportMode; status: string }> = [];
+  let skippedForQuota = false;
   for (const viewport of viewports) {
     const jobId = generateJobId();
+
+    // 1 credit = 1 URL + 1 viewport. Reserve before the row exists so a
+    // queue failure or rejection can never leak a charge.
+    const reservation = await reserveCredits(c.env, subscription, {
+      units: 1,
+      runKey: `job_${jobId}`,
+      jobId,
+      source: 'manual',
+    });
+    if (!reservation.ok) {
+      if (createdJobs.length === 0) {
+        return c.json(
+          {
+            success: false,
+            error: 'Monthly optimization credits exhausted for this plan.',
+            ...reservation,
+          },
+          402
+        );
+      }
+      skippedForQuota = true;
+      break;
+    }
+
     await c.env.DB.prepare(
-      `INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, created_at)
-       VALUES (?, ?, ?, ?, 'queued', 0, unixepoch())`
+      `INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, priority, credit_reservation_id, created_at)
+       VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, unixepoch())`
     )
-      .bind(jobId, site.id, url, viewport)
+      .bind(jobId, site.id, url, viewport, jobPriority, reservation.reservationId)
       .run();
 
     await c.env.KV.put(
@@ -280,12 +335,20 @@ embedRoutes.post('/site/dispatch', async (c) => {
         console.error('[Embed Dispatch Queue Error — rolling back]', err);
         await c.env.DB.prepare('DELETE FROM optimization_jobs WHERE id = ?').bind(jobId).run();
         await c.env.KV.delete(`job:${jobId}`);
+        await releaseReservationForJob(c.env, jobId);
         return c.json({ success: false, error: 'Failed to enqueue optimization job — please retry' }, 503);
       }
+    } else {
+      // No queue binding (local/test): consume immediately so the credit
+      // ledger matches the template-less instant path.
+      await consumeReservationForJob(c.env, jobId);
     }
 
     createdJobs.push({ jobId, viewport, status: 'queued' });
   }
 
-  return c.json({ success: true, data: { jobs: createdJobs } });
+  return c.json({
+    success: true,
+    data: { jobs: createdJobs, ...(skippedForQuota ? { skippedViewports: 'monthly credits exhausted' } : {}) },
+  });
 });

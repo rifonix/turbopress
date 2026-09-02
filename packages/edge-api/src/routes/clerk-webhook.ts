@@ -102,6 +102,35 @@ clerkWebhookRoutes.post('/clerk-webhook', async (c) => {
 
         break;
       }
+
+      case 'organization.created':
+      case 'organization.updated': {
+        const orgId = data.id;
+        const name = data.name || 'Organization';
+        const createdBy = data.created_by || null;
+
+        await c.env.DB.prepare(`
+          INSERT INTO organization_profiles (id, name, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, unixepoch(), unixepoch())
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            updated_at = unixepoch()
+        `)
+          .bind(orgId, name, createdBy)
+          .run();
+
+        break;
+      }
+
+      case 'organization.deleted': {
+        const orgId = data.id;
+
+        await c.env.DB.prepare('DELETE FROM organization_profiles WHERE id = ?')
+          .bind(orgId)
+          .run();
+
+        break;
+      }
     }
 
     return c.json({ success: true, message: 'Clerk event processed successfully' }, 200);

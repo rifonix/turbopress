@@ -3,7 +3,7 @@
 import React from 'react';
 import { LayoutGrid, Globe, Activity, CreditCard, Link2, Tag, Sparkles, LogIn } from 'lucide-react';
 import { ExtendedSite } from '../types';
-import { SignedIn, SignedOut } from '@clerk/nextjs';
+import { SignedIn, SignedOut, OrganizationSwitcher } from '@clerk/nextjs';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CustomUserButton } from './auth/CustomUserButton';
@@ -51,7 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <Link
           href="/"
           onClick={onClose}
-          className="flex items-center gap-2.5 px-2 py-3 mb-2 cursor-pointer group select-none"
+          className="flex items-center gap-2.5 px-2 py-3 mb-1 cursor-pointer group select-none"
         >
           <span className="w-7 h-7 rounded-lg bg-[#171717] text-white flex items-center justify-center flex-none shadow-sm group-hover:bg-[#f03e2f] transition-colors">
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
@@ -62,6 +62,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             WP Instant <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
           </span>
         </Link>
+
+        {/* Workspace / Organization Switcher */}
+        <SignedIn>
+          <div className="mb-3 px-1">
+            <OrganizationSwitcher
+              hidePersonal={false}
+              afterCreateOrganizationUrl="/dashboard"
+              afterLeaveOrganizationUrl="/dashboard"
+              afterSelectOrganizationUrl="/dashboard"
+              afterSelectPersonalUrl="/dashboard"
+              appearance={{
+                elements: {
+                  rootBox: 'w-full',
+                  organizationSwitcherTrigger:
+                    'w-full justify-between py-1.5 px-2.5 rounded-lg border border-[#e4e4e7] bg-[#f8f8f7] text-[#171717] hover:bg-[#f4f4f5] text-xs font-medium',
+                },
+              }}
+            />
+          </div>
+        </SignedIn>
 
         {/* Current Site Quick Pill (If on Site Detail Page) */}
         {pathname?.startsWith('/dashboard/sites/') && selectedSite && (

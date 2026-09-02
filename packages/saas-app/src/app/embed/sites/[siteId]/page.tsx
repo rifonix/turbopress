@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { PRESETS_RECORD } from '@wpinstant/shared';
 
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev').replace(/\/$/, '');
+
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
@@ -373,7 +375,7 @@ function EmbedPanel() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/embed/site', { headers: { 'X-Embed-Token': token } });
+      const res = await fetch(`${API_BASE}/api/v1/embed/site`, { headers: { 'X-Embed-Token': token } });
       const json = await res.json();
       if (!res.ok || !json.success) {
         setError(json.error || 'Failed to load site');
@@ -474,7 +476,7 @@ function EmbedPanel() {
     if (!config) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/embed/site/config', {
+      const res = await fetch(`${API_BASE}/api/v1/embed/site/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Embed-Token': token },
         body: JSON.stringify(config),
@@ -509,7 +511,7 @@ function EmbedPanel() {
     setConfig(next);
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/embed/site/config', {
+      const res = await fetch(`${API_BASE}/api/v1/embed/site/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Embed-Token': token },
         body: JSON.stringify(next),
@@ -531,7 +533,7 @@ function EmbedPanel() {
   const purge = async () => {
     setBusy('purge');
     try {
-      const res = await fetch('/api/v1/embed/site/purge', {
+      const res = await fetch(`${API_BASE}/api/v1/embed/site/purge`, {
         method: 'POST',
         headers: { 'X-Embed-Token': token },
       });
@@ -548,7 +550,7 @@ function EmbedPanel() {
     setBusy('dispatch');
     setPageBusy(url);
     try {
-      const res = await fetch('/api/v1/embed/site/dispatch', {
+      const res = await fetch(`${API_BASE}/api/v1/embed/site/dispatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Embed-Token': token },
         body: JSON.stringify({ url }),
@@ -558,7 +560,15 @@ function EmbedPanel() {
         showToast(`Optimization started (${json.data.jobs.length} jobs)`);
         setTimeout(load, 1500);
       } else {
-        showToast(json.error || 'Dispatch failed');
+        if (json.code === 'CREDITS_EXHAUSTED') {
+          showToast('Optimization credits exhausted. Enable overage in your dashboard or upgrade your plan.');
+        } else if (json.code === 'CONCURRENCY_LIMIT') {
+          showToast('Concurrency limit reached. Other jobs are currently running.');
+        } else if (json.code === 'SUBSCRIPTION_REQUIRED') {
+          showToast('Active WP Instant subscription required to dispatch optimization.');
+        } else {
+          showToast(json.error || 'Dispatch failed');
+        }
       }
     } catch {
       showToast('Network error');
@@ -585,7 +595,7 @@ function EmbedPanel() {
     // Save immediately + explicit deploy command rides the same PUT.
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/embed/site/config', {
+      const res = await fetch(`${API_BASE}/api/v1/embed/site/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Embed-Token': token },
         body: JSON.stringify(next),

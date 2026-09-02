@@ -409,8 +409,8 @@ class Plugin {
         // links, combined bundles) — force a fresh unoptimized render.
         CacheIntegration::purge_foreign_caches('all');
 
-        // Unschedule heartbeats
-        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload'] as $hook) {
+        // Unschedule heartbeats and background optimization tasks
+        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize'] as $hook) {
             $timestamp = wp_next_scheduled($hook);
             while ($timestamp) {
                 wp_unschedule_event($timestamp, $hook);

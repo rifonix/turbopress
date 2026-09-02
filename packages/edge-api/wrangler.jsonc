@@ -81,8 +81,8 @@
     "SAAS_APP_URL": "https://wpinstant.dev",
     "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev"
   }
-  // TODO(billing): add POLAR_PRODUCT_* plan IDs once Polar products exist.
-  // Secrets (set via `wrangler secret put`, currently TODO placeholders):
+  // TODO(billing): add POLAR_PRODUCT_{STARTER,GROWTH,AGENCY}_{MONTHLY,ANNUAL} plan IDs once Polar products exist.
+  // Secrets (set via `wrangler secret put`):
   //   CLERK_SECRET_KEY, CLERK_WEBHOOK_SIGNING_SECRET,
   //   POLAR_ACCESS_TOKEN, POLAR_WEBHOOK_SECRET
 }

@@ -4,6 +4,8 @@ import { createTestEnv } from '../test-helpers/mock-env.js';
 import { authRoutes } from './auth.js';
 import { optimizeRoutes } from './optimize.js';
 import { siteRoutes } from './sites.js';
+import { billingRoutes } from './billing.js';
+import { assetRoutes } from './assets.js';
 import { runSweeper } from '../services/maintenance.js';
 import type { Env, AppVariables } from '../types/env.js';
 
@@ -12,6 +14,8 @@ function buildApp(env: Env) {
   app.route('/api/v1/auth', authRoutes);
   app.route('/api/v1/optimize', optimizeRoutes);
   app.route('/api/v1/sites', siteRoutes);
+  app.route('/api/v1/billing', billingRoutes);
+  app.route('/api/v1/assets', assetRoutes);
   return {
     fetch: (req: Request) => app.fetch(req, env, { waitUntil: () => {}, passThroughOnException: () => {} } as any),
   };
@@ -200,5 +204,136 @@ describe('Security regression tests (review criticals)', () => {
     await runSweeper(env);
     const job = (await env.DB.prepare('SELECT status FROM optimization_jobs WHERE id = ?').bind('job_old').first()) as any;
     expect(job.status).toBe('failed');
+  });
+
+  it('Billing: GET /billing/status returns locked contract plans, interval, and reported traffic tags', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    const app = buildApp(env);
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/billing/status', {
+        headers: { Authorization: 'Bearer user_a' },
+      })
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.success).toBe(true);
+    expect(json.data.hasActivePlan).toBe(true);
+    expect(json.data.plan.id).toBe('starter');
+    expect(json.data.plan.monthlyCredits).toBe(250);
+    expect(json.data.plan.priceMonthlyCents).toBe(1900);
+    expect(json.data.plan.priceAnnualCents).toBe(18240);
+    expect(json.data.plan.pageviewsSource).toBe('reported');
+  });
+
+  it('Entitlements: Dispatch rejects with 402 CREDITS_EXHAUSTED when in-plan credits are fully exhausted', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+
+    // Fill up the credits on the usage period
+    const app = buildApp(env);
+    // Call billing status to initialize the usage period
+    await app.fetch(
+      new Request('https://api.test/api/v1/billing/status', {
+        headers: { Authorization: 'Bearer user_a' },
+      })
+    );
+    await env.DB.prepare(
+      'UPDATE usage_periods SET credits_used = credit_limit, credits_reserved = 0 WHERE subscription_id = ?'
+    )
+      .bind('sub_user_a')
+      .run();
+
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/page-1' }),
+      })
+    );
+    expect(res.status).toBe(402);
+    const body = (await res.json()) as any;
+    expect(body.code).toBe('CREDITS_EXHAUSTED');
+  });
+
+  it('Concurrency: Dispatch rejects with 429 CONCURRENCY_LIMIT when active jobs reach the plan limit', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+
+    // Starter plan has maxConcurrentJobs = 1. Insert 1 active job.
+    await env.DB.prepare(
+      "INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, created_at) VALUES ('job_active', 'site_1', 'https://a.com/', 'mobile', 'processing', 1, unixepoch())"
+    ).run();
+
+    const app = buildApp(env);
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/page-2' }),
+      })
+    );
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as any;
+    expect(body.code).toBe('CONCURRENCY_LIMIT');
+  });
+
+  it('Overage: Dispatch succeeds when in-plan credits are exhausted but overage is enabled with an available limit', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+
+    const app = buildApp(env);
+    // Initialize usage period
+    await app.fetch(
+      new Request('https://api.test/api/v1/billing/status', {
+        headers: { Authorization: 'Bearer user_a' },
+      })
+    );
+
+    // Exhaust in-plan credits and enable overage with limit 100
+    await env.DB.prepare(
+      'UPDATE subscriptions SET overage_enabled = 1, overage_limit_credits = 100 WHERE id = ?'
+    )
+      .bind('sub_user_a')
+      .run();
+    await env.DB.prepare(
+      'UPDATE usage_periods SET credits_used = credit_limit, credits_reserved = 0, overage_enabled = 1, overage_limit_credits = 100 WHERE subscription_id = ?'
+    )
+      .bind('sub_user_a')
+      .run();
+
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/overage-page' }),
+      })
+    );
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as any;
+    expect(body.data.jobs.length).toBeGreaterThan(0);
+  });
+
+  it('Asset Cutoff: Inactive site returns 403 on GET /assets/css/:site_id/:css_file', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_inactive', 'user_a', 'sub_user_a', 'inactive.com', 'hash', '{}', 0, unixepoch(), unixepoch())"
+    ).run();
+
+    const app = buildApp(env);
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/assets/css/site_inactive/style.css')
+    );
+    expect(res.status).toBe(403);
   });
 });

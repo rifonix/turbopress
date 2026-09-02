@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Check, Info } from 'lucide-react';
-import { POLAR_PRODUCT_IDS } from '../types';
+import { PLAN_CONTRACT, PlanId } from '@wpinstant/shared';
 
 interface PricingPageProps {
   onSelectPlan: (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => void;
@@ -20,92 +20,96 @@ export const PricingPage: React.FC<PricingPageProps> = ({
   const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly');
 
   const handleSelect = (planId: string) => {
-    // After checkout, new subscribers return to onboarding to connect their site;
-    // existing subscribers simply come back to the billing page.
     onSelectPlan(planId, interval, hasActivePlan ? '/dashboard/billing' : '/dashboard/onboarding');
   };
 
-  const plans = [
+  const planCards = [
     {
-      id: 'starter',
-      productIdMonthly: POLAR_PRODUCT_IDS.starterMonthly,
-      productIdYearly: POLAR_PRODUCT_IDS.starterYearly,
-      name: 'WP Instant Starter',
-      description: 'Perfect for single business sites and solo creators.',
-      priceMonthly: 19,
-      priceAnnual: 15,
-      slots: '1 production site slot',
-      runs: '200 optimization runs / mo',
+      id: 'starter' as PlanId,
+      contract: PLAN_CONTRACT.starter,
       popular: true,
+      headlinePriceMonthly: 19,
+      headlinePriceAnnualMonthlyEquiv: '15.20',
+      billedYearlyTotal: '182.40',
+      creditsLabel: '250 optimization credits / mo',
+      creditsSub: '1 URL + 1 viewport per credit',
+      trafficLabel: '60k pageviews • 25 GB bandwidth',
+      slotsLabel: '1 production site slot',
       features: [
         '1 WordPress site slot',
-        'Free staging development seat',
+        '250 optimization credits / month',
+        '1 concurrent headless browser job',
+        '60k pageviews & 25 GB bandwidth allowance',
+        '30-day Real User Monitoring (RUM)',
         'Sub-15ms advanced-cache.php drop-in',
-        'AST-enriched Critical CSS generator',
-        '3-tier script delayer with jQuery stub',
-        'Standard community support',
+        'Edge Critical CSS & 3-tier script delayer',
+        'Opt-in overage protection',
       ],
     },
     {
-      id: 'pro',
-      productIdMonthly: POLAR_PRODUCT_IDS.proMonthly,
-      productIdYearly: POLAR_PRODUCT_IDS.proYearly,
-      name: 'WP Instant Pro',
-      description: 'For growing brands, WooCommerce stores, and power users.',
-      priceMonthly: 49,
-      priceAnnual: 39,
-      slots: '5 production sites',
-      runs: '1,000 optimization runs / mo',
+      id: 'growth' as PlanId,
+      contract: PLAN_CONTRACT.growth,
       popular: false,
+      headlinePriceMonthly: 49,
+      headlinePriceAnnualMonthlyEquiv: '39.20',
+      billedYearlyTotal: '470.40',
+      creditsLabel: '1,500 optimization credits / mo',
+      creditsSub: '1 URL + 1 viewport per credit',
+      trafficLabel: '250k pageviews • 100 GB bandwidth',
+      slotsLabel: '5 production site slots',
       features: [
         '5 WordPress site slots',
-        'Unlimited free staging seats',
-        'Dynamic nonces & cart micro-hydrator',
+        '1,500 optimization credits / month',
+        '3 concurrent headless browser jobs',
+        'Automated background crawl (up to 250 pages)',
+        '250k pageviews & 100 GB bandwidth allowance',
+        '90-day Real User Monitoring (RUM)',
+        'Dynamic nonces & WooCommerce cart hydration',
         'W3C Speculation Rules prerendering',
-        'Automatic LCP fetchpriority preload',
-        'WebP & AVIF negotiation pipeline',
-        'Standard email support',
       ],
     },
     {
-      id: 'agency',
-      productIdMonthly: POLAR_PRODUCT_IDS.agencyMonthly,
-      productIdYearly: POLAR_PRODUCT_IDS.agencyYearly,
-      name: 'WP Instant Agency',
-      description: 'For digital agencies and client fleet managers.',
-      priceMonthly: 79,
-      priceAnnual: 63,
-      slots: '10 production sites',
-      runs: '2,000 optimization runs / mo',
+      id: 'agency' as PlanId,
+      contract: PLAN_CONTRACT.agency,
       popular: false,
+      headlinePriceMonthly: 129,
+      headlinePriceAnnualMonthlyEquiv: '103.20',
+      billedYearlyTotal: '1,238.40',
+      creditsLabel: '6,000 optimization credits / mo',
+      creditsSub: '1 URL + 1 viewport per credit',
+      trafficLabel: '1.2M pageviews • 400 GB bandwidth',
+      slotsLabel: '25 production site slots ($5.16/site)',
       features: [
-        '10 WordPress site slots ($7.90/site)',
-        'Unlimited free staging seats',
-        'Zero-egress R2 Critical CSS cache',
-        'Cloudflare Browser Rendering pool',
-        'Automated theme compatibility engine',
-        'Multi-user team access',
-        'Priority 24/7 email support',
+        '25 WordPress site slots',
+        '6,000 optimization credits / month',
+        '8 concurrent headless browser jobs',
+        'Deep automated crawl (up to 1,500 pages)',
+        '1.2M pageviews & 400 GB bandwidth allowance',
+        '180-day Real User Monitoring (RUM)',
+        'Clerk Organization team seats',
+        'High-priority queue processing',
       ],
     },
     {
-      id: 'enterprise',
-      productIdMonthly: 'prod_enterprise',
-      productIdYearly: 'prod_enterprise',
-      name: 'WP Instant Enterprise',
-      description: 'For large publishing networks and high-traffic fleets.',
-      priceMonthly: null,
-      priceAnnual: null,
-      slots: 'Unlimited sites',
-      runs: 'Custom concurrency',
+      id: 'scale' as PlanId,
+      contract: PLAN_CONTRACT.scale,
       popular: false,
+      headlinePriceMonthly: null,
+      headlinePriceAnnualMonthlyEquiv: null,
+      billedYearlyTotal: null,
+      creditsLabel: '40,000+ credits / mo',
+      creditsSub: 'Contractual dedicated quota',
+      trafficLabel: '4M+ pageviews • 1.5 TB bandwidth',
+      slotsLabel: '100+ production site slots',
       features: [
-        'Unlimited WordPress site slots',
-        'Dedicated Chromium browser cluster',
-        'Custom 99.99% uptime SLA',
-        'Custom domain CDN integration',
-        'SAML SSO & Clerk Enterprise Auth',
-        'Dedicated Slack/Teams channel',
+        '100+ WordPress site slots',
+        '40,000+ optimization credits / month',
+        '20 concurrent headless browser workers',
+        'Deep site-wide crawl (5,000+ pages)',
+        '4M+ pageviews & 1.5 TB bandwidth allowance',
+        'Dedicated browser worker pool & 99.99% SLA',
+        'Enterprise SAML SSO & custom domains',
+        'Direct Slack / Teams escalation',
       ],
     },
   ];
@@ -133,7 +137,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
           High-performance WordPress optimization at scale
         </h1>
         <p className="text-[14.5px] text-[#71717a] max-w-xl mx-auto">
-          No DNS changes, no proxy downtime, and no surprise overages. Choose the plan that fits your fleet.
+          No DNS changes, no proxy downtime, and transparent opt-in overage. 1 credit equals 1 URL + 1 viewport extraction.
         </p>
 
         {/* Interval Selector */}
@@ -161,9 +165,12 @@ export const PricingPage: React.FC<PricingPageProps> = ({
 
       {/* Pricing Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {plans.map((p) => {
-          const price = interval === 'annual' ? p.priceAnnual : p.priceMonthly;
-          const currentProductId = interval === 'annual' ? p.productIdYearly : p.productIdMonthly;
+        {planCards.map((p) => {
+          const isScale = p.id === 'scale';
+          const priceDisplay =
+            interval === 'annual'
+              ? p.headlinePriceAnnualMonthlyEquiv
+              : p.headlinePriceMonthly;
 
           return (
             <div
@@ -181,23 +188,36 @@ export const PricingPage: React.FC<PricingPageProps> = ({
               )}
 
               <div>
-                <h3 className="text-lg font-semibold text-[#171717]">{p.name}</h3>
-                <p className="text-xs text-[#71717a] mt-1 min-h-8 leading-snug">{p.description}</p>
+                <h3 className="text-lg font-semibold text-[#171717]">{p.contract.name}</h3>
+                <p className="text-xs text-[#71717a] mt-1 min-h-8 leading-snug">{p.contract.description}</p>
 
                 <div className="my-5 pb-5 border-b border-[#f1f1f2]">
-                  {price !== null ? (
-                    <div className="flex items-baseline gap-1">
-                      <span className="font-mono text-3xl font-bold text-[#171717]">
-                        ${price}
-                      </span>
-                      <span className="font-mono text-xs text-[#71717a]">/ month</span>
+                  {!isScale && priceDisplay !== null ? (
+                    <div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-mono text-3xl font-bold text-[#171717]">
+                          ${priceDisplay}
+                        </span>
+                        <span className="font-mono text-xs text-[#71717a]">/ month</span>
+                      </div>
+                      {interval === 'annual' && p.billedYearlyTotal && (
+                        <p className="text-[11px] text-[#16a34a] font-medium mt-0.5">
+                          Billed annually (${p.billedYearlyTotal}/year)
+                        </p>
+                      )}
                     </div>
                   ) : (
-                    <span className="font-mono text-2xl font-bold text-[#171717]">Custom</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="font-mono text-2xl font-bold text-[#171717]">Custom</span>
+                      <span className="text-xs text-[#71717a]">from $299/mo</span>
+                    </div>
                   )}
-                  <p className="font-mono text-[11px] text-[#71717a] mt-1 truncate" title={currentProductId}>
-                    {p.slots}
-                  </p>
+
+                  <div className="mt-2 space-y-0.5 font-mono text-[11px] text-[#52525b]">
+                    <p className="font-semibold text-[#171717]">{p.slotsLabel}</p>
+                    <p>{p.creditsLabel}</p>
+                    <p className="text-[10px] text-[#71717a]">{p.trafficLabel}</p>
+                  </div>
                 </div>
 
                 <ul className="space-y-2.5 text-xs text-[#3f3f46]">
@@ -213,8 +233,8 @@ export const PricingPage: React.FC<PricingPageProps> = ({
               <div className="pt-6 mt-6 border-t border-[#f1f1f2]">
                 <button
                   onClick={() => {
-                    if (p.id === 'enterprise') {
-                      onToast('Enterprise sales request submitted');
+                    if (isScale) {
+                      onToast('Scale sales inquiry initiated — we will be in touch shortly');
                     } else {
                       handleSelect(p.id);
                     }
@@ -223,7 +243,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({
                     p.popular ? 'btn-primary' : 'btn-secondary'
                   }`}
                 >
-                  {p.id === 'enterprise' ? 'Contact Sales' : `Choose ${p.name}`}
+                  {isScale ? 'Contact Sales' : `Choose ${p.contract.name}`}
                 </button>
               </div>
             </div>
@@ -239,6 +259,22 @@ export const PricingPage: React.FC<PricingPageProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[13px] text-[#3f3f46]">
           <div>
             <h4 className="font-semibold text-[#171717] mb-1">
+              What is an optimization credit?
+            </h4>
+            <p className="text-[#71717a] leading-relaxed">
+              1 credit equals extracting Edge Critical CSS and LCP data for 1 URL on 1 viewport (e.g. mobile or desktop). Retries do not double-charge, and failed infrastructure attempts are not billed.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-semibold text-[#171717] mb-1">
+              How does overage protection work?
+            </h4>
+            <p className="text-[#71717a] leading-relaxed">
+              Overage is 100% opt-in. If credits run out, new background extraction pauses while your already-generated cache and media continue serving. You can set an optional overage cap in your billing settings.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-semibold text-[#171717] mb-1">
               Do I need to change my nameservers or DNS?
             </h4>
             <p className="text-[#71717a] leading-relaxed">
@@ -247,26 +283,10 @@ export const PricingPage: React.FC<PricingPageProps> = ({
           </div>
           <div>
             <h4 className="font-semibold text-[#171717] mb-1">
-              Are staging or local domains charged?
-            </h4>
-            <p className="text-[#71717a] leading-relaxed">
-              No. Staging environments (`staging.*`, `.test`, `.local`, `localhost`) connect to free development seats and never consume license slots.
-            </p>
-          </div>
-          <div>
-            <h4 className="font-semibold text-[#171717] mb-1">
               How does billing and subscription management work?
             </h4>
             <p className="text-[#71717a] leading-relaxed">
-              Subscriptions are powered by Polar.sh. You can upgrade, downgrade, update cards, or download PDF VAT invoices at any time via the Polar customer portal.
-            </p>
-          </div>
-          <div>
-            <h4 className="font-semibold text-[#171717] mb-1">
-              What happens if my site changes layouts or plugins?
-            </h4>
-            <p className="text-[#71717a] leading-relaxed">
-              Whenever a post or template is updated in WordPress, our edge queue automatically re-extracts Critical CSS and warms the cache in the background.
+              Subscriptions are powered by Polar.sh. You can upgrade, downgrade, switch intervals, update cards, or download PDF VAT invoices at any time via the Polar customer portal.
             </p>
           </div>
         </div>

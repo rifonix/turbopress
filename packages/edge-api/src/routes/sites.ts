@@ -13,8 +13,23 @@ import {
   PRESET_LUDICROUS,
 } from '@wpinstant/shared';
 import { saasUserAuthMiddleware, siteAuthMiddleware } from '../middleware/auth.js';
+import { loadSubscriptionForScope, resolveBillingScope } from '../services/entitlements.js';
 
 export const siteRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+
+function siteScopeClause(scope: { organizationId: string | null; userId: string | null }, alias = 's'): string {
+  if (scope.organizationId) {
+    return `(${alias}.organization_id = ? OR (${alias}.organization_id IS NULL AND ${alias}.user_id = ?))`;
+  }
+  return `${alias}.user_id = ?`;
+}
+
+function siteScopeBindings(scope: { organizationId: string | null; userId: string | null }): string[] {
+  if (scope.organizationId) {
+    return [scope.organizationId, scope.userId as string];
+  }
+  return [scope.userId as string];
+}
 
 function formatRelativeTime(timestampSec: number): string {
   const diff = Math.floor(Date.now() / 1000) - timestampSec;
@@ -25,11 +40,17 @@ function formatRelativeTime(timestampSec: number): string {
 }
 
 /**
- * List all sites for logged-in user
+ * List all sites for logged-in user / organization
  * GET /api/v1/sites
  */
 siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
+
+  const clause = siteScopeClause(scope, 's');
+  const bindings = siteScopeBindings(scope);
 
   const { results: sites } = await c.env.DB.prepare(`
     SELECT s.*, 
@@ -43,10 +64,10 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
       (SELECT status FROM optimization_jobs j WHERE j.site_id = s.id ORDER BY j.created_at DESC LIMIT 1) as latest_job_status,
       (SELECT created_at FROM optimization_jobs j WHERE j.site_id = s.id ORDER BY j.created_at DESC LIMIT 1) as latest_job_time
     FROM sites s
-    WHERE s.user_id = ?
+    WHERE ${clause}
     ORDER BY s.created_at DESC
   `)
-    .bind(userId)
+    .bind(...bindings)
     .all<
       Site & {
         total_jobs: number;
@@ -116,6 +137,10 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
  * POST /api/v1/sites
  */
 siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const userId = c.get('userId')!;
   const body = await c.req.json().catch(() => ({}));
   const rawDomain = body.domain || body.site_url;
@@ -127,13 +152,8 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
   const domain = normalizeDomain(rawDomain);
 
   // Check subscription / max site limit
-  const subscription = await c.env.DB.prepare(
-    'SELECT id, max_sites FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
-  )
-    .bind(userId)
-    .first<{ id: string; max_sites: number }>();
-
-  if (!subscription) {
+  const loaded = await loadSubscriptionForScope(c.env, scope);
+  if (!loaded) {
     return c.json(
       {
         success: false,
@@ -144,13 +164,15 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
     );
   }
 
-  const subscriptionId = subscription.id;
-  const maxSites = subscription.max_sites || 5;
+  const subscriptionId = loaded.subscription.id;
+  const maxSites = loaded.subscription.max_sites || loaded.plan.maxSites || 1;
 
+  const countClause = siteScopeClause(scope, 'sites');
+  const countBindings = siteScopeBindings(scope);
   const countRow = await c.env.DB.prepare(
-    'SELECT COUNT(*) as count FROM sites WHERE user_id = ? AND is_active = 1'
+    `SELECT COUNT(*) as count FROM sites WHERE ${countClause} AND is_active = 1`
   )
-    .bind(userId)
+    .bind(...countBindings)
     .first<{ count: number }>();
 
   if ((countRow?.count || 0) >= maxSites) {
@@ -173,15 +195,16 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
   // domain rotates its key; a domain owned by someone else is a no-op
   // (0 changes) and returns 409 instead of silently hijacking the site.
   const upsert = await c.env.DB.prepare(`
-    INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, NULL, NULL, NULL, unixepoch(), unixepoch())
+    INSERT INTO sites (id, user_id, organization_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, NULL, NULL, unixepoch(), unixepoch())
     ON CONFLICT(domain) DO UPDATE SET
       site_api_key_hash = excluded.site_api_key_hash,
+      organization_id = coalesce(excluded.organization_id, sites.organization_id),
       is_active = 1,
       updated_at = unixepoch()
-    WHERE sites.user_id = excluded.user_id
+    WHERE sites.user_id = excluded.user_id OR (excluded.organization_id IS NOT NULL AND sites.organization_id = excluded.organization_id)
   `)
-    .bind(siteId, userId, subscriptionId, domain, apiKeyHash, configJson)
+    .bind(siteId, userId, scope.organizationId, subscriptionId, domain, apiKeyHash, configJson)
     .run();
 
   if ((upsert.meta?.changes ?? 0) === 0) {
@@ -198,9 +221,9 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
   // On conflict-update the row keeps its original id — fetch the real one
   // (returning the freshly generated id here would desync KV from D1).
   const siteRow = await c.env.DB.prepare(
-    'SELECT id FROM sites WHERE domain = ? AND user_id = ?'
+    `SELECT id FROM sites WHERE domain = ? AND ${countClause}`
   )
-    .bind(domain, userId)
+    .bind(domain, ...countBindings)
     .first<{ id: string }>();
   const activeSiteId = siteRow?.id || siteId;
 
@@ -210,6 +233,7 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
     JSON.stringify({
       id: activeSiteId,
       user_id: userId,
+      organization_id: scope.organizationId,
       domain,
       site_api_key_hash: apiKeyHash,
       config_json: configJson,
@@ -235,13 +259,19 @@ siteRoutes.post('/', saasUserAuthMiddleware, async (c) => {
  * GET /api/v1/sites/:site_id
  */
 siteRoutes.get('/:site_id', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const siteId = c.req.param('site_id');
 
+  const clause = siteScopeClause(scope, 'sites');
+  const bindings = siteScopeBindings(scope);
+
   const site = await c.env.DB.prepare(
-    'SELECT * FROM sites WHERE id = ? AND user_id = ?'
+    `SELECT * FROM sites WHERE id = ? AND ${clause}`
   )
-    .bind(siteId, userId)
+    .bind(siteId, ...bindings)
     .first<Site>();
 
   if (!site) {
@@ -288,18 +318,28 @@ siteRoutes.get('/:site_id', saasUserAuthMiddleware, async (c) => {
  * GET /api/v1/sites/:site_id/pages
  */
 siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const siteId = c.req.param('site_id');
 
+  const clause = siteScopeClause(scope, 'sites');
+  const bindings = siteScopeBindings(scope);
+
   const site = await c.env.DB.prepare(
-    'SELECT id FROM sites WHERE id = ? AND user_id = ?'
+    `SELECT id FROM sites WHERE id = ? AND ${clause}`
   )
-    .bind(siteId, userId)
+    .bind(siteId, ...bindings)
     .first<{ id: string }>();
 
   if (!site) {
     return c.json({ success: false, error: 'Site not found' }, 404);
   }
+
+  // Determine RUM retention window per plan (Starter=30d, Growth=90d, Agency=180d)
+  const loaded = await loadSubscriptionForScope(c.env, scope);
+  const rumRetentionDays = Math.max(7, loaded?.plan.rumRetentionDays || 30);
 
   const { results: pageRows } = await c.env.DB.prepare(`
     SELECT url,
@@ -329,12 +369,12 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
     }>();
 
   const { results: rumRows } = await c.env.DB.prepare(
-    `SELECT day, mode, pageviews, errors, lcp_p75_ms, cls_p75, error_pages_json
+    `SELECT day, mode, pageviews, errors, lcp_p75_ms, cls_p75, error_pages_json, transfer_bytes
      FROM rum_daily
-     WHERE site_id = ? AND day >= date('now', '-6 days')
+     WHERE site_id = ? AND day >= date('now', '-' || ? || ' days')
      ORDER BY day DESC`
   )
-    .bind(siteId)
+    .bind(siteId, String(rumRetentionDays))
     .all<{
       day: string;
       mode: string;
@@ -343,18 +383,20 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
       lcp_p75_ms: number | null;
       cls_p75: number | null;
       error_pages_json: string | null;
+      transfer_bytes?: number;
     }>();
 
   // Aggregate RUM per day across modes (sum views/errors, pick the dominant mode's vitals)
   const rumByDay = new Map<
     string,
-    { day: string; views: number; errors: number; lcpP75: number | null; clsP75: number | null }
+    { day: string; views: number; errors: number; lcpP75: number | null; clsP75: number | null; bytes: number }
   >();
   for (const r of rumRows) {
     const agg =
-      rumByDay.get(r.day) || { day: r.day, views: 0, errors: 0, lcpP75: null, clsP75: null };
+      rumByDay.get(r.day) || { day: r.day, views: 0, errors: 0, lcpP75: null, clsP75: null, bytes: 0 };
     agg.views += r.pageviews || 0;
     agg.errors += r.errors || 0;
+    agg.bytes += r.transfer_bytes || 0;
     if (r.lcp_p75_ms != null && agg.lcpP75 == null) agg.lcpP75 = r.lcp_p75_ms;
     if (r.cls_p75 != null && agg.clsP75 == null) agg.clsP75 = r.cls_p75;
     rumByDay.set(r.day, agg);
@@ -388,6 +430,7 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
         lcpImageUrl: p.lcp_image_url || null,
       })),
       rum: Array.from(rumByDay.values()),
+      rumRetentionDays,
     },
   });
 });
@@ -397,16 +440,22 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
  * PUT /api/v1/sites/:site_id/config
  */
 siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const siteId = c.req.param('site_id');
   const body = await c.req.json();
 
   const validatedConfig = SiteConfigSchema.parse(body);
 
+  const clause = siteScopeClause(scope, 'sites');
+  const bindings = siteScopeBindings(scope);
+
   const site = await c.env.DB.prepare(
-    'SELECT domain FROM sites WHERE id = ? AND user_id = ?'
+    `SELECT domain FROM sites WHERE id = ? AND ${clause}`
   )
-    .bind(siteId, userId)
+    .bind(siteId, ...bindings)
     .first<{ domain: string }>();
 
   if (!site) {
@@ -496,15 +545,21 @@ siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
  * POST /api/v1/sites/:site_id/purge
  */
 siteRoutes.post('/:site_id/purge', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const siteId = c.req.param('site_id');
   const body = await c.req.json().catch(() => ({}));
   const payload = PurgeCacheRequestSchema.parse(body);
 
+  const clause = siteScopeClause(scope, 'sites');
+  const bindings = siteScopeBindings(scope);
+
   const site = await c.env.DB.prepare(
-    'SELECT domain FROM sites WHERE id = ? AND user_id = ?'
+    `SELECT domain FROM sites WHERE id = ? AND ${clause}`
   )
-    .bind(siteId, userId)
+    .bind(siteId, ...bindings)
     .first<{ domain: string }>();
 
   if (!site) {
@@ -536,13 +591,19 @@ siteRoutes.post('/:site_id/purge', saasUserAuthMiddleware, async (c) => {
  * DELETE /api/v1/sites/:site_id
  */
 siteRoutes.delete('/:site_id', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const siteId = c.req.param('site_id');
 
+  const clause = siteScopeClause(scope, 'sites');
+  const bindings = siteScopeBindings(scope);
+
   const site = await c.env.DB.prepare(
-    'SELECT domain FROM sites WHERE id = ? AND user_id = ?'
+    `SELECT domain FROM sites WHERE id = ? AND ${clause}`
   )
-    .bind(siteId, userId)
+    .bind(siteId, ...bindings)
     .first<{ domain: string }>();
 
   if (!site) {
@@ -552,6 +613,8 @@ siteRoutes.delete('/:site_id', saasUserAuthMiddleware, async (c) => {
   await c.env.DB.prepare('DELETE FROM sites WHERE id = ?').bind(siteId).run();
   await c.env.KV.delete(`site:${site.domain}`);
   await c.env.KV.delete(`sitelogs:${siteId}`);
+  await c.env.KV.delete(`msecret:${siteId}`);
+  await c.env.KV.delete(`siteactive:${siteId}`);
 
   // Purge the site's R2 artifacts (critical CSS, media derivatives) so
   // deleted sites don't leave orphaned objects forever. Best-effort.
@@ -637,13 +700,19 @@ siteRoutes.post('/:site_id/logs', siteAuthMiddleware, async (c) => {
  * GET /api/v1/sites/:site_id/logs
  */
 siteRoutes.get('/:site_id/logs', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({
+    organizationId: c.get('organizationId'),
+    userId: c.get('userId'),
+  });
   const siteId = c.req.param('site_id');
 
+  const clause = siteScopeClause(scope, 'sites');
+  const bindings = siteScopeBindings(scope);
+
   const site = await c.env.DB.prepare(
-    'SELECT id FROM sites WHERE id = ? AND user_id = ?'
+    `SELECT id FROM sites WHERE id = ? AND ${clause}`
   )
-    .bind(siteId, userId)
+    .bind(siteId, ...bindings)
     .first<{ id: string }>();
 
   if (!site) {

@@ -24,13 +24,17 @@ export interface Env {
   POLAR_ENVIRONMENT?: string;
   POLAR_SANDBOX_DISCOUNT_ID?: string;
   // Production catalog product IDs (worker vars). Resolution order at
-  // checkout: these vars → static starter map → catalog auto-resolve by name.
+  // checkout: these vars → catalog auto-resolve by name. Self-serve plans
+  // only; `scale` is custom/non-self-serve and has no checkout product.
   POLAR_PRODUCT_STARTER_MONTHLY?: string;
   POLAR_PRODUCT_STARTER_ANNUAL?: string;
-  POLAR_PRODUCT_PRO_MONTHLY?: string;
-  POLAR_PRODUCT_PRO_ANNUAL?: string;
+  POLAR_PRODUCT_GROWTH_MONTHLY?: string;
+  POLAR_PRODUCT_GROWTH_ANNUAL?: string;
   POLAR_PRODUCT_AGENCY_MONTHLY?: string;
   POLAR_PRODUCT_AGENCY_ANNUAL?: string;
+  // Legacy names kept so existing deployments keep resolving until rotated.
+  POLAR_PRODUCT_PRO_MONTHLY?: string;
+  POLAR_PRODUCT_PRO_ANNUAL?: string;
   POLAR_PRODUCT_ENTERPRISE_MONTHLY?: string;
   POLAR_PRODUCT_ENTERPRISE_ANNUAL?: string;
   CLERK_SECRET_KEY?: string;
@@ -44,5 +48,7 @@ export interface AppVariables {
   siteConfig?: SiteConfig;
   userId?: string;
   userEmail?: string;
+  organizationId?: string;
+  organizationRole?: string;
   embedSite?: Record<string, unknown>;
 }

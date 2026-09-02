@@ -1,11 +1,14 @@
 import { MessageBatch } from '@cloudflare/workers-types';
 import { Env, OptimizationQueueMessage } from '../types/env.js';
+import { releaseReservationForJob } from './entitlements.js';
 
 /**
  * Dead-letter queue consumer: messages here exhausted all retries on the
  * optimization queue. Mark the job terminally failed (unless it already
  * reached a terminal state) so it stops showing as perpetually 'queued'
  * in the dashboard, then ack — the DLQ must never grow unboundedly.
+ *
+ * Terminal queue failures are NOT charged: release the reservation.
  */
 export async function processDlqBatch(
   batch: MessageBatch<OptimizationQueueMessage>,
@@ -29,6 +32,7 @@ export async function processDlqBatch(
           JSON.stringify({ status: 'failed', error: 'Job exhausted all queue retries' }),
           { expirationTtl: 3600 }
         );
+        await releaseReservationForJob(env, jobId);
       }
       msg.ack();
     } catch (err) {
@@ -47,27 +51,41 @@ export async function runSweeper(env: Env): Promise<void> {
   // 1. Zombie jobs: queued/processing for over 30 minutes means the queue
   // message never landed (or the consumer died before the first UPDATE).
   const zombies = await env.DB.prepare(`
-    UPDATE optimization_jobs
-    SET status = 'failed',
-        error_message = 'Job timed out before execution (stuck in queue)',
-        completed_at = unixepoch()
+    SELECT id FROM optimization_jobs
     WHERE status IN ('queued', 'processing')
       AND created_at < unixepoch() - 1800
-  `).run();
-  if (zombies.meta?.changes) {
-    console.log(`[Sweeper] Reaped ${zombies.meta.changes} zombie job(s)`);
+  `).all<{ id: string }>();
+
+  if (zombies.results?.length) {
+    await env.DB.prepare(`
+      UPDATE optimization_jobs
+      SET status = 'failed',
+          error_message = 'Job timed out before execution (stuck in queue)',
+          completed_at = unixepoch()
+      WHERE status IN ('queued', 'processing')
+        AND created_at < unixepoch() - 1800
+    `).run();
+    for (const z of zombies.results) {
+      await releaseReservationForJob(env, z.id);
+      await env.KV.put(
+        `job:${z.id}`,
+        JSON.stringify({ status: 'failed', error: 'Job timed out before execution (stuck in queue)' }),
+        { expirationTtl: 3600 }
+      );
+    }
+    console.log(`[Sweeper] Reaped ${zombies.results.length} zombie job(s)`);
   }
 
   // 2. Canceled subscriptions whose paid period has ended → deactivate sites
   //    (revoked subscriptions are deactivated immediately in the webhook).
   const expired = await env.DB.prepare(`
-    SELECT s.domain FROM sites s
+    SELECT s.id, s.domain FROM sites s
     JOIN subscriptions sub ON s.subscription_id = sub.id
     WHERE sub.status = 'canceled'
       AND sub.current_period_end IS NOT NULL
       AND sub.current_period_end < unixepoch()
       AND s.is_active = 1
-  `).all<{ domain: string }>();
+  `).all<{ id: string; domain: string }>();
 
   if (expired.results?.length) {
     await env.DB.prepare(`
@@ -81,6 +99,8 @@ export async function runSweeper(env: Env): Promise<void> {
     `).run();
     for (const row of expired.results) {
       await env.KV.delete(`site:${row.domain}`);
+      await env.KV.delete(`msecret:${row.id}`);
+      await env.KV.delete(`siteactive:${row.id}`);
     }
     console.log(`[Sweeper] Deactivated ${expired.results.length} site(s) past period end`);
   }

@@ -3,6 +3,22 @@ import { Env, AppVariables } from '../types/env.js';
 import { Polar } from '@polar-sh/sdk';
 import { validateEvent, WebhookVerificationError } from '@polar-sh/sdk/webhooks';
 import { saasUserAuthMiddleware } from '../middleware/auth.js';
+import {
+  PLAN_CONTRACT,
+  SELF_SERVE_PLAN_IDS,
+  getPlanContract,
+  normalizeBillingInterval,
+  normalizePlanId,
+  type BillingInterval,
+  type PlanId,
+} from '@wpinstant/shared';
+import {
+  countActiveFleetJobs,
+  getUsageSnapshot,
+  loadSubscriptionForScope,
+  resolveBillingScope,
+  type SubscriptionRow,
+} from '../services/entitlements.js';
 
 export const billingRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -148,65 +164,67 @@ function describePolarError(server: PolarServer, err: any): string {
   return `${server} (HTTP ${status}): ${detail}`;
 }
 
-const PLAN_LIMITS: Record<string, { maxSites: number; maxRuns: number; priceMonthly: number; label: string }> = {
-  starter: { maxSites: 1, maxRuns: 200, priceMonthly: 19, label: 'Starter Plan' },
-  pro: { maxSites: 5, maxRuns: 1000, priceMonthly: 49, label: 'Pro Plan' },
-  agency: { maxSites: 10, maxRuns: 2000, priceMonthly: 79, label: 'Agency Plan' },
-  enterprise: { maxSites: 100, maxRuns: 10000, priceMonthly: 299, label: 'Enterprise Plan' },
+/**
+ * Canonical Polar Product Catalog for WP Instant (Production).
+ * Automatically created via Polar API / MCP.
+ */
+const DEFAULT_POLAR_PRODUCTS: Record<PlanId, Record<BillingInterval, string>> = {
+  starter: {
+    monthly: '85cd5e34-7bce-4287-b7a4-c23801f77ba0',
+    annual: '5341856b-8513-48ea-a460-054fe4caf158',
+  },
+  growth: {
+    monthly: '79f0e741-6764-430d-89da-33edc87f2afd',
+    annual: 'a70a8efc-77cc-4ebe-a633-8fb1e8c0f857',
+  },
+  agency: {
+    monthly: '5c487ae7-a75a-48c9-a3aa-22c064599fca',
+    annual: '315269ae-c534-4e48-8d13-06fef2cf05f3',
+  },
+  scale: {
+    monthly: '',
+    annual: '',
+  },
 };
-
-const STARTER_PRODUCT_IDS = new Set([
-  // production org
-  'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
-  '3907e862-b1e1-4006-9289-040cabe18c2d',
-  // sandbox org
-  'a91892b0-d6c5-4baa-bf54-4449240e2103',
-  'cefada27-549e-4212-81dd-8dfbee7da0d1',
-]);
 
 /**
- * Plan product IDs per Polar environment — sandbox and production orgs have
- * completely separate catalogs. When planId is provided, the checkout endpoint
- * picks the product matching the environment it lands on, so the same frontend
- * payload works against either org.
+ * Resolve the Polar product ID for a self-serve plan + interval from worker
+ * vars or canonical product catalog. Client-supplied product IDs are never trusted —
+ * checkout is server-authoritative on (planId, interval) alone. Legacy `PRO` var names
+ * are honored for `growth` until deployments rotate to the new names.
  */
-const POLAR_PRODUCTS: Record<PolarServer, Record<string, Record<string, string>>> = {
-  sandbox: {
-    starter: {
-      monthly: 'a91892b0-d6c5-4baa-bf54-4449240e2103',
-      annual: 'cefada27-549e-4212-81dd-8dfbee7da0d1',
-    },
-  },
-  production: {
-    starter: {
-      monthly: 'ca0c63de-5a98-4829-8b0f-8e81f579b58a',
-      annual: '3907e862-b1e1-4006-9289-040cabe18c2d',
-    },
-  },
-};
-
-function productForServer(env: Env | undefined, server: PolarServer, planId: string, interval: string): string | null {
-  const normalizedInterval = ['annual', 'yearly', 'year'].includes(interval) ? 'annual' : 'monthly';
-  // Production product IDs from worker vars take top priority:
-  // POLAR_PRODUCT_STARTER_MONTHLY, POLAR_PRODUCT_PRO_ANNUAL, etc.
-  if (env) {
-    const envKey = `POLAR_PRODUCT_${String(planId || '').toUpperCase()}_${normalizedInterval.toUpperCase()}`;
-    const fromEnv = (env as unknown as Record<string, unknown>)[envKey];
-    if (typeof fromEnv === 'string' && fromEnv.length > 8) {
-      return fromEnv;
+function productForServer(env: Env, planId: PlanId, interval: BillingInterval): string | null {
+  const readVar = (...names: string[]): string | null => {
+    for (const name of names) {
+      const value = (env as unknown as Record<string, unknown>)[name];
+      if (typeof value === 'string' && value.length > 8) return value;
     }
-  }
-  return POLAR_PRODUCTS[server]?.[planId]?.[normalizedInterval] || null;
+    return null;
+  };
+  const intervalKey = interval === 'annual' ? 'ANNUAL' : 'MONTHLY';
+  const planKey = planId === 'growth' ? 'GROWTH' : planId === 'agency' ? 'AGENCY' : 'STARTER';
+  const fromEnv = readVar(`POLAR_PRODUCT_${planKey}_${intervalKey}`, ...(planId === 'growth' ? [`POLAR_PRODUCT_PRO_${intervalKey}`] : []));
+  if (fromEnv) return fromEnv;
+  return DEFAULT_POLAR_PRODUCTS[planId]?.[interval] || null;
 }
 
-function resolvePlan(planId: string, productName = ''): { maxSites: number; maxRuns: number; priceMonthly: number; label: string } {
-  const id = (planId || '').toLowerCase();
-  const name = productName.toLowerCase();
-  if (id.includes('enterprise') || name.includes('enterprise')) return PLAN_LIMITS.enterprise;
-  if (id.includes('agency') || name.includes('agency')) return PLAN_LIMITS.agency;
-  if (id.includes('pro') || name.includes('pro')) return PLAN_LIMITS.pro;
-  if (id.includes('starter') || name.includes('starter') || STARTER_PRODUCT_IDS.has(planId)) return PLAN_LIMITS.starter;
-  return PLAN_LIMITS.starter;
+/**
+ * Normalize whatever Polar sends (product UUID, product name, or our checkout
+ * metadata) to an internal plan id. Checkout metadata is authoritative because
+ * we write it server-side; name matching is the fallback for subscriptions
+ * created before this contract existed.
+ */
+function resolvePlanFromPolar(productId: string, productName: string, metadataPlanId: unknown): PlanId {
+  const fromMetadata = normalizePlanId(metadataPlanId);
+  if (fromMetadata) return fromMetadata;
+
+  const haystack = `${productId} ${productName}`.toLowerCase();
+  if (haystack.includes('enterprise')) return 'scale';
+  if (haystack.includes('agency')) return 'agency';
+  if (haystack.includes('growth')) return 'growth';
+  if (/\bpro\b/.test(haystack)) return 'growth';
+  if (haystack.includes('starter')) return 'starter';
+  return 'starter';
 }
 
 function isProductNotFoundError(err: any): boolean {
@@ -223,30 +241,36 @@ function isProductNotFoundError(err: any): boolean {
  */
 async function resolveProductFromCatalog(
   client: Polar,
-  planId: string,
-  interval: string
+  planId: PlanId,
+  interval: BillingInterval
 ): Promise<string | null> {
   const list: any = await client.products.list({ limit: 100, isArchived: false });
   const products: any[] = list?.result || list || [];
   if (products.length === 0) return null;
 
-  const wantsYearly = interval === 'annual' || interval === 'yearly' || interval === 'year';
-
-  let candidates = planId ? products.filter((p) => String(p.name || '').toLowerCase().includes(planId)) : [];
-  if (candidates.length === 0) {
-    // Fall back to any product with a recurring (subscription) price
-    candidates = products.filter((p) => (p.prices || []).some((pr: any) => pr.type === 'recurring'));
-  }
+  const contract = PLAN_CONTRACT[planId];
+  const candidates = products.filter((p) => {
+    const name = String(p.name || '').toLowerCase();
+    return name.includes(planId) || name.includes(contract.name.toLowerCase());
+  });
   if (candidates.length === 0) return null;
 
+  const wantsAnnual = interval === 'annual';
   const byInterval = candidates.find((p) => {
     const name = String(p.name || '').toLowerCase();
-    const hasYear = name.includes('annual') || name.includes('yearly') || name.includes('year');
-    return wantsYearly ? hasYear : !hasYear;
+    const hasAnnual = name.includes('annual') || name.includes('yearly') || name.includes('year');
+    return wantsAnnual ? hasAnnual : !hasAnnual;
   });
 
   const chosen = byInterval || candidates[0];
   return chosen?.id || null;
+}
+
+function siteScopeClause(scope: { organizationId: string | null; userId: string | null }): { clause: string; params: string[] } {
+  if (scope.organizationId) {
+    return { clause: '(organization_id = ? OR user_id = ?)', params: [scope.organizationId, scope.userId || scope.organizationId] };
+  }
+  return { clause: 'user_id = ?', params: [scope.userId as string] };
 }
 
 /**
@@ -254,40 +278,19 @@ async function resolveProductFromCatalog(
  * GET /api/v1/billing/status
  */
 billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
   const userEmail = c.get('userEmail') || 'customer@wpinstant.dev';
+  const scope = resolveBillingScope({ organizationId: c.get('organizationId'), userId: c.get('userId') });
 
-  const subscription = await c.env.DB.prepare(
-    'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
-  )
-    .bind(userId)
-    .first<{
-      id: string;
-      plan_id: string;
-      status: string;
-      max_sites: number;
-      current_period_end: number;
-    }>();
-
+  const loaded = await loadSubscriptionForScope(c.env, scope);
+  const { clause, params } = siteScopeClause(scope);
   const countRow = await c.env.DB.prepare(
-    'SELECT COUNT(*) as active_sites FROM sites WHERE user_id = ? AND is_active = 1'
+    `SELECT COUNT(*) as active_sites FROM sites WHERE is_active = 1 AND ${clause}`
   )
-    .bind(userId)
+    .bind(...params)
     .first<{ active_sites: number }>();
-
-  const jobsCountRow = await c.env.DB.prepare(`
-    SELECT COUNT(*) as monthly_runs
-    FROM optimization_jobs j
-    JOIN sites s ON j.site_id = s.id
-    WHERE s.user_id = ? AND j.created_at >= unixepoch() - 86400 * 30
-  `)
-    .bind(userId)
-    .first<{ monthly_runs: number }>();
-
   const activeSites = countRow?.active_sites || 0;
-  const monthlyRuns = jobsCountRow?.monthly_runs || 0;
 
-  if (!subscription) {
+  if (!loaded) {
     return c.json({
       success: true,
       data: {
@@ -301,38 +304,71 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
           maxSites: 0,
           usedSites: activeSites,
           maxRuns: 0,
-          usedRuns: monthlyRuns,
+          usedRuns: 0,
           currentPeriodEnd: 0,
         },
         customer: {
-          userId,
+          userId: scope.userId,
           email: userEmail,
         },
       },
     });
   }
 
-  const planId = subscription.plan_id;
-  const plan = resolvePlan(planId);
+  const { subscription, plan } = loaded;
+  const period = await getUsageSnapshot(c.env, subscription);
+  const concurrencyUsed = await countActiveFleetJobs(c.env, subscription.id);
+  const creditsUsed = period.credits_used;
+  const creditsReserved = period.credits_reserved;
 
   return c.json({
     success: true,
     data: {
       hasActivePlan: true,
-      subscription,
-      plan: {
-        id: planId,
-        name: plan.label,
-        priceMonthly: plan.priceMonthly,
+      subscription: {
+        id: subscription.id,
         status: subscription.status,
-        maxSites: subscription.max_sites || plan.maxSites,
+        billingInterval: subscription.billing_interval,
+        currentPeriodStart: subscription.current_period_start ?? period.period_start,
+        currentPeriodEnd: subscription.current_period_end ?? period.period_end,
+        overageEnabled: subscription.overage_enabled === 1,
+        overageLimitCredits: subscription.overage_limit_credits,
+      },
+      plan: {
+        id: plan.id,
+        name: plan.name,
+        status: subscription.status,
+        billingInterval: subscription.billing_interval,
+        priceMonthly: plan.priceMonthlyCents !== null ? plan.priceMonthlyCents / 100 : null,
+        priceMonthlyCents: plan.priceMonthlyCents,
+        priceAnnualCents: plan.priceAnnualCents,
+        priceAnnualMonthlyEquivalentCents:
+          plan.priceAnnualCents !== null ? Math.round(plan.priceAnnualCents / 12) : null,
+        maxSites: plan.maxSites,
         usedSites: activeSites,
-        maxRuns: plan.maxRuns,
-        usedRuns: monthlyRuns,
-        currentPeriodEnd: subscription.current_period_end,
+        monthlyCredits: plan.monthlyCredits,
+        creditsUsed,
+        creditsReserved,
+        creditsRemaining: Math.max(0, plan.monthlyCredits - creditsUsed - creditsReserved),
+        maxConcurrentJobs: plan.maxConcurrentJobs,
+        concurrencyUsed,
+        maxRuns: plan.monthlyCredits,
+        usedRuns: creditsUsed,
+        monthlyPageviews: plan.monthlyPageviews,
+        pageviewsUsed: period.pageviews_used,
+        pageviewsSource: 'reported',
+        monthlyBytes: plan.monthlyBytes,
+        bytesUsed: period.bytes_used,
+        bytesSource: 'reported',
+        overageEnabled: period.overage_enabled === 1,
+        overageLimitCredits: period.overage_limit_credits,
+        overageCreditsUsed: period.overage_credits_used,
+        overageCreditsReserved: period.overage_credits_reserved,
+        currentPeriodStart: subscription.current_period_start ?? period.period_start,
+        currentPeriodEnd: subscription.current_period_end ?? period.period_end,
       },
       customer: {
-        userId,
+        userId: scope.userId,
         email: userEmail,
       },
     },
@@ -340,21 +376,73 @@ billingRoutes.get('/status', saasUserAuthMiddleware, async (c) => {
 });
 
 /**
- * Create Polar Checkout Session
+ * Update opt-in overage settings for the caller's active subscription.
+ * Overage is always explicit: a limit of 0 with enabled=false blocks all
+ * usage past the in-plan credits. PUT /api/v1/billing/overage
+ */
+billingRoutes.put('/overage', saasUserAuthMiddleware, async (c) => {
+  const scope = resolveBillingScope({ organizationId: c.get('organizationId'), userId: c.get('userId') });
+  const loaded = await loadSubscriptionForScope(c.env, scope);
+  if (!loaded) {
+    return c.json({ success: false, code: 'NO_ACTIVE_SUBSCRIPTION', error: 'No active subscription found.' }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const enabled = body.enabled === true || body.overageEnabled === true;
+  const rawLimit = Number(body.limitCredits ?? body.overageLimitCredits ?? 0);
+  const limitCredits = Number.isFinite(rawLimit) ? Math.max(0, Math.min(200_000, Math.floor(rawLimit))) : 0;
+  if (enabled && limitCredits === 0) {
+    return c.json({ success: false, error: 'Enabling overage requires a positive limitCredits.' }, 400);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    'UPDATE subscriptions SET overage_enabled = ?, overage_limit_credits = ?, updated_at = ? WHERE id = ?'
+  )
+    .bind(enabled ? 1 : 0, limitCredits, now, loaded.subscription.id)
+    .run();
+
+  const refreshed = { ...loaded.subscription, overage_enabled: enabled ? 1 : 0, overage_limit_credits: limitCredits };
+  const period = await getUsageSnapshot(c.env, refreshed);
+  await c.env.DB.prepare(
+    'UPDATE usage_periods SET overage_enabled = ?, overage_limit_credits = ?, updated_at = ? WHERE id = ?'
+  )
+    .bind(enabled ? 1 : 0, limitCredits, now, period.id)
+    .run();
+
+  return c.json({
+    success: true,
+    data: { overageEnabled: enabled, overageLimitCredits: limitCredits },
+  });
+});
+
+/**
+ * Create Polar Checkout Session (server-authoritative on planId + interval)
  * POST /api/v1/billing/checkout
  */
 billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const userId = c.get('userId')!;
+  const organizationId = c.get('organizationId') || undefined;
   const authUserEmail = c.get('userEmail') || '';
   const body = await c.req.json().catch(() => ({}));
-  const productId = body.productId || body.product_id;
-  const planId = String(body.planId || '').toLowerCase();
-  const interval = String(body.interval || 'monthly').toLowerCase();
+
+  const planId = normalizePlanId(body.planId || body.plan_id || body.productId || body.product_id);
+  const interval = normalizeBillingInterval(body.interval || body.billing_interval || 'monthly');
   const returnTo = body.returnTo || body.return_to;
   const bodyEmail = body.customerEmail || body.customer_email || body.email;
 
-  if (!productId) {
-    return c.json({ success: false, error: 'Missing productId' }, 400);
+  if (!planId) {
+    return c.json({ success: false, error: 'Missing or invalid planId' }, 400);
+  }
+  if (!SELF_SERVE_PLAN_IDS.includes(planId)) {
+    return c.json(
+      {
+        success: false,
+        code: 'PLAN_NOT_SELF_SERVE',
+        error: 'The Scale plan is custom-priced. Contact sales to get provisioned.',
+      },
+      400
+    );
   }
 
   // Validate candidate email
@@ -372,13 +460,18 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
       }checkout_success=1&checkoutId={CHECKOUT_ID}`
     : `${saasUrl}/dashboard/billing?checkout_success=1&checkoutId={CHECKOUT_ID}`;
 
+  const configuredProductId = productForServer(c.env, planId, interval);
+
   try {
     const checkoutPayload: any = {
-      products: [productId],
+      products: [configuredProductId || 'unconfigured'],
       successUrl,
       customerExternalId: userId,
       metadata: {
         userId,
+        organizationId: organizationId ?? null,
+        planId,
+        interval,
         source: 'wp_instant_saas_checkout',
       },
     };
@@ -393,12 +486,10 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
     // can actually complete with a $0 total (no card required).
     const sandboxDiscountId = (c.env.POLAR_SANDBOX_DISCOUNT_ID || '').trim();
     let discountApplied = false;
-    let effectiveProductId = productId;
+    let effectiveProductId: string | null = configuredProductId;
 
     const createSession = (client: Polar, srv: PolarServer) => {
-      // Prefer the environment-specific catalog ID when we know the plan
-      const mapped = planId ? productForServer(c.env, srv, planId, interval) : null;
-      if (mapped) effectiveProductId = mapped;
+      if (!effectiveProductId) throw noProductError(planId, interval);
       const payload: any = { ...checkoutPayload, products: [effectiveProductId] };
       if (srv === 'sandbox' && sandboxDiscountId) {
         payload.discountId = sandboxDiscountId;
@@ -412,13 +503,11 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
     try {
       ({ result, server } = await withPolarServerRetry(c.env, createSession));
     } catch (createErr: any) {
-      // Sandbox and production orgs have separate product catalogs. If the
-      // configured productId belongs to the other environment (e.g. prod UUID
-      // used with a sandbox token), try to auto-resolve the right product from
-      // the live org's catalog by plan name + billing interval.
       const isProductError = isProductNotFoundError(createErr);
-      if (!isProductError) throw createErr;
+      if (!isProductError || !configuredProductId) throw createErr;
 
+      // Env-configured product exists in the other Polar org's catalog —
+      // auto-resolve this plan+interval from the live catalog instead.
       const resolved = await withPolarServerRetry(c.env, async (client, srv) => {
         const found = await resolveProductFromCatalog(client, planId, interval);
         if (!found) return null;
@@ -426,10 +515,10 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
         return createSession(client, srv);
       });
       if (!resolved || !resolved.result) {
-        throw createErr;
+        throw noProductError(planId, interval);
       }
       ({ result, server } = resolved as { result: any; server: PolarServer });
-      console.log(`[Polar] Resolved ${planId || '(unnamed)'} product in catalog: ${effectiveProductId}`);
+      console.log(`[Polar] Resolved ${planId} (${interval}) product in catalog: ${effectiveProductId}`);
     }
 
     return c.json({
@@ -440,18 +529,21 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
         // 'sandbox' = Polar test checkout, 'production' = live checkout
         server,
         discountApplied,
-        productId: effectiveProductId,
+        planId,
+        interval,
       },
     });
   } catch (err: any) {
     console.error('[Polar Checkout Error]', err);
     const msg = String(err?.message || '');
-    if (isProductNotFoundError(err)) {
+    if (err?.code === 'PRODUCT_NOT_CONFIGURED' || isProductNotFoundError(err)) {
       return c.json(
         {
           success: false,
           code: 'PRODUCT_NOT_FOUND',
-          error: `Product "${productId}" was not found in this Polar organization. Sandbox and production have separate catalogs — create the plan product in the matching Polar dashboard and pass its product ID.`,
+          error: err?.code === 'PRODUCT_NOT_CONFIGURED'
+            ? err.message
+            : `No Polar product is configured for plan "${planId}" (${interval}). Set POLAR_PRODUCT_${planId.toUpperCase()}_${interval === 'annual' ? 'ANNUAL' : 'MONTHLY'} or create the product in the matching Polar catalog.`,
         },
         500
       );
@@ -463,21 +555,27 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   }
 });
 
+function noProductError(planId: PlanId, interval: BillingInterval): Error {
+  const err = new Error(
+    `No Polar product is configured for plan "${planId}" (${interval}). Set POLAR_PRODUCT_${planId.toUpperCase()}_${interval === 'annual' ? 'ANNUAL' : 'MONTHLY'} or create the product in the matching Polar catalog.`
+  ) as any;
+  err.code = 'PRODUCT_NOT_CONFIGURED';
+  return err;
+}
+
 /**
  * Create Polar Customer Portal Session
  * POST /api/v1/billing/portal
+ *
+ * Portal identity stays pinned to the subscription's owning user (the
+ * customerExternalId used at checkout) even when the caller is an
+ * organization member, so Polar always resolves the same customer.
  */
 billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope({ organizationId: c.get('organizationId'), userId: c.get('userId') });
 
-  // Check if user has an active subscription in D1
-  const subscription = await c.env.DB.prepare(
-    'SELECT id, status FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
-  )
-    .bind(userId)
-    .first<{ id: string; status: string }>();
-
-  if (!subscription) {
+  const loaded = await loadSubscriptionForScope(c.env, scope);
+  if (!loaded) {
     return c.json(
       {
         success: false,
@@ -491,7 +589,7 @@ billingRoutes.post('/portal', saasUserAuthMiddleware, async (c) => {
   try {
     const { result: session, server } = await withPolarServerRetry(c.env, (client) =>
       client.customerSessions.create({
-        customerExternalId: userId,
+        customerExternalId: loaded.subscription.user_id,
       })
     );
 
@@ -588,14 +686,21 @@ billingRoutes.post('/polar-webhook', async (c) => {
           data.external_customer_id;
         const customerEmail = data.customer?.email || '';
         const status = data.status || 'active';
-        const planId = data.product_id || data.productId || data.plan_id || 'plan_starter';
+        const polarProductId = data.product_id || data.productId || '';
+        const productName = data.product?.name || '';
+        const planId = resolvePlanFromPolar(polarProductId, productName, data.metadata?.planId);
+        const interval = normalizeBillingInterval(
+          data.metadata?.interval || data.recurring_interval || data.recurringInterval || 'monthly'
+        );
+        const contract = getPlanContract(planId)!;
         const currentPeriodEnd = data.current_period_end || data.currentPeriodEnd
           ? Math.floor(new Date(data.current_period_end || data.currentPeriodEnd).getTime() / 1000)
           : Math.floor(Date.now() / 1000) + 86400 * 30;
-
-        // Determine max site slots based on product ID / name
-        const productName = data.product?.name || '';
-        const plan = resolvePlan(planId, productName);
+        const currentPeriodStart = data.current_period_start || data.currentPeriodStart
+          ? Math.floor(new Date(data.current_period_start || data.currentPeriodStart).getTime() / 1000)
+          : null;
+        const organizationId =
+          (typeof data.metadata?.organizationId === 'string' && data.metadata.organizationId) || null;
 
         // Find or create user
         let userId = externalCustomerId;
@@ -622,20 +727,47 @@ billingRoutes.post('/polar-webhook', async (c) => {
             .run();
         }
 
-        // Upsert subscription
+        // Upsert subscription with the INTERNAL plan id (never the Polar
+        // UUID) plus interval/period bounds so usage periods derive exactly.
         await c.env.DB.prepare(`
-          INSERT INTO subscriptions (id, user_id, plan_id, status, max_sites, current_period_end, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+          INSERT INTO subscriptions
+            (id, user_id, organization_id, plan_id, polar_product_id, billing_interval,
+             status, max_sites, current_period_start, current_period_end, overage_enabled, overage_limit_credits, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, unixepoch())
           ON CONFLICT(id) DO UPDATE SET
             user_id = excluded.user_id,
-            status = excluded.status,
+            organization_id = coalesce(excluded.organization_id, subscriptions.organization_id),
             plan_id = excluded.plan_id,
+            polar_product_id = excluded.polar_product_id,
+            billing_interval = excluded.billing_interval,
+            status = excluded.status,
             max_sites = excluded.max_sites,
+            current_period_start = excluded.current_period_start,
             current_period_end = excluded.current_period_end,
             updated_at = unixepoch()
         `)
-          .bind(subId, userId, planId, status, plan.maxSites, currentPeriodEnd)
+          .bind(
+            subId,
+            userId,
+            organizationId,
+            planId,
+            polarProductId || null,
+            interval,
+            status,
+            contract.maxSites,
+            currentPeriodStart,
+            currentPeriodEnd
+          )
           .run();
+
+        // Migrate the org's existing sites onto the subscription's org scope.
+        if (organizationId) {
+          await c.env.DB.prepare(
+            'UPDATE sites SET organization_id = ?, updated_at = unixepoch() WHERE user_id = ? AND organization_id IS NULL'
+          )
+            .bind(organizationId, userId)
+            .run();
+        }
 
         break;
       }
@@ -646,7 +778,7 @@ billingRoutes.post('/polar-webhook', async (c) => {
       // the cron sweeper (maintenance.ts).
       case 'subscription.canceled': {
         await c.env.DB.prepare(
-          'UPDATE subscriptions SET status = "canceled", updated_at = unixepoch() WHERE id = ?'
+          "UPDATE subscriptions SET status = 'canceled', updated_at = unixepoch() WHERE id = ?"
         )
           .bind(data.id)
           .run();
@@ -656,18 +788,20 @@ billingRoutes.post('/polar-webhook', async (c) => {
       case 'subscription.revoked': {
         const subId = data.id;
         await c.env.DB.prepare(
-          'UPDATE subscriptions SET status = "revoked", updated_at = unixepoch() WHERE id = ?'
+          "UPDATE subscriptions SET status = 'revoked', updated_at = unixepoch() WHERE id = ?"
         )
           .bind(subId)
           .run();
 
         // Deactivate associated sites immediately + drop their KV auth
         // caches (otherwise revoked keys stay valid up to the 1h KV TTL).
+        // Media signing secrets are cleared too so signed media URLs die
+        // with the subscription.
         const affected = await c.env.DB.prepare(
-          'SELECT domain FROM sites WHERE subscription_id = ? AND is_active = 1'
+          'SELECT id, domain FROM sites WHERE subscription_id = ? AND is_active = 1'
         )
           .bind(subId)
-          .all<{ domain: string }>();
+          .all<{ id: string; domain: string }>();
         await c.env.DB.prepare(
           'UPDATE sites SET is_active = 0, updated_at = unixepoch() WHERE subscription_id = ?'
         )
@@ -675,6 +809,7 @@ billingRoutes.post('/polar-webhook', async (c) => {
           .run();
         for (const row of affected.results || []) {
           await c.env.KV.delete(`site:${row.domain}`);
+          await c.env.KV.delete(`msecret:${row.id}`);
         }
 
         break;

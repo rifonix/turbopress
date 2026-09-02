@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser, useOrganization } from '@clerk/nextjs';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ExtendedSite,
@@ -8,7 +8,6 @@ import {
   SitePreset,
   BillingStatusData,
   DashboardContextType,
-  POLAR_PRODUCT_IDS,
 } from '../types';
 import { api } from '../services/api';
 import { getPresetConfig, SiteConfig } from '@wpinstant/shared';
@@ -76,7 +75,21 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setBillingData({
           hasActivePlan: false,
           subscription: null,
-          plan: { id: 'unavailable', name: 'Unavailable', priceMonthly: 0, status: 'unavailable', maxSites: 0, usedSites: 0, maxRuns: 0, usedRuns: 0, currentPeriodEnd: 0 },
+          plan: {
+            id: 'unavailable',
+            name: 'Unavailable',
+            priceMonthly: 0,
+            status: 'unavailable',
+            maxSites: 0,
+            usedSites: 0,
+            maxRuns: 0,
+            usedRuns: 0,
+            monthlyCredits: 0,
+            creditsUsed: 0,
+            creditsReserved: 0,
+            creditsRemaining: 0,
+            currentPeriodEnd: 0,
+          },
           customer: { userId: '', email: '' },
         });
       }
@@ -171,17 +184,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Actions
   const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => {
     try {
-      addToast(`Initializing Polar checkout for ${planId.toUpperCase()}…`, 'info');
+      addToast(`Initializing Polar checkout for ${planId.toUpperCase()} (${interval})…`, 'info');
       const token = await getToken();
 
-      const targetProductId =
-        planId === 'starter'
-          ? interval === 'annual'
-            ? POLAR_PRODUCT_IDS.starterYearly
-            : POLAR_PRODUCT_IDS.starterMonthly
-          : `prod_${planId}_${interval}`;
-
-      const res = await api.createCheckout(token, targetProductId, returnTo, userEmail, planId, interval);
+      const res = await api.createCheckout(token, planId, interval, returnTo, userEmail);
       if (res?.checkoutUrl) {
         addToast(
           res.server === 'sandbox'

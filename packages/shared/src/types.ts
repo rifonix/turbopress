@@ -6,6 +6,9 @@ export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'need
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'revoked' | 'trialing';
 
+export type { BillingInterval, PlanId, PlanPriority } from './plans.js';
+export type JobPriority = 'high' | 'normal' | 'low';
+
 export interface CachingConfig {
   enabled: boolean;
   ttl: number; // in seconds, default 604800 (7 days)
@@ -162,10 +165,16 @@ export interface User {
 export interface Subscription {
   id: string; // Polar Subscription ID
   user_id: string;
+  organization_id?: string | null;
   plan_id: string;
+  polar_product_id?: string | null;
+  billing_interval?: 'monthly' | 'annual' | null;
   status: SubscriptionStatus;
   max_sites: number;
+  current_period_start?: number | null;
   current_period_end: number;
+  overage_enabled?: number;
+  overage_limit_credits?: number;
   created_at: number;
   updated_at: number;
 }
@@ -173,6 +182,7 @@ export interface Subscription {
 export interface Site {
   id: string; // site_uuid
   user_id: string;
+  organization_id?: string | null;
   subscription_id: string;
   domain: string; // e.g. "example.com"
   site_api_key_hash: string; // SHA-256
@@ -194,6 +204,8 @@ export interface OptimizationJob {
   url: string;
   viewport: ViewportMode;
   status: JobStatus;
+  priority?: JobPriority;
+  credit_reservation_id?: string | null;
   critical_css_r2_key?: string | null;
   lcp_selector?: string | null;
   lcp_image_url?: string | null;

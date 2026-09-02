@@ -31,6 +31,24 @@ assetRoutes.get('/plugin/download', async (c) => {
 assetRoutes.get('/css/:site_id/:css_file', async (c) => {
   const siteId = c.req.param('site_id');
   const cssFile = c.req.param('css_file');
+
+  // Commercial policy: stop edge serving CSS immediately if the site is inactive
+  // (subscription canceled/revoked). KV-cached for 5m to protect R2 performance.
+  const activeKvKey = `siteactive:${siteId}`;
+  let isActive = await c.env.KV.get(activeKvKey);
+  if (isActive === null) {
+    const row = await c.env.DB.prepare('SELECT is_active FROM sites WHERE id = ?')
+      .bind(siteId)
+      .first<{ is_active: number }>();
+    isActive = row && row.is_active === 1 ? '1' : '0';
+    await c.env.KV.put(activeKvKey, isActive, { expirationTtl: 300 });
+  }
+  if (isActive !== '1') {
+    return c.text('/* Site optimization inactive */', 403, {
+      'Content-Type': 'text/css; charset=utf-8',
+    });
+  }
+
   const r2Key = `sites/${siteId}/css/${cssFile}`;
 
   const object = await c.env.ASSETS_BUCKET.get(r2Key);
@@ -85,15 +103,15 @@ function timingSafeEq(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Site callback secret (for URL signing), cached in KV for 1h. */
+/** Site callback secret (for URL signing), cached in KV for 1h. Only returned if active. */
 async function siteSecret(c: any, siteId: string): Promise<string | null> {
   const kvKey = `msecret:${siteId}`;
   const cached = await c.env.KV.get(kvKey);
   if (cached) return cached;
-  const row = (await c.env.DB.prepare('SELECT callback_secret FROM sites WHERE id = ?')
+  const row = (await c.env.DB.prepare('SELECT callback_secret, is_active FROM sites WHERE id = ?')
     .bind(siteId)
-    .first()) as { callback_secret: string | null } | null;
-  if (!row?.callback_secret) return null;
+    .first()) as { callback_secret: string | null; is_active: number } | null;
+  if (!row?.callback_secret || row.is_active !== 1) return null;
   await c.env.KV.put(kvKey, row.callback_secret, { expirationTtl: 3600 });
   return row.callback_secret;
 }

@@ -9,6 +9,27 @@ import {
   PRESET_LUDICROUS,
 } from '@wpinstant/shared';
 import { siteAuthMiddleware, saasUserAuthMiddleware } from '../middleware/auth.js';
+import {
+  resolveBillingScope,
+  loadSubscriptionForScope,
+  recordTrafficUsage,
+  BillingScope,
+} from '../services/entitlements.js';
+
+function siteScopeClause(scope: BillingScope, prefix = ''): string {
+  const col = prefix ? `${prefix}.` : '';
+  if (scope.organizationId) {
+    return `(${col}organization_id = ? OR (${col}organization_id IS NULL AND ${col}user_id = ?))`;
+  }
+  return `${col}user_id = ?`;
+}
+
+function siteScopeBindings(scope: BillingScope): string[] {
+  if (scope.organizationId) {
+    return [scope.organizationId, (scope.userId || '') as string];
+  }
+  return [(scope.userId || '') as string];
+}
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -20,7 +41,9 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
   const body = await c.req.json();
   const payload = HandshakeRequestSchema.parse(body);
 
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope(c.var);
+  const userId = scope.userId;
+  const organizationId = scope.organizationId || null;
   const userEmail = c.get('userEmail') || 'user@wpinstant.dev';
   const domain = normalizeDomain(payload.domain);
 
@@ -54,13 +77,9 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     .run();
 
   // 2. Check Polar Subscription / Entitlements (PLAN GATING)
-  const subscription = await c.env.DB.prepare(
-    'SELECT id, plan_id, status, max_sites FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
-  )
-    .bind(userId)
-    .first<{ id: string; plan_id: string; status: string; max_sites: number }>();
+  const subResult = await loadSubscriptionForScope(c.env, scope);
 
-  if (!subscription) {
+  if (!subResult) {
     return c.json(
       {
         success: false,
@@ -71,23 +90,26 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     );
   }
 
+  const subscription = subResult.subscription;
   const subscriptionId = subscription.id;
-  const maxSites = subscription.max_sites || 5;
+  const maxSites = subscription.max_sites || subResult.plan.maxSites || 5;
 
-  // 3. Check site count limit
+  // 3. Check site count limit within this billing scope
+  const whereClause = siteScopeClause(scope);
+  const bindings = siteScopeBindings(scope);
   const countResult = await c.env.DB.prepare(
-    'SELECT COUNT(*) as count FROM sites WHERE user_id = ? AND is_active = 1'
+    `SELECT COUNT(*) as count FROM sites WHERE ${whereClause} AND is_active = 1`
   )
-    .bind(userId)
+    .bind(...bindings)
     .first<{ count: number }>();
 
   const currentCount = countResult?.count || 0;
   if (currentCount >= maxSites) {
-    // Check if re-pairing the exact same domain
+    // Check if re-pairing the exact same domain within this scope
     const existing = await c.env.DB.prepare(
-      'SELECT id FROM sites WHERE domain = ? AND user_id = ?'
+      `SELECT id FROM sites WHERE domain = ? AND ${whereClause}`
     )
-      .bind(domain, userId)
+      .bind(domain, ...bindings)
       .first<{ id: string }>();
 
     if (!existing) {
@@ -110,24 +132,25 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
 
   // 5. Insert or Update in D1. The WHERE clause on the UPSERT is the
   // ownership check: if the domain row exists but belongs to a DIFFERENT
-  // user, the update is a no-op (0 changes) and we refuse the pairing —
-  // otherwise an attacker could overwrite another tenant's API key hash.
+  // tenant, the update is a no-op (0 changes) and we refuse the pairing.
   const upsert = await c.env.DB.prepare(`
-    INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, unixepoch(), unixepoch())
+    INSERT INTO sites (id, user_id, organization_id, subscription_id, domain, site_api_key_hash, config_json, is_active, wp_version, plugin_version, last_ping_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(domain) DO UPDATE SET
       site_api_key_hash = excluded.site_api_key_hash,
       subscription_id = excluded.subscription_id,
+      organization_id = COALESCE(excluded.organization_id, sites.organization_id),
       is_active = 1,
       wp_version = excluded.wp_version,
       plugin_version = excluded.plugin_version,
       last_ping_at = unixepoch(),
       updated_at = unixepoch()
-    WHERE sites.user_id = excluded.user_id
+    WHERE sites.user_id = excluded.user_id OR (excluded.organization_id IS NOT NULL AND sites.organization_id = excluded.organization_id)
   `)
     .bind(
       siteId,
       userId,
+      organizationId,
       subscriptionId,
       domain,
       apiKeyHash,
@@ -150,9 +173,9 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
 
   // Retrieve actual site ID in case of conflict update
   const siteRow = await c.env.DB.prepare(
-    'SELECT id FROM sites WHERE domain = ? AND user_id = ?'
+    `SELECT id FROM sites WHERE domain = ? AND ${whereClause}`
   )
-    .bind(domain, userId)
+    .bind(domain, ...bindings)
     .first<{ id: string }>();
 
   const activeSiteId = siteRow?.id || siteId;
@@ -163,6 +186,7 @@ authRoutes.post('/pair', saasUserAuthMiddleware, async (c) => {
     JSON.stringify({
       id: activeSiteId,
       user_id: userId,
+      organization_id: organizationId,
       domain,
       site_api_key_hash: apiKeyHash,
       config_json: configJson,
@@ -493,6 +517,8 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
 
   const days = Array.isArray(body?.days) ? body.days : [];
   let stored = 0;
+  let batchPageviews = 0;
+  let batchBytes = 0;
 
   for (const dayEntry of days.slice(0, 7)) {
     const day = typeof dayEntry?.day === 'string' ? dayEntry.day : '';
@@ -503,6 +529,10 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
       if (typeof m !== 'object' || m === null) continue;
       const views = Math.max(0, Math.min(10_000_000, Math.floor(Number(m.views) || 0)));
       const errors = Math.max(0, Math.min(views, Math.floor(Number(m.errors) || 0)));
+      const transferBytes = Math.max(
+        0,
+        Math.min(100_000_000_000, Math.floor(Number(m.transfer_bytes || m.bytes) || 0))
+      );
       const lcpP75 = m.lcpP75 == null ? null : Math.max(0, Math.min(600_000, Math.round(Number(m.lcpP75))));
       const clsP75 = m.clsP75 == null ? null : Math.max(0, Math.min(1, Number(m.clsP75)));
       let pagesJson: string | null = null;
@@ -514,20 +544,37 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
       }
 
       await c.env.DB.prepare(`
-        INSERT INTO rum_daily (site_id, day, mode, pageviews, errors, lcp_p75_ms, cls_p75, error_pages_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        INSERT INTO rum_daily (site_id, day, mode, pageviews, transfer_bytes, errors, lcp_p75_ms, cls_p75, error_pages_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
         ON CONFLICT(site_id, day, mode) DO UPDATE SET
           pageviews = excluded.pageviews,
+          transfer_bytes = excluded.transfer_bytes,
           errors = excluded.errors,
           lcp_p75_ms = excluded.lcp_p75_ms,
           cls_p75 = excluded.cls_p75,
           error_pages_json = excluded.error_pages_json,
           updated_at = unixepoch()
       `)
-        .bind(site.id, day, mode, views, errors, lcpP75, clsP75, pagesJson)
+        .bind(site.id, day, mode, views, transferBytes, errors, lcpP75, clsP75, pagesJson)
         .run();
       stored++;
+      batchPageviews += views;
+      batchBytes += transferBytes;
     }
+  }
+
+  // Record reported traffic usage against the site's active subscription usage period
+  try {
+    const subQuery = site.subscription_id
+      ? 'SELECT * FROM subscriptions WHERE id = ?'
+      : 'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1';
+    const subParam = site.subscription_id || site.user_id;
+    const sub = await c.env.DB.prepare(subQuery).bind(subParam).first<any>();
+    if (sub && (batchPageviews > 0 || batchBytes > 0)) {
+      await recordTrafficUsage(c.env, sub, batchPageviews, batchBytes);
+    }
+  } catch (err) {
+    console.warn('[RUM Ingest] Traffic recording non-fatal error:', err);
   }
 
   return c.json({ success: true, data: { stored } });
@@ -538,7 +585,8 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
  * GET /api/v1/auth/me
  */
 authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
-  const userId = c.get('userId')!;
+  const scope = resolveBillingScope(c.var);
+  const userId = scope.userId;
   const userEmail = c.get('userEmail') || 'user@wpinstant.dev';
 
   const user = await c.env.DB.prepare(
@@ -547,16 +595,15 @@ authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
     .bind(userId)
     .first();
 
-  const subscription = await c.env.DB.prepare(
-    'SELECT * FROM subscriptions WHERE user_id = ? AND status IN ("active", "trialing") ORDER BY created_at DESC LIMIT 1'
-  )
-    .bind(userId)
-    .first();
+  const subResult = await loadSubscriptionForScope(c.env, scope);
+  const subscription = subResult?.subscription || null;
 
+  const whereClause = siteScopeClause(scope);
+  const bindings = siteScopeBindings(scope);
   const countRow = await c.env.DB.prepare(
-    'SELECT COUNT(*) as site_count FROM sites WHERE user_id = ?'
+    `SELECT COUNT(*) as site_count FROM sites WHERE ${whereClause}`
   )
-    .bind(userId)
+    .bind(...bindings)
     .first<{ site_count: number }>();
 
   return c.json({
@@ -567,8 +614,11 @@ authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
         email: userEmail,
         ...(user || {}),
       },
+      organizationId: scope.organizationId || null,
+      organizationRole: c.get('organizationRole') || null,
       hasActivePlan: Boolean(subscription),
       subscription: subscription || null,
+      plan: subResult?.plan || null,
       siteCount: countRow?.site_count || 0,
     },
   });
