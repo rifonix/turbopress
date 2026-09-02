@@ -463,17 +463,21 @@ billingRoutes.post('/checkout', saasUserAuthMiddleware, async (c) => {
   const configuredProductId = productForServer(c.env, planId, interval);
 
   try {
+    const metadata: Record<string, string | number | boolean> = {
+      userId,
+      planId,
+      interval,
+      source: 'wp_instant_saas_checkout',
+    };
+    if (organizationId) {
+      metadata.organizationId = organizationId;
+    }
+
     const checkoutPayload: any = {
       products: [configuredProductId || 'unconfigured'],
       successUrl,
       customerExternalId: userId,
-      metadata: {
-        userId,
-        organizationId: organizationId ?? null,
-        planId,
-        interval,
-        source: 'wp_instant_saas_checkout',
-      },
+      metadata,
     };
 
     if (isValidRealEmail) {
