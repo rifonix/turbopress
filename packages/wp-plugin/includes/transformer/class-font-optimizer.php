@@ -123,11 +123,26 @@ class FontOptimizer {
             // Serve existing localization; refresh weekly (Google may re-ship).
             if (file_exists($css_file) && file_exists($stamp_file)) {
                 $css = (string) @file_get_contents($css_file);
-                if ($css !== '' && (time() - (int) @file_get_contents($stamp_file)) < WEEK_IN_SECONDS) {
-                    return [
-                        'css_url' => $this->fonts_public_url($pkg, 'fonts.css'),
-                        'preload_url' => $this->first_font_url($css, $pkg),
-                    ];
+                $fresh = $css !== '' && (time() - (int) @file_get_contents($stamp_file)) < WEEK_IN_SECONDS;
+                if ($fresh) {
+                    $preload = $this->first_font_url($css, $pkg);
+                    // A package whose files were selectively deleted (host
+                    // cache cleanup, partial FTP sync…) must not be served:
+                    // a live <link> to a missing fonts.css 404s as text/html
+                    // and the browser refuses to apply it. Verify the sheet
+                    // AND the preload target still exist on disk.
+                    $preload_ok = true;
+                    if ($preload !== null) {
+                        $file = basename((string) wp_parse_url((string) $preload, PHP_URL_PATH));
+                        $preload_ok = (bool) preg_match('/^[\w.-]+\.woff2$/i', (string) $file)
+                            && file_exists($dir . '/' . $file);
+                    }
+                    if ($preload_ok) {
+                        return [
+                            'css_url' => $this->fonts_public_url($pkg, 'fonts.css'),
+                            'preload_url' => $preload,
+                        ];
+                    }
                 }
             }
             return null;

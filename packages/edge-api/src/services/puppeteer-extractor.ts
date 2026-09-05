@@ -135,9 +135,14 @@ export function computePerformanceScore(m: {
  * - Always keeps :root vars, @font-face, @keyframes, @layer statements and
  *   property/declaration defaults needed to avoid FOUC.
  */
-async function extractUsedCssViaCssom(
-  page: any
-): Promise<{ segments: Array<string | { __xref: string }>; crossOriginHrefs: string[] }> {
+/**
+ * Source of the in-page CSSOM extractor. Exported so tests can compile and
+ * exercise the RUNTIME string (after template-literal evaluation) against a
+ * mini CSSOM — the file text alone hides escape-depth bugs (a \\/ in this
+ * template becomes a bare / at runtime and killed every extraction job with
+ * "Unterminated group").
+ */
+export function inPageCssomSource(): string {
   // IMPORTANT: this code executes inside the remote browser via CDP.
   // It MUST be passed as a string: esbuild (keepNames) rewrites function
   // callbacks with a __name() wrapper that only exists in the worker bundle,
@@ -200,7 +205,11 @@ async function extractUsedCssViaCssom(
         if (!base || !css || css.indexOf('url(') === -1) return css;
         return css.replace(/url\\(\\s*(['"]?)([^'")]+)\\1\\s*\\)/gi, (m, q, u) => {
           const t = u.trim();
-          if (/^(?:data:|blob:|https?:|#|\/\/)/i.test(t)) return m;
+          // NOTE: never use \\/ inside this template's regex literals — the
+          // template evaluates \\/ to a bare slash, terminating the regex
+          // early ("Unterminated group" SyntaxError kills every extraction
+          // job). Protocol-relative URLs are matched via startsWith instead.
+          if (/^(?:data:|blob:|https?:|#)/i.test(t) || t.indexOf('//') === 0) return m;
           try { return 'url(' + q + new URL(t, base).href + q + ')'; } catch (e) { return m; }
         });
       }
@@ -333,7 +342,13 @@ async function extractUsedCssViaCssom(
       return { segments: out, crossOriginHrefs: crossOrigin };
     })()
   `;
-  return page.evaluate(src);
+  return src;
+}
+
+async function extractUsedCssViaCssom(
+  page: any
+): Promise<{ segments: Array<string | { __xref: string }>; crossOriginHrefs: string[] }> {
+  return page.evaluate(inPageCssomSource());
 }
 
 /**

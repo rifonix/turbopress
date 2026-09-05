@@ -3,7 +3,7 @@
  * Plugin Name: WP Instant - Next-Gen Page Optimizer
  * Plugin URI: https://wpinstant.dev
  * Description: Ultra-high performance WordPress page speed optimization engine powered by global Edge Delivery & Real-Browser Engine.
- * Version: 1.14.0
+ * Version: 1.15.0
  * Author: WP Instant Team
  * Author URI: https://wpinstant.dev
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WP_INSTANT_VERSION', '1.14.0');
+define('WP_INSTANT_VERSION', '1.15.0');
 define('WP_INSTANT_PLUGIN_FILE', __FILE__);
 define('WP_INSTANT_PATH', plugin_dir_path(__FILE__));
 define('WP_INSTANT_URL', plugin_dir_url(__FILE__));

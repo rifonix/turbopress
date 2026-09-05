@@ -134,16 +134,42 @@ function timingSafeEq(a: string, b: string): boolean {
 }
 
 /** Site callback secret (for URL signing), cached in KV for 1h. Only returned if active. */
-async function siteSecret(c: any, siteId: string): Promise<string | null> {
+async function siteSecret(
+  c: any,
+  siteId: string
+): Promise<{ ok: true; secret: string | null } | { ok: false }> {
   const kvKey = `msecret:${siteId}`;
-  const cached = await c.env.KV.get(kvKey);
-  if (cached) return cached;
-  const row = (await c.env.DB.prepare('SELECT callback_secret, is_active FROM sites WHERE id = ?')
-    .bind(siteId)
-    .first()) as { callback_secret: string | null; is_active: number } | null;
-  if (!row?.callback_secret || row.is_active !== 1) return null;
-  await c.env.KV.put(kvKey, row.callback_secret, { expirationTtl: 3600 });
-  return row.callback_secret;
+  // KV read is best-effort: on a transient KV error fall through to D1
+  // instead of failing the whole asset request (a burst of first-load media
+  // requests once 500'd wholesale on exactly this path).
+  let cached: string | null = null;
+  try {
+    cached = await c.env.KV.get(kvKey);
+  } catch (e) {
+    console.warn('[assets] msecret KV read failed, falling back to D1', siteId, e);
+  }
+  if (cached) return { ok: true, secret: cached };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const row = (await c.env.DB.prepare('SELECT callback_secret, is_active FROM sites WHERE id = ?')
+        .bind(siteId)
+        .first()) as { callback_secret: string | null; is_active: number } | null;
+      if (!row?.callback_secret || row.is_active !== 1) return { ok: true, secret: null };
+      try {
+        await c.env.KV.put(kvKey, row.callback_secret, { expirationTtl: 3600 });
+      } catch (e) {
+        console.warn('[assets] msecret KV write failed (non-fatal)', siteId, e);
+      }
+      return { ok: true, secret: row.callback_secret };
+    } catch (e) {
+      if (attempt === 1) {
+        console.error('[assets] site secret lookup failed after retry', siteId, e);
+        return { ok: false };
+      }
+    }
+  }
+  return { ok: false };
 }
 
 async function verifyMediaSignature(
@@ -158,10 +184,18 @@ async function verifyMediaSignature(
     return { ok: false, response: c.json({ success: false, error: 'Missing media params' }, 400) };
   }
 
-  const secret = await siteSecret(c, siteId);
-  if (!secret) {
+  const sec = await siteSecret(c, siteId);
+  if (!sec.ok) {
+    c.header('Cache-Control', 'no-store');
+    return {
+      ok: false,
+      response: c.json({ success: false, error: 'Secret lookup temporarily unavailable' }, 502),
+    };
+  }
+  if (!sec.secret) {
     return { ok: false, response: c.json({ success: false, error: 'Site not found' }, 404) };
   }
+  const secret = sec.secret;
 
   const expected = (await hmacHex(secret, `${u}|${w}|${f}|${siteId}`)).slice(0, 32);
   if (!timingSafeEq(expected, s)) {

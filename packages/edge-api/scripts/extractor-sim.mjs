@@ -5,9 +5,9 @@
 import fs from 'node:fs';
 
 const ts = fs.readFileSync(new URL('../src/services/puppeteer-extractor.ts', import.meta.url), 'utf8');
-// Target the extractUsedCssViaCssom block specifically (extractInternalLinks
+// Target the inPageCssomSource block specifically (extractInternalLinks
 // also declares `const src` but is a different in-page program).
-const fnAt = ts.indexOf('async function extractUsedCssViaCssom');
+const fnAt = ts.indexOf('export function inPageCssomSource');
 const start = ts.indexOf('const src = `', fnAt);
 const end = ts.indexOf('`;', start);
 if (fnAt < 0 || start < 0 || end < 0) throw new Error('source block not found');
