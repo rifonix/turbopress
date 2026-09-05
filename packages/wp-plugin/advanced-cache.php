@@ -48,9 +48,21 @@ if (file_exists($wpins_rules_file)) {
 }
 $wpins_ttl = isset($wpins_rules['ttl']) ? (int) $wpins_rules['ttl'] : 604800;
 
+// Master switches from the manifest. Absent keys in legacy manifests mean
+// the feature predates them — treat as enabled/live for back-compat.
+if (array_key_exists('enabled', $wpins_rules) && !$wpins_rules['enabled']) {
+    return;
+}
+if (
+    array_key_exists('deployment_status', $wpins_rules) &&
+    $wpins_rules['deployment_status'] !== 'live'
+) {
+    return;
+}
+
 // 2. Bypass for Logged-In Users, Password-Protected Posts & WooCommerce sessions
-$wpins_cookie_rules = !empty($wpins_rules['excluded_cookies']) && is_array($wpins_rules['excluded_cookies'])
-    ? $wpins_rules['excluded_cookies']
+$wpins_cookie_rules = array_key_exists('excluded_cookies', $wpins_rules)
+    ? (array) $wpins_rules['excluded_cookies']
     : ['wordpress_logged_in_*', 'wp-postpass_*', 'comment_author_*', 'wp_woocommerce_session_*', 'woocommerce_items_in_cart', 'woocommerce_cart_hash', 'woocommerce_recently_viewed'];
 if (!empty($_COOKIE)) {
     foreach ($_COOKIE as $key => $val) {
@@ -82,14 +94,43 @@ if (
     return;
 }
 
+// 3b. URL policies from the manifest (same wildcard semantics as CacheRules):
+// an optimize-only allowlist, then hard exclusions. Absent keys in legacy
+// manifests mean no restriction.
+$wpins_rule_matches = static function (array $patterns, string $uri): bool {
+    foreach ($patterns as $pattern) {
+        $pattern = (string) $pattern;
+        if ($pattern === '') {
+            continue;
+        }
+        $regex = '#^' . str_replace('\\*', '.*', preg_quote($pattern, '#')) . '$#i';
+        if (preg_match($regex, $uri)) {
+            return true;
+        }
+    }
+    return false;
+};
+$wpins_only_urls = array_key_exists('optimize_only_urls', $wpins_rules)
+    ? (array) $wpins_rules['optimize_only_urls']
+    : [];
+if ($wpins_only_urls !== [] && !$wpins_rule_matches($wpins_only_urls, $request_uri)) {
+    return;
+}
+if (
+    array_key_exists('excluded_urls', $wpins_rules) &&
+    $wpins_rule_matches((array) $wpins_rules['excluded_urls'], $request_uri)
+) {
+    return;
+}
+
 // 4. Strip Tracking Query Parameters to maximize cache hits.
 // Supports "utm_*" style wildcard prefixes exactly like the plugin side.
 $parsed_url = parse_url($request_uri);
 $path = isset($parsed_url['path']) ? $parsed_url['path'] : '/';
 $query = isset($parsed_url['query']) ? $parsed_url['query'] : '';
 
-$wp_instant_ignored_params = !empty($wpins_rules['strip_query_params']) && is_array($wpins_rules['strip_query_params'])
-    ? $wpins_rules['strip_query_params']
+$wp_instant_ignored_params = array_key_exists('strip_query_params', $wpins_rules)
+    ? (array) $wpins_rules['strip_query_params']
     : [
         'utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid',
         'msclkid', 'adgroupid', 'campaignid', 'vgo_ee',
@@ -115,10 +156,15 @@ if (!empty($query)) {
     }
 }
 
-// Mobile / desktop cache separation (must match CacheManager::ua_is_mobile)
+// Mobile / desktop cache separation (must match CacheManager::ua_is_mobile).
+// Separate mobile entries only exist while the writer has mobile_cache on;
+// with it off, CacheManager writes unified '_desktop' keys for everyone and
+// this drop-in must compute the SAME key. An absent manifest key means the
+// factory default: on.
+$wpins_mobile_cache = !array_key_exists('mobile_cache', $wpins_rules) || (bool) $wpins_rules['mobile_cache'];
 $is_mobile = false;
 $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? strtolower($_SERVER['HTTP_USER_AGENT']) : '';
-if (preg_match('/mobile|android|iphone|ipod|windows phone/i', $user_agent)) {
+if ($wpins_mobile_cache && preg_match('/mobile|android|iphone|ipod|windows phone/i', $user_agent)) {
     $is_mobile = true;
 }
 
@@ -126,18 +172,6 @@ if (preg_match('/mobile|android|iphone|ipod|windows phone/i', $user_agent)) {
 $cache_dir = WP_CONTENT_DIR . '/cache/wp-instant/pages/' . md5($http_host);
 $url_hash = md5($path . $clean_query . ($is_mobile ? '_mobile' : '_desktop'));
 $cache_file = $cache_dir . '/' . substr($url_hash, 0, 2) . '/' . $url_hash . '.html';
-
-// Mobile fallback: when caching.mobile_cache is disabled, CacheManager writes
-// unified pages under '_desktop'. If '_mobile' does not exist, fallback to '_desktop'
-// so mobile visitors hit the unified cache instead of suffering 100% cache misses.
-if (!file_exists($cache_file) && !file_exists($cache_file . '.stale') && $is_mobile) {
-    $desktop_hash = md5($path . $clean_query . '_desktop');
-    $desktop_file = $cache_dir . '/' . substr($desktop_hash, 0, 2) . '/' . $desktop_hash . '.html';
-    if (file_exists($desktop_file) || file_exists($desktop_file . '.stale')) {
-        $url_hash = $desktop_hash;
-        $cache_file = $desktop_file;
-    }
-}
 
 // 6. Check if Cache File Exists and is Fresh (TTL from rules.json, default 7d)
 if (file_exists($cache_file)) {

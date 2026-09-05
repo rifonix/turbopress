@@ -10,6 +10,8 @@ import {
   generateApiKey,
   normalizeDomain,
 } from '@wpinstant/shared';
+import { contentTypeFor } from './routes/assets.js';
+import { safeMinifyCss } from './services/puppeteer-extractor.js';
 
 describe('WP Instant Architecture & Core Engine Tests', () => {
   it('correctly hashes API keys with SHA-256', async () => {
@@ -22,6 +24,44 @@ describe('WP Instant Architecture & Core Engine Tests', () => {
   it('normalizes domains accurately', () => {
     expect(normalizeDomain('https://WWW.GrandemareHotel.com/blog')).toBe('www.grandemarehotel.com');
     expect(normalizeDomain('shop.example.com/products/')).toBe('shop.example.com');
+  });
+
+  it('resolves serving content types from source URL extensions', () => {
+    expect(contentTypeFor('https://site.com/wp-content/cache/bundle.css?ver=3', 'application/octet-stream')).toBe(
+      'text/css; charset=utf-8'
+    );
+    expect(contentTypeFor('https://site.com/wp-includes/js/jquery.min.js?ver=6.7', 'application/octet-stream')).toBe(
+      'text/javascript'
+    );
+    expect(contentTypeFor('https://site.com/media/video.mp4', 'application/octet-stream')).toBe('video/mp4');
+    expect(contentTypeFor('https://site.com/media/clip.webm#t=1', 'application/octet-stream')).toBe('video/webm');
+    expect(contentTypeFor('https://site.com/fonts/a.woff2', 'application/octet-stream')).toBe('font/woff2');
+    // Unknown extension: honour the caller's fallback (never video/mp4).
+    expect(contentTypeFor('https://site.com/file.bin', 'application/octet-stream')).toBe('application/octet-stream');
+  });
+
+  it('safeMinifyCss keeps gradients and url() tokens intact', () => {
+    const css =
+      '.elementor-element-1 > .elementor-background-overlay{background-image:linear-gradient(180deg,#000 0%,#fff 100%);opacity:.5}\n' +
+      '.hero{background-image:url("https://site.com/photo.jpg?w=100&h=50")}';
+    const min = safeMinifyCss(css);
+    expect(min).toContain('linear-gradient(180deg,#000 0%,#fff 100%)');
+    expect(min).toContain('url("https://site.com/photo.jpg?w=100&h=50")');
+    expect(min).not.toContain('\n');
+  });
+
+  it('safeMinifyCss preserves calc() operator spacing and descendant pseudo-selectors', () => {
+    const min = safeMinifyCss(
+      '.hero{width:calc(100% + 2px);margin:calc(1rem - 2px)}\n.hero :hover{color:red}\n.hero :is(a,b){color:blue}\n.a + .b{margin:0}'
+    );
+    // calc() + and - REQUIRE surrounding spaces — stripping them invalidates the declaration.
+    expect(min).toContain('calc(100% + 2px)');
+    expect(min).toContain('calc(1rem - 2px)');
+    // A space before a pseudo-class is a descendant combinator, not noise.
+    expect(min).toContain('.hero :hover');
+    expect(min).toContain('.hero :is(a,b)');
+    // Sibling combinator semantics survive (whitespace around + is left alone).
+    expect(min).toContain('.b{margin:0}');
   });
 
   it('validates HandshakeRequestSchema', () => {

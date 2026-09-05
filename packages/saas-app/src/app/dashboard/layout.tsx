@@ -157,7 +157,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           onOpenCmdk={() => setIsCmdkOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onConnectClick={() => router.push('/connect')}
-          onNotificationClick={() => router.push('/')}
+          onNotificationClick={() => router.push('/dashboard')}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           notificationCount={attentionCount}
         />
@@ -185,16 +185,16 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         onClose={() => setIsCmdkOpen(false)}
         sites={sites}
         onNavigate={(view) => {
-          if (view === 'overview') router.push('/');
+          if (view === 'overview') router.push('/dashboard');
           else if (view === 'sites') router.push('/dashboard/sites');
           else if (view === 'jobs') router.push('/dashboard/jobs');
           else if (view === 'billing') router.push('/dashboard/billing');
-          else if (view === 'pricing') router.push('/dashboard/pricing');
+          else if (view === 'pricing') router.push('/dashboard/billing');
           else if (view === 'connect') router.push('/connect');
           else if (view === 'onboarding') router.push('/dashboard/onboarding');
         }}
         onSelectSite={(site) => {
-          router.push(`/sites/${site.id}`);
+          router.push(`/dashboard/sites/${site.id}`);
         }}
         onTriggerPurgeAll={() => {
           addToast('Fleet-wide edge cache purge broadcasted', 'success');

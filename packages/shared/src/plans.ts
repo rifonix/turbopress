@@ -37,7 +37,9 @@ export const PLAN_CONTRACT: Record<PlanId, PlanContract> = {
     priceAnnualCents: 18240,
     maxSites: 1,
     monthlyCredits: 250,
-    maxConcurrentJobs: 1,
+    // One dispatch is a mobile+desktop viewport pair — starter must hold
+    // that pair in flight or every plugin connect would 429.
+    maxConcurrentJobs: 2,
     crawlEnabled: false,
     maxCrawlPages: 0,
     rumRetentionDays: 30,

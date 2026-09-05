@@ -8,7 +8,7 @@ import {
 export const metadata = {
   title: 'WP Instant — Edge performance for WordPress',
   description:
-    'Automatic critical CSS, image transcoding, and full-page caching on Cloudflare\'s edge. Install the plugin, connect, and your WordPress site loads instantly.',
+    'Automatic critical CSS, image transcoding, and full-page caching on the edge. Install the plugin, connect, and your WordPress site loads instantly.',
 };
 
 const features = [
@@ -25,7 +25,7 @@ const features = [
   {
     icon: Layers,
     title: 'Full-page edge caching',
-    body: 'Complete HTML pages cached on Cloudflare with Brotli/Gzip twins, cache-key normalization across 11 tracking parameters, and instant purge the moment content changes.',
+    body: 'Complete HTML pages cached at the edge with pre-compressed delivery, cache-key normalization across 11 tracking parameters, and instant purge the moment content changes.',
   },
   {
     icon: Timer,
@@ -58,7 +58,7 @@ const steps = [
   {
     icon: Zap,
     title: 'Edge does the rest',
-    body: 'Optimization jobs run on Cloudflare Workers + Browser Rendering. Audits, critical CSS, and media derivatives land automatically.',
+    body: 'Optimization jobs run on a real-browser engine at the edge. Audits, critical CSS, and media derivatives land automatically.',
   },
 ];
 
@@ -117,7 +117,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-6xl px-6 pb-24 pt-24 text-center md:pb-32 md:pt-32">
           <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-[#e4e4e7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#52525b]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#f03e2f]" />
-            Runs on Cloudflare&apos;s global edge network
+            Runs on a global edge network
           </div>
           <h1 className="mx-auto max-w-3xl text-5xl font-semibold leading-[1.05] tracking-tight md:text-7xl">
             WordPress,<br />
@@ -217,7 +217,7 @@ export default function HomePage() {
         <div className="max-w-2xl">
           <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">Pricing</h2>
           <p className="mt-4 text-[#52525b]">
-            Per-site plans billed through Polar. Monthly or annual — annual saves
+            Simple per-site plans, billed securely. Monthly or annual — annual saves
             roughly two months.
           </p>
         </div>

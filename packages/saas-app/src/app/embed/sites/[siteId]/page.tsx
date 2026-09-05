@@ -3,11 +3,13 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
-  Zap, Globe, RefreshCw, Trash2, Play, Save, CheckCircle2, XCircle,
-  Loader2, ShieldCheck, FlaskConical, Activity, ExternalLink, FileText,
-  HardDriveDownload, Eye, AlertTriangle, Layers, ChevronDown,
+  Zap, Globe, RefreshCw, Trash2, Play, Save, XCircle,
+  Loader2, ShieldCheck, FlaskConical, ExternalLink, FileText,
+  HardDriveDownload, Eye, AlertTriangle,
 } from 'lucide-react';
 import { PRESETS_RECORD } from '@wpinstant/shared';
+import { SettingsPanel } from '@/components/site-settings/SettingsPanel';
+import { StatusBadge, getPath, setPath, type SiteContext } from '@/components/site-settings/fields';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.wpinstant.dev').replace(/\/$/, '');
 
@@ -37,11 +39,6 @@ interface OffloadLogEntry {
   status: string;
 }
 
-interface SiteContext {
-  post_types?: Array<{ name: string; label: string }>;
-  plugins?: Record<string, string>;
-}
-
 interface EmbedData {
   site: {
     id: string;
@@ -64,274 +61,6 @@ interface OptimizedPage {
   failing: boolean;
   viewports: Record<string, { bytes: number | null; lcpSelector: string | null; at: number | null }>;
   lastError: string | null;
-}
-
-/* ------------------------------------------------------------------ */
-/* Small UI helpers (match the SaaS design language)                   */
-/* ------------------------------------------------------------------ */
-
-function Toggle({
-  checked, onChange, label, hint, disabled,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-  hint?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <label className={`flex items-start justify-between gap-3 py-2.5 ${disabled ? 'opacity-50' : 'cursor-pointer'}`}>
-      <span className="min-w-0">
-        <span className="block text-[13px] font-medium text-[#18181b]">{label}</span>
-        {hint && <span className="block text-[11px] text-[#71717a] mt-0.5 leading-snug">{hint}</span>}
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative shrink-0 w-9 h-5 rounded-full transition-colors ${checked ? 'bg-[#f03e2f]' : 'bg-[#e4e4e7]'}`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : ''}`}
-        />
-      </button>
-    </label>
-  );
-}
-
-/**
- * One-exclusion-per-line textarea bound to a string[] config path.
- * When the site's plugin catalog is available, a picker lets the user
- * exclude every asset of an installed plugin in one click (appends the
- * `/plugins/{slug}/` substring token); free-form lines cover custom
- * keywords, URL fragments and paths.
- */
-function ListField({
-  value, onChange, label, hint, placeholder, plugins,
-}: {
-  value: string[];
-  onChange: (v: string[]) => void;
-  label: string;
-  hint?: string;
-  placeholder?: string;
-  plugins?: Record<string, string>;
-}) {
-  const entries = value || [];
-  const pluginToken = (slug: string) => `/plugins/${slug}/`;
-  const addedSlugs = new Set(
-    entries
-      .map((e) => /^\/plugins\/([^/]+)\/?$/.exec(e.trim())?.[1])
-      .filter(Boolean) as string[]
-  );
-  const availablePlugins = Object.entries(plugins || {})
-    .filter(([slug]) => !addedSlugs.has(slug))
-    .sort((a, b) => a[1].localeCompare(b[1]));
-
-  const addPlugin = (slug: string) => {
-    if (!slug || addedSlugs.has(slug)) return;
-    onChange([...entries, pluginToken(slug)]);
-  };
-
-  return (
-    <div className="py-2.5">
-      <span className="block text-[13px] font-medium text-[#18181b]">{label}</span>
-      {hint && <span className="block text-[11px] text-[#71717a] mt-0.5 leading-snug">{hint}</span>}
-
-      {availablePlugins.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => addPlugin(e.target.value)}
-          className="mt-1.5 w-full rounded-lg border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[11px] text-[#3f3f46] focus:outline-none focus:border-[#f03e2f]"
-        >
-          <option value="">+ Exclude all assets of an installed plugin…</option>
-          {availablePlugins.map(([slug, name]) => (
-            <option key={slug} value={slug}>{name} ({slug})</option>
-          ))}
-        </select>
-      )}
-
-      {addedSlugs.size > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-1.5">
-          {[...addedSlugs].map((slug) => (
-            <span
-              key={slug}
-              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-[#fff8f7] border border-[#fecaca] text-[10px] font-semibold text-[#b42318]"
-            >
-              {(plugins || {})[slug] || slug}
-              <button
-                type="button"
-                onClick={() => onChange(entries.filter((e) => e.trim() !== pluginToken(slug)))}
-                className="w-4 h-4 grid place-items-center rounded-full hover:bg-[#fecaca] text-[#71717a]"
-                title="Remove"
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <textarea
-        rows={3}
-        spellCheck={false}
-        placeholder={placeholder}
-        value={entries.join('\n')}
-        onChange={(e) => onChange(e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
-        className="mt-1.5 w-full rounded-lg border border-[#e4e4e7] px-2.5 py-2 text-[11px] font-mono text-[#3f3f46] focus:outline-none focus:border-[#f03e2f] resize-y"
-      />
-      <span className="block text-[10px] text-[#a1a1aa] mt-1">
-        Entries match by substring — file name, URL fragment or path segment.
-      </span>
-    </div>
-  );
-}
-
-function Card({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="bg-white border border-[#e4e4e7] rounded-2xl p-5 shadow-sm">
-      <div className="flex items-center gap-2 mb-2">
-        {icon && <span className="text-[#f03e2f]">{icon}</span>}
-        <h3 className="text-sm font-semibold text-[#18181b]">{title}</h3>
-      </div>
-      <div className="divide-y divide-[#f4f4f5]">{children}</div>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    completed: 'bg-[#ecfdf3] text-[#027a48]',
-    queued: 'bg-[#fffaeb] text-[#b54708]',
-    processing: 'bg-[#eff8ff] text-[#175cd3]',
-    failed: 'bg-[#fef3f2] text-[#b42318]',
-    needs_attention: 'bg-[#fffaeb] text-[#b54708]',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${map[status] || 'bg-[#f4f4f5] text-[#52525b]'}`}>
-      {status.replace('_', ' ')}
-    </span>
-  );
-}
-
-/**
- * Per-post-type plugin asset unloading: check which plugins' css/js should
- * be stripped from pages of each post type. '*' applies to every page.
- * Built from the plugin's health-report site context (post types + active
- * plugins with their slugs).
- */
-function PluginControlCard({
-  siteContext, unloadRules, onChange,
-}: {
-  siteContext: SiteContext;
-  unloadRules: Record<string, string[]>;
-  onChange: (rules: Record<string, string[]>) => void;
-}) {
-  const postTypes: Array<{ name: string; label: string }> = [
-    { name: '*', label: 'All pages' },
-    ...(siteContext.post_types || []),
-  ];
-  const plugins = Object.entries(siteContext.plugins || {}).sort((a, b) => a[1].localeCompare(b[1]));
-  const [openType, setOpenType] = React.useState<string | null>(null);
-
-  if (plugins.length === 0) {
-    return (
-      <div className="bg-white border border-[#e4e4e7] rounded-2xl p-5 shadow-sm text-xs text-[#71717a]">
-        Plugin asset control unlocks once the plugin sends its first health report (a few minutes after connecting).
-      </div>
-    );
-  }
-
-  const toggleRule = (pt: string, slug: string) => {
-    const current = new Set(unloadRules[pt] || []);
-    if (current.has(slug)) current.delete(slug);
-    else current.add(slug);
-    const next = { ...unloadRules };
-    if (current.size === 0) delete next[pt];
-    else next[pt] = [...current];
-    onChange(next);
-  };
-
-  const countFor = (pt: string) => (unloadRules[pt] || []).length;
-
-  return (
-    <div className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-5 py-3 border-b border-[#e4e4e7] flex items-center gap-2">
-        <span className="text-[#f03e2f]"><Layers className="w-4 h-4" /></span>
-        <h3 className="text-sm font-semibold text-[#18181b]">Plugin Asset Control</h3>
-        <span className="text-[11px] text-[#71717a]">
-          Strip the css &amp; js of plugins a page doesn&apos;t use — big wins when many plugins are active.
-        </span>
-      </div>
-      <div className="divide-y divide-[#f4f4f5]">
-        {postTypes.map((pt) => {
-          const open = openType === pt.name;
-          const rules = new Set(unloadRules[pt.name] || []);
-          return (
-            <div key={pt.name}>
-              <button
-                onClick={() => setOpenType(open ? null : pt.name)}
-                className="w-full px-5 py-3 flex items-center gap-3 hover:bg-[#fafafa] text-left"
-              >
-                <span className="text-[13px] font-medium flex-1">{pt.label}</span>
-                {countFor(pt.name) > 0 && (
-                  <span className="px-2 py-0.5 rounded-full bg-[#fff8f7] text-[#f03e2f] text-[10px] font-bold">
-                    {countFor(pt.name)} unloaded
-                  </span>
-                )}
-                <ChevronDown className={`w-4 h-4 text-[#71717a] transition-transform ${open ? 'rotate-180' : ''}`} />
-              </button>
-              {open && (
-                <div className="px-5 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-1">
-                  {plugins.map(([slug, name]) => (
-                    <label key={slug} className="flex items-center gap-2 py-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={rules.has(slug)}
-                        onChange={() => toggleRule(pt.name, slug)}
-                        className="accent-[#f03e2f] w-3.5 h-3.5"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-[12px] text-[#18181b] truncate">
-                          {name}
-                          {slug.startsWith('theme:') && (
-                            <span className="ml-1.5 px-1 py-px rounded bg-[#eff8ff] text-[#175cd3] text-[9px] font-bold align-middle">THEME</span>
-                          )}
-                        </span>
-                        <span className="block text-[10px] text-[#a1a1aa] font-mono truncate">{slug}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Config path helpers                                                 */
-/* ------------------------------------------------------------------ */
-
-function getPath(obj: any, path: string): any {
-  return path.split('.').reduce((acc, k) => (acc == null ? acc : acc[k]), obj);
-}
-
-function setPath(obj: any, path: string, value: any): any {
-  const keys = path.split('.');
-  const clone = Array.isArray(obj) ? [...obj] : { ...obj };
-  let curr = clone;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const k = keys[i];
-    curr[k] = curr[k] != null && typeof curr[k] === 'object' ? (Array.isArray(curr[k]) ? [...curr[k]] : { ...curr[k] }) : {};
-    curr = curr[k];
-  }
-  curr[keys[keys.length - 1]] = value;
-  return clone;
 }
 
 function timeAgo(ts: number | null | undefined): string {
@@ -640,16 +369,7 @@ function EmbedPanel() {
   const deploymentStatus: string = getPath(config, 'deployment.status') || 'live';
   const isTest = deploymentStatus === 'test';
   const previewUrl = `https://${data.site.domain}/?wpins_preview=1`;
-  const preset: string = config.preset || 'ludicrous';
   const offloadLog = data.offloadLog || [];
-  const sitePlugins: Record<string, string> =
-    ((data.health?.site_context as SiteContext | undefined)?.plugins) || {};
-
-  const presets: Array<{ id: string; name: string; desc: string }> = [
-    { id: 'safe', name: 'Safe', desc: 'Caching + minify only. No JS deferral.' },
-    { id: 'aggressive', name: 'Aggressive', desc: 'Defer all JS, combine CSS, proxy assets.' },
-    { id: 'ludicrous', name: 'Ludicrous', desc: 'Everything + delay-until-interaction JS.' },
-  ];
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#18181b]">
@@ -743,182 +463,12 @@ function EmbedPanel() {
       )}
 
       <main className="max-w-5xl mx-auto px-5 py-6 space-y-6">
-        {/* Presets */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => applyPreset(p.id)}
-              className={`text-left p-4 rounded-2xl border transition-all ${
-                preset === p.id
-                  ? 'border-[#f03e2f] bg-[#fff8f7] shadow-sm'
-                  : 'border-[#e4e4e7] bg-white hover:border-[#d4d4d8]'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">{p.name}</span>
-                {preset === p.id && <CheckCircle2 className="w-4 h-4 text-[#f03e2f]" />}
-              </div>
-              <p className="text-[11px] text-[#71717a] mt-1 leading-snug">{p.desc}</p>
-            </button>
-          ))}
-        </div>
-
-        {/* Settings grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card title="Critical CSS" icon={<Zap className="w-4 h-4" />}>
-            <Toggle label="Edge Critical CSS" hint="Puppeteer-extracted critical CSS per page" checked={!!getPath(config, 'critical_css.enabled')} onChange={(v) => upsert('critical_css.enabled', v)} />
-            <Toggle label="Inline critical CSS" checked={!!getPath(config, 'critical_css.inline')} onChange={(v) => upsert('critical_css.inline', v)} />
-            <Toggle label="Async load full CSS" hint="Load remaining CSS after first paint (Tier 2 sites)" checked={!!getPath(config, 'critical_css.async_load_full')} onChange={(v) => upsert('critical_css.async_load_full', v)} />
-            <Toggle label="Font display swap" checked={!!getPath(config, 'critical_css.font_display_swap')} onChange={(v) => upsert('critical_css.font_display_swap', v)} />
-            <ListField
-              label="Excluded stylesheets"
-              hint="Never combine/defer sheets whose URL contains any of these (one per line)"
-              placeholder={'elementor/post-123\nwp-includes/block-library'}
-              plugins={sitePlugins}
-              value={getPath(config, 'critical_css.excluded_stylesheets') || []}
-              onChange={(v) => upsert('critical_css.excluded_stylesheets', v)}
-            />
-          </Card>
-
-          <Card title="CSS Delivery" icon={<Activity className="w-4 h-4" />}>
-            <Toggle label="Combine stylesheets" hint="Merge render-blocking sheets into one bundle" checked={!!getPath(config, 'css.combine')} onChange={(v) => upsert('css.combine', v)} />
-            <Toggle label="Minify CSS" checked={!!getPath(config, 'css.minify')} onChange={(v) => upsert('css.minify', v)} />
-            <Toggle label="Inline-all CSS (Tier 1)" hint="Inline the full stylesheet in HTML when under 512KB — no FOUC by construction" checked={!!getPath(config, 'css.inline_all')} onChange={(v) => upsert('css.inline_all', v)} />
-          </Card>
-
-          <Card title="JavaScript Engine" icon={<Zap className="w-4 h-4" />}>
-            <div className="py-2.5">
-              <span className="block text-[13px] font-medium mb-1.5">Execution mode</span>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(['none', 'defer', 'interaction_delay'] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => upsert('javascript.execution_mode', m)}
-                    className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold border ${
-                      getPath(config, 'javascript.execution_mode') === m
-                        ? 'border-[#f03e2f] bg-[#fff8f7] text-[#f03e2f]'
-                        : 'border-[#e4e4e7] bg-white hover:bg-[#fafafa]'
-                    }`}
-                  >
-                    {m === 'none' ? 'Off' : m === 'defer' ? 'Defer' : 'Delay'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="py-2.5">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[13px] font-medium">Delay timeout</span>
-                <span className="text-[11px] text-[#71717a] font-mono">{getPath(config, 'javascript.delay_timeout_ms') ?? 3500}ms</span>
-              </div>
-              <input
-                type="range" min={1500} max={6000} step={250}
-                value={getPath(config, 'javascript.delay_timeout_ms') ?? 3500}
-                onChange={(e) => upsert('javascript.delay_timeout_ms', parseInt(e.target.value, 10))}
-                className="w-full accent-[#f03e2f]"
-              />
-            </div>
-            <Toggle label="Remove jQuery Migrate" checked={!!getPath(config, 'javascript.remove_jquery_migrate')} onChange={(v) => upsert('javascript.remove_jquery_migrate', v)} />
-            <ListField
-              label="Script exclusions"
-              hint="Scripts that must run before first interaction — only applies in Delay mode (one per line)"
-              placeholder={'cookiebot\nstripe.js'}
-              plugins={sitePlugins}
-              value={getPath(config, 'javascript.exclusions') || []}
-              onChange={(v) => upsert('javascript.exclusions', v)}
-            />
-          </Card>
-
-          <Card title="Media & R2 Offload" icon={<Globe className="w-4 h-4" />}>
-            <Toggle label="Offload images to R2" hint="Rewrite + optimize (webp, resized) via the edge CDN" checked={!!getPath(config, 'media.offload_images')} onChange={(v) => upsert('media.offload_images', v)} />
-            <Toggle label="Offload videos to R2" checked={!!getPath(config, 'media.offload_video')} onChange={(v) => upsert('media.offload_video', v)} />
-            <Toggle label="Lazy-load images" checked={!!getPath(config, 'media.lazyload_images')} onChange={(v) => upsert('media.lazyload_images', v)} />
-            <Toggle label="Lazy-load iframes" checked={!!getPath(config, 'media.lazyload_iframes')} onChange={(v) => upsert('media.lazyload_iframes', v)} />
-            <Toggle label="Lazy-load CSS backgrounds" hint="Below-the-fold inline background images load on scroll" checked={!!getPath(config, 'media.lazyload_backgrounds')} onChange={(v) => upsert('media.lazyload_backgrounds', v)} />
-            <Toggle label="Video facades" hint="YouTube embeds load the player only after a click" checked={!!getPath(config, 'media.video_facades')} onChange={(v) => upsert('media.video_facades', v)} />
-            <Toggle label="Self-hosted video lazy" hint="preload=none on non-autoplay videos" checked={!!getPath(config, 'media.video_lazyload_selfhosted')} onChange={(v) => upsert('media.video_lazyload_selfhosted', v)} />
-            <Toggle label="Preload LCP image" checked={!!getPath(config, 'media.preload_lcp_image')} onChange={(v) => upsert('media.preload_lcp_image', v)} />
-            <Toggle label="fetchpriority on LCP" checked={!!getPath(config, 'media.auto_fetchpriority_lcp')} onChange={(v) => upsert('media.auto_fetchpriority_lcp', v)} />
-            <div className="py-2.5">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[13px] font-medium">Image quality</span>
-                <span className="text-[11px] text-[#71717a] font-mono">{getPath(config, 'media.image_quality') ?? 82}</span>
-              </div>
-              <input
-                type="range" min={60} max={100} step={1}
-                value={getPath(config, 'media.image_quality') ?? 82}
-                onChange={(e) => upsert('media.image_quality', parseInt(e.target.value, 10))}
-                className="w-full accent-[#f03e2f]"
-              />
-              <p className="text-[10px] text-[#a1a1aa] mt-0.5">~82 lossy · 100 ≈ lossless (applies to webp/edge derivatives)</p>
-            </div>
-            <ListField
-              label="Excluded images"
-              hint="Image URLs never offload/lazy-load (one per line)"
-              placeholder={'wp-content/uploads/logo.png'}
-              plugins={sitePlugins}
-              value={getPath(config, 'media.excluded_images') || []}
-              onChange={(v) => upsert('media.excluded_images', v)}
-            />
-          </Card>
-
-          <Card title="Fonts & Hints" icon={<Activity className="w-4 h-4" />}>
-            <Toggle label="Localize Google Fonts" hint="Self-host woff2 with display:swap" checked={!!getPath(config, 'fonts.localize_google')} onChange={(v) => upsert('fonts.localize_google', v)} />
-            <Toggle label="Preload LCP font" checked={!!getPath(config, 'fonts.preload_lcp_font')} onChange={(v) => upsert('fonts.preload_lcp_font', v)} />
-            <Toggle label="Resource hints" hint="Auto preconnect for 3rd-party origins" checked={!!getPath(config, 'hints.resource_hints')} onChange={(v) => upsert('hints.resource_hints', v)} />
-          </Card>
-
-          <Card title="Asset Proxy & Delivery" icon={<Globe className="w-4 h-4" />}>
-            <Toggle label="Proxy 3rd-party css/js" hint="Serve foreign assets through the signed R2 route" checked={!!getPath(config, 'assets.proxy_enabled')} onChange={(v) => upsert('assets.proxy_enabled', v)} />
-            <Toggle label="Manage .htaccess" hint="Brotli precompressed twins + immutable cache TTLs" checked={!!getPath(config, 'htaccess.enabled')} onChange={(v) => upsert('htaccess.enabled', v)} />
-          </Card>
-
-          <Card title="HTML & Output" icon={<Activity className="w-4 h-4" />}>
-            <Toggle label="Minify HTML" hint="Collapse redundant whitespace (scripts/styles/pre untouched)" checked={!!getPath(config, 'html.minify')} onChange={(v) => upsert('html.minify', v)} />
-            <Toggle label="Minify JSON-LD" hint="Compact structured-data blocks" checked={!!getPath(config, 'html.minify_jsonld')} onChange={(v) => upsert('html.minify_jsonld', v)} />
-            <Toggle label="Remove HTML comments" hint="IE conditional comments are always kept" checked={!!getPath(config, 'html.remove_html_comments')} onChange={(v) => upsert('html.remove_html_comments', v)} />
-            <div className="py-2.5">
-              <label className="block text-[13px] font-medium mb-1.5">Custom CSS</label>
-              <textarea
-                rows={4}
-                spellCheck={false}
-                placeholder={'.hero-title { text-wrap: balance; }'}
-                value={getPath(config, 'custom_css') || ''}
-                onChange={(e) => upsert('custom_css', e.target.value)}
-                className="w-full rounded-lg border border-[#e4e4e7] px-2.5 py-2 text-[11px] font-mono focus:outline-none focus:border-[#f03e2f]"
-              />
-              <p className="text-[10px] text-[#a1a1aa] mt-0.5">Injected last in &lt;head&gt; — wins the cascade.</p>
-            </div>
-          </Card>
-
-          <Card title="Page Cache" icon={<ShieldCheck className="w-4 h-4" />}>
-            <Toggle label="Page caching" checked={!!getPath(config, 'caching.enabled')} onChange={(v) => upsert('caching.enabled', v)} />
-            <Toggle label="Separate mobile cache" checked={!!getPath(config, 'caching.mobile_cache')} onChange={(v) => upsert('caching.mobile_cache', v)} />
-            <Toggle label="Purge on post update" checked={!!getPath(config, 'caching.purge_on_post_update')} onChange={(v) => upsert('caching.purge_on_post_update', v)} />
-            <Toggle label="Purge on new comment" checked={!!getPath(config, 'caching.purge_on_comment')} onChange={(v) => upsert('caching.purge_on_comment', v)} />
-            <ListField
-              label="Optimize-only URLs"
-              hint="When set, ONLY these paths are optimized (wildcards ok, one per line). Leave empty to optimize everything."
-              placeholder={'/landing/*\n/'}
-              plugins={sitePlugins}
-              value={getPath(config, 'caching.optimize_only_urls') || []}
-              onChange={(v) => upsert('caching.optimize_only_urls', v)}
-            />
-          </Card>
-
-          <Card title="Dynamic & Safety" icon={<FlaskConical className="w-4 h-4" />}>
-            <Toggle label="Speculation rules (prefetch)" checked={!!getPath(config, 'dynamic.speculation_rules_prerender')} onChange={(v) => upsert('dynamic.speculation_rules_prerender', v)} />
-            <Toggle label="Nonce refresh hydration" checked={!!getPath(config, 'dynamic.nonce_ajax_refresh')} onChange={(v) => upsert('dynamic.nonce_ajax_refresh', v)} />
-            <Toggle label="Cart micro-hydration" checked={!!getPath(config, 'dynamic.cart_micro_hydration')} onChange={(v) => upsert('dynamic.cart_micro_hydration', v)} />
-            <Toggle label="Auto-degrade safety net" hint="Step down JS aggressiveness automatically on rising error rates" checked={!!getPath(config, 'deployment.auto_degrade')} onChange={(v) => upsert('deployment.auto_degrade', v)} />
-          </Card>
-        </div>
-
-        {/* Plugin Asset Control — strip css/js of unused plugins per post type */}
-        <PluginControlCard
+        {/* Preset templates + every settings card (shared with the full dashboard) */}
+        <SettingsPanel
+          config={config}
+          upsert={upsert}
+          applyPreset={applyPreset}
           siteContext={(data.health?.site_context as SiteContext) || {}}
-          unloadRules={getPath(config, 'plugins.unload_rules') || {}}
-          onChange={(rules) => upsert('plugins.unload_rules', rules)}
         />
 
         {/* Pages & logs */}
@@ -928,7 +478,7 @@ function EmbedPanel() {
               {([
                 ['pages', 'Optimized Pages', <Eye key="e" className="w-3.5 h-3.5" />],
                 ['jobs', 'Job Log', <FileText key="j" className="w-3.5 h-3.5" />],
-                ['offload', 'R2 Offload Log', <HardDriveDownload key="o" className="w-3.5 h-3.5" />],
+                ['offload', 'CDN Offload Log', <HardDriveDownload key="o" className="w-3.5 h-3.5" />],
               ] as const).map(([id, label, icon]) => (
                 <button
                   key={id}
@@ -1015,7 +565,7 @@ function EmbedPanel() {
             <div className="max-h-96 overflow-y-auto divide-y divide-[#f4f4f5]">
               {offloadLog.length === 0 && (
                 <div className="px-5 py-8 text-center text-xs text-[#71717a]">
-                  No R2 offload activity yet — enable “Offload images/videos to R2” and save.
+                  No CDN offload activity yet — enable “Offload images/videos to the CDN” and save.
                 </div>
               )}
               {offloadLog.map((entry, i) => (

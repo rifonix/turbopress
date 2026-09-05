@@ -79,7 +79,7 @@ function SignUpContent() {
                   Unlimited Pageviews
                 </span>
                 <p className="text-[11.5px] text-[#71717a]">
-                  Global edge caching on Cloudflare&apos;s tier-1 network.
+                  Global edge caching on a tier-1 network.
                 </p>
               </div>
 

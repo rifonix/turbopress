@@ -109,7 +109,8 @@ export const PRESET_SAFE: SiteConfig = {
   },
   assets: {
     proxy_enabled: false,
-    keep_origins: []
+    keep_origins: [],
+    serve_own_from_cdn: false
   },
   htaccess: {
     enabled: true,
@@ -206,7 +207,8 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
   },
   assets: {
     proxy_enabled: true,
-    keep_origins: []
+    keep_origins: [],
+    serve_own_from_cdn: true
   },
   htaccess: {
     enabled: true,
@@ -303,7 +305,8 @@ export const PRESET_LUDICROUS: SiteConfig = {
   },
   assets: {
     proxy_enabled: true,
-    keep_origins: []
+    keep_origins: [],
+    serve_own_from_cdn: true
   },
   htaccess: {
     enabled: true,

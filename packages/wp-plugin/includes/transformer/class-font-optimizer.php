@@ -35,13 +35,16 @@ class FontOptimizer {
 
         $preload_font = null;
 
-        // Localize every Google Fonts stylesheet link.
+        // Localize every Google Fonts stylesheet link. Cold requests never
+        // block on network: if no localized package exists yet, keep the
+        // original Google link and prepare the package on a cron event.
         $html = preg_replace_callback(
             '/<link\s+([^>]*href=[\'"](https?:\/\/fonts\.googleapis\.com\/css2?[^\'"]+)[\'"][^>]*)>/i',
             function ($m) use (&$preload_font) {
-                $local = $this->localize_google_fonts($m[2]);
+                $local = $this->cached_font_package($m[2]);
                 if ($local === null) {
-                    return $m[0]; // network/format failure: keep the original
+                    $this->schedule_localization($m[2]);
+                    return $m[0]; // not ready yet: keep the original working link
                 }
                 $preload_font = $local['preload_url'];
 
@@ -55,9 +58,14 @@ class FontOptimizer {
         );
 
         // Drop now-redundant preconnect/dns-prefetch hints for Google Fonts.
-        $html = preg_replace(
+        // NEVER drop stylesheet links: when localization is not ready (or
+        // fails), the original Google stylesheet is the only thing keeping
+        // the site's fonts working.
+        $html = preg_replace_callback(
             '/<link\s+[^>]*(fonts\.googleapis\.com|fonts\.gstatic\.com)[^>]*>/i',
-            '',
+            static function ($m) {
+                return preg_match('/rel=[\'"](?:preconnect|dns-prefetch)[\'"]/i', $m[0]) ? '' : $m[0];
+            },
             $html
         );
 
@@ -101,10 +109,11 @@ class FontOptimizer {
     }
 
     /**
-     * Download and localize a Google Fonts CSS payload.
-     * Returns ['css_url' => ..., 'preload_url' => ...] or null on failure.
+     * Return the already-localized package for a Google Fonts href, or null
+     * when it has not been prepared yet. No network access here — the render
+     * path must stay fast and must never fail open into a removed link.
      */
-    private function localize_google_fonts(string $href): ?array {
+    private function cached_font_package(string $href): ?array {
         try {
             $pkg = md5($href);
             $dir = WP_INSTANT_CACHE_DIR . '/fonts/' . $pkg;
@@ -120,6 +129,51 @@ class FontOptimizer {
                         'preload_url' => $this->first_font_url($css, $pkg),
                     ];
                 }
+            }
+            return null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Queue background localization (deduped). Deliberately does NOT call
+     * spawn_cron(): this runs inside the output-buffer callback, where
+     * ALTERNATE_WP_CRON would fatally nest ob_start() or inject a
+     * ?doing_wp_cron redirect into the document.
+     */
+    private function schedule_localization(string $href): void {
+        $flag = 'wpins_fontloc_' . md5($href);
+        if (get_transient($flag)) {
+            return;
+        }
+        set_transient($flag, 1, 5 * MINUTE_IN_SECONDS);
+        wp_schedule_single_event(time(), 'wp_instant_localize_font', [$href]);
+    }
+
+    /**
+     * Cron entry point: wp_instant_localize_font.
+     */
+    public static function localize_scheduled(string $href): void {
+        $optimizer = new self(new Config());
+        $optimizer->prepare_font_package($href);
+    }
+
+    /**
+     * Download and localize a Google Fonts CSS payload (cron context only).
+     * Returns ['css_url' => ..., 'preload_url' => ...] or null on failure.
+     */
+    private function prepare_font_package(string $href): ?array {
+        try {
+            $pkg = md5($href);
+            $dir = WP_INSTANT_CACHE_DIR . '/fonts/' . $pkg;
+            $css_file = $dir . '/fonts.css';
+            $stamp_file = $dir . '/.stamp';
+
+            // Skip when another worker already produced a fresh package.
+            if (file_exists($css_file) && file_exists($stamp_file)
+                && (time() - (int) @file_get_contents($stamp_file)) < WEEK_IN_SECONDS) {
+                return null;
             }
 
             $response = wp_remote_get($href, [
@@ -169,11 +223,15 @@ class FontOptimizer {
             }
 
             // Download every woff2 referenced and rewrite to local URLs.
+            // Bounded: past the cap, keep the remote URL (css stays valid).
             $count = 0;
             foreach ($kept as &$block) {
                 $block = preg_replace_callback(
                     '/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.woff2)\)/i',
                     function ($fm) use ($dir, $pkg, &$count) {
+                        if ($count >= 12) {
+                            return $fm[0];
+                        }
                         $url = $fm[1];
                         $name = 'font-' . md5($url) . '.woff2';
                         $target = $dir . '/' . $name;

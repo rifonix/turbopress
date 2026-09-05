@@ -32,6 +32,14 @@ class ScriptDelayer {
         // script-src, so keep inline scripts synchronous in that case.
         $inline_defer_allowed = $this->inline_data_uri_allowed();
 
+        // Fail open under a restrictive CSP: without data:-URI scripts we
+        // cannot preserve execution order between deferred externals and
+        // their dependent inline blocks, so leave the document exactly as
+        // the origin served it rather than break `*-js-extra` ordering.
+        if ($mode === 'defer' && !$inline_defer_allowed) {
+            return $html;
+        }
+
         // Transform <script> tags.
         //
         // v1.2.0 semantics: exclusions apply ONLY to interaction_delay mode.
@@ -52,27 +60,33 @@ class ScriptDelayer {
                 $attributes = $matches[1] ?? '';
                 $content = $matches[2] ?? '';
 
-                // Skip JSON-LD, Speculation Rules, Application JSON (any quoting style)
-                if (
-                    stripos($attributes, 'ld+json') !== false ||
-                    stripos($attributes, 'application/json') !== false ||
-                    stripos($attributes, 'speculationrules') !== false ||
-                    stripos($attributes, 'wp-instant-loader') !== false ||
-                    stripos($attributes, 'wp-instant-hydrator') !== false
-                ) {
-                    return $full_tag;
-                }
-
                 // wpins-exclude contract: anything we (or a theme) explicitly
                 // marks is never transformed.
                 if (stripos($attributes, 'wpins-exclude') !== false) {
                     return $full_tag;
                 }
 
-                // ES modules handle their own loading; converting them to
-                // inline type swaps breaks import semantics.
-                if (preg_match('/type\s*=\s*[\'"]module[\'"]/i', $attributes)) {
+                // Our own injected scripts.
+                if (
+                    stripos($attributes, 'wp-instant-loader') !== false ||
+                    stripos($attributes, 'wp-instant-hydrator') !== false
+                ) {
                     return $full_tag;
+                }
+
+                // Non-JavaScript script types (importmap, speculationrules,
+                // ld+json, HTML templates, …) are inert data blocks, and ES
+                // modules manage their own loading. Neither may be rewritten:
+                // deferring an importmap or inlining a JSON block breaks the
+                // document.
+                if (preg_match('/type\s*=\s*([\'"])([^\'"]*)\1/i', $attributes, $type_match)) {
+                    $script_type = strtolower(trim($type_match[2]));
+                    if (
+                        $script_type === 'module' ||
+                        !in_array($script_type, ['', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'], true)
+                    ) {
+                        return $full_tag;
+                    }
                 }
 
                 // async scripts self-manage ordering; leave untouched.
@@ -102,7 +116,7 @@ class ScriptDelayer {
                                 return $full_tag;
                             }
                         }
-                    } elseif (!$external_deferred || !$inline_defer_allowed) {
+                    } elseif (!$external_deferred) {
                         // Nothing deferred before this point: the original
                         // sync position is already correct. Leave untouched.
                         return $full_tag;
@@ -210,18 +224,34 @@ class ScriptDelayer {
     }
 
     /**
-     * Heuristic CSP check: a script-src that doesn't list data: (or an
-     * equivalent wildcard) blocks data:-URI scripts, so inline-defer
-     * conversion is disabled for this response.
+     * Heuristic CSP check: under CSP3, a wildcard (`*`) does NOT match the
+     * data: scheme and `unsafe-inline` does NOT authorize data:-URI scripts
+     * — only an explicit `data:` source in script-src (or default-src) does.
+     * When we cannot confirm that, inline-defer conversion is disabled.
      */
     private function inline_data_uri_allowed(): bool {
         foreach (headers_list() as $header) {
-            if (stripos($header, 'content-security-policy') !== false
-                && stripos($header, 'script-src') !== false) {
-                return (bool) preg_match('/script-src[^;]*\bdata:/i', $header)
-                    || (bool) preg_match('/script-src[^;]*\*/i', $header)
-                    || stripos($header, 'unsafe-inline') !== false;
+            if (stripos($header, 'content-security-policy') === false
+                || stripos($header, 'report-only') !== false) {
+                continue;
             }
+            $value = (string) substr($header, (int) strpos($header, ':') + 1);
+            $directives = array_map('trim', explode(';', $value));
+            $sources = null;
+            foreach (['script-src', 'default-src'] as $name) {
+                foreach ($directives as $directive) {
+                    if (preg_match('/^' . $name . '\s+(.+)$/i', $directive, $m)) {
+                        $sources = $m[1];
+                        break 2;
+                    }
+                }
+            }
+            // No script-src/default-src directive means scripts (including
+            // data: URLs) are unrestricted by this policy.
+            if ($sources === null) {
+                continue;
+            }
+            return (bool) preg_match('/(?:^|\s)data:(?:\s|$)/i', trim($sources));
         }
         return true;
     }

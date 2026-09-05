@@ -12,7 +12,7 @@ export default function SitesPage() {
   return (
     <SitesTab
       sites={ctx.sites}
-      onSelectSite={(site) => router.push(`/sites/${site.id}`)}
+      onSelectSite={(site) => router.push(`/dashboard/sites/${site.id}`)}
       onNavigateToConnect={() => router.push('/connect')}
       onPurgeSite={ctx.handlePurgeSite}
       onRunOptimization={ctx.handleRunOptimization}

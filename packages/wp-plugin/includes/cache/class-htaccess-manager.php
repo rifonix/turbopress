@@ -28,6 +28,8 @@ class Htaccess_Manager {
     public const MARKER_END = '# END WP Instant';
     private const OPTION = 'wp_instant_htaccess';
     private const BACKUP_SUFFIX = '.wp-instant-bak';
+    /** Immediate pre-write snapshot; restored when the loopback check fails. */
+    private const PREV_SUFFIX = '.wp-instant-prev';
 
     /**
      * Install or refresh the marker block. Returns true on success.
@@ -60,7 +62,7 @@ class Htaccess_Manager {
             return false;
         }
 
-        // First install: keep a pristine backup for auto-restore.
+        // First install: keep a pristine backup as a last-resort fallback.
         $backup = $path . self::BACKUP_SUFFIX;
         if (strpos($current, self::MARKER_BEGIN) === false && !file_exists($backup)) {
             @copy($path, $backup);
@@ -72,6 +74,12 @@ class Htaccess_Manager {
             return true; // already exactly current
         }
 
+        // Snapshot the immediate pre-write content EVERY write. Restoring the
+        // first-ever backup on failure would wipe host/security rules added
+        // since the original install.
+        $prev = $path . self::PREV_SUFFIX;
+        @copy($path, $prev);
+
         // Strip our backup-file twins from being re-served weirdly; not needed.
         if (@file_put_contents($path, $new) === false) {
             self::store(['active' => false, 'reason' => 'write_failed', 'at' => time()]);
@@ -80,7 +88,9 @@ class Htaccess_Manager {
 
         // Loopback healthcheck: a broken .htaccess 500s the whole site.
         if (!self::loopback_ok()) {
-            if (file_exists($backup)) {
+            if (file_exists($prev)) {
+                @copy($prev, $path);
+            } elseif (file_exists($backup)) {
                 @copy($backup, $path);
             } else {
                 @file_put_contents($path, self::replace_block((string) @file_get_contents($path), ''));
@@ -114,6 +124,10 @@ class Htaccess_Manager {
         $backup = $path . self::BACKUP_SUFFIX;
         if (file_exists($backup)) {
             @unlink($backup);
+        }
+        $prev = $path . self::PREV_SUFFIX;
+        if (file_exists($prev)) {
+            @unlink($prev);
         }
         self::store(['active' => false, 'reason' => '', 'at' => time()]);
         return true;

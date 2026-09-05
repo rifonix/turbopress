@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { ExternalLink, Check, AlertTriangle, ShieldCheck, Zap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ExternalLink, Check, AlertTriangle, ShieldCheck, Zap, ArrowUp, ArrowDown } from 'lucide-react';
 import { ExtendedSite, BillingStatusData } from '../types';
+import { PLAN_CONTRACT, normalizePlanId, PlanId } from '@wpinstant/shared';
 import { api } from '../services/api';
 import { useAuth } from '@clerk/nextjs';
 
@@ -11,7 +12,7 @@ interface BillingTabProps {
   billingData?: BillingStatusData | null;
   onOpenPortal: () => void;
   onNavigateToConnect: () => void;
-  onNavigateToPricing: () => void;
+  onSelectPlan: (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => void;
   onToast: (msg: string) => void;
 }
 
@@ -20,15 +21,22 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   billingData,
   onOpenPortal,
   onNavigateToConnect,
-  onNavigateToPricing,
+  onSelectPlan,
   onToast,
 }) => {
   const { getToken } = useAuth();
-  const [isDowngradeModalOpen, setIsDowngradeModalOpen] = useState(false);
+  const [pendingDowngrade, setPendingDowngrade] = useState<PlanId | null>(null);
+  const compareRef = useRef<HTMLDivElement>(null);
+  const scrollToCompare = () =>
+    compareRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const PLAN_ORDER: PlanId[] = ['starter', 'growth', 'agency', 'scale'];
 
   const hasActivePlan = Boolean(billingData?.hasActivePlan);
   const plan = billingData?.plan;
   const planName = hasActivePlan ? plan?.name || 'Active Plan' : 'No Active Plan';
+  const currentPlanId = normalizePlanId(plan?.name);
+  const currentPlanIdx = hasActivePlan && currentPlanId ? PLAN_ORDER.indexOf(currentPlanId) : -1;
   const billingInterval = plan?.billingInterval || 'monthly';
   const priceMonthly = plan?.priceMonthly ?? 19;
   const maxSites = plan?.maxSites ?? 1;
@@ -91,6 +99,55 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
   };
 
+  /** Per-plan action cell: current plan is marked Activated, higher plans
+   *  Upgrade, lower plans Downgrade (with confirmation). Scale stays sales-led. */
+  const renderPlanAction = (planId: PlanId) => {
+    const isCurrent = hasActivePlan && currentPlanId === planId;
+    if (isCurrent) {
+      return (
+        <button disabled className="btn btn-secondary text-xs opacity-70 cursor-default">
+          <Check className="w-3.5 h-3.5 text-[#16a34a]" />
+          Activated
+        </button>
+      );
+    }
+    if (planId === 'scale') {
+      return (
+        <button
+          onClick={() => onToast('Scale sales request initiated')}
+          className="btn btn-secondary text-xs"
+        >
+          Contact sales
+        </button>
+      );
+    }
+
+    const returnTo = hasActivePlan ? '/dashboard/billing' : '/dashboard/onboarding';
+    const targetIdx = PLAN_ORDER.indexOf(planId);
+    const isUpgrade = currentPlanIdx === -1 || targetIdx > currentPlanIdx;
+
+    if (isUpgrade) {
+      return (
+        <button
+          onClick={() => onSelectPlan(planId, billingInterval, returnTo)}
+          className={`btn text-xs ${planId === 'agency' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <ArrowUp className="w-3.5 h-3.5" />
+          {hasActivePlan ? 'Upgrade' : `Select ${PLAN_CONTRACT[planId].name}`}
+        </button>
+      );
+    }
+    return (
+      <button
+        onClick={() => setPendingDowngrade(planId)}
+        className="btn btn-ghost text-xs"
+      >
+        <ArrowDown className="w-3.5 h-3.5" />
+        Downgrade
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Page Header */}
@@ -99,7 +156,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           Billing & usage
         </h1>
         <p className="text-[13.5px] text-[#71717a] mt-0.5">
-          Managed via Polar.sh · Renews {renewalDate} ({billingInterval})
+          Renews {renewalDate} ({billingInterval})
         </p>
       </div>
 
@@ -150,7 +207,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </li>
               <li className="flex items-center gap-2.5">
                 <Check className="w-4 h-4 text-[#16a34a] flex-none" />
-                <span>Sub-15ms advanced-cache.php drop-in + zero-egress R2 media</span>
+                <span>Sub-15ms page cache drop-in + zero-egress CDN media</span>
               </li>
             </ul>
           </div>
@@ -159,15 +216,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             {billingData?.hasActivePlan ? (
               <>
                 <button onClick={onOpenPortal} className="btn btn-secondary text-xs sm:text-[13px]">
-                  <span>Manage on Polar</span>
+                  <span>Manage subscription</span>
                   <ExternalLink className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={onNavigateToPricing} className="btn btn-ghost text-xs sm:text-[13px]">
+                <button onClick={scrollToCompare} className="btn btn-ghost text-xs sm:text-[13px]">
                   Change plan
                 </button>
               </>
             ) : (
-              <button onClick={onNavigateToPricing} className="btn btn-primary text-xs sm:text-[13px]">
+              <button onClick={scrollToCompare} className="btn btn-primary text-xs sm:text-[13px]">
                 Choose a Plan & Activate →
               </button>
             )}
@@ -182,7 +239,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </span>
             <div className="flex items-center gap-3">
               <span className="w-10 h-7 rounded border border-[#e4e4e7] bg-[#f8f8f7] font-mono text-[10px] font-bold grid place-items-center text-[#171717]">
-                POLAR
+                BILLING
               </span>
               <span className="font-mono text-[14.5px] font-medium text-[#171717]">
                 Secured
@@ -396,12 +453,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       </div>
 
       {/* Row 5: Plan Comparison Table */}
-      <div>
+      <div ref={compareRef} id="compare-plans" className="scroll-mt-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[15px] font-semibold tracking-tight text-[#171717]">
             Compare plans
           </h2>
-          <span className="meta">Switch anytime · Prorated via Polar</span>
+          <span className="meta">Switch anytime · Prorated automatically</span>
         </div>
 
         <div className="bg-white border border-[#e4e4e7] rounded-2xl overflow-hidden shadow-sm">
@@ -481,35 +538,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <tfoot>
               <tr className="bg-[#fafafa]">
                 <td />
-                <td>
-                  <button
-                    onClick={() => onNavigateToPricing()}
-                    className="btn btn-ghost text-xs"
-                  >
-                    Select Starter
-                  </button>
-                </td>
-                <td>
-                  <button
-                    onClick={() => onNavigateToPricing()}
-                    className="btn btn-ghost text-xs"
-                  >
-                    Select Growth
-                  </button>
-                </td>
-                <td className="bg-[#fff1ef]/40">
-                  <button onClick={() => onNavigateToPricing()} className="btn btn-primary text-xs">
-                    Select Agency
-                  </button>
-                </td>
-                <td>
-                  <button
-                    onClick={() => onToast("Scale sales request initiated")}
-                    className="btn btn-secondary text-xs"
-                  >
-                    Contact sales
-                  </button>
-                </td>
+                <td>{renderPlanAction('starter')}</td>
+                <td>{renderPlanAction('growth')}</td>
+                <td className="bg-[#fff1ef]/40">{renderPlanAction('agency')}</td>
+                <td>{renderPlanAction('scale')}</td>
               </tr>
             </tfoot>
           </table>
@@ -517,33 +549,40 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       </div>
 
       {/* Downgrade Confirmation Dialog */}
-      {isDowngradeModalOpen && (
+      {pendingDowngrade && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl border border-[#e4e4e7] p-6 max-w-md w-full shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
               <span className="w-9 h-9 rounded-xl bg-[#fef2f2] text-[#dc2626] grid place-items-center">
                 <AlertTriangle className="w-5 h-5" />
               </span>
-              <h3 className="text-base font-semibold text-[#171717]">Downgrade Plan?</h3>
+              <h3 className="text-base font-semibold text-[#171717]">
+                Downgrade to {PLAN_CONTRACT[pendingDowngrade].name}?
+              </h3>
             </div>
             <p className="text-[13px] text-[#71717a] leading-relaxed">
-              Managing changes to your subscription plan can be performed securely directly inside the Polar Customer Portal.
+              Your plan switches to {PLAN_CONTRACT[pendingDowngrade].name} ({PLAN_CONTRACT[pendingDowngrade].maxSites}{' '}
+              site slot{PLAN_CONTRACT[pendingDowngrade].maxSites === 1 ? '' : 's'},{' '}
+              {PLAN_CONTRACT[pendingDowngrade].monthlyCredits.toLocaleString()} credits/mo) with automatic
+              proration. If you use more site slots than the new plan includes, excess sites stop
+              optimizing until you free slots or upgrade again.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
-                onClick={() => setIsDowngradeModalOpen(false)}
+                onClick={() => setPendingDowngrade(null)}
                 className="btn btn-ghost text-xs"
               >
                 Cancel
               </button>
               <button
                 onClick={() => {
-                  setIsDowngradeModalOpen(false);
-                  onOpenPortal();
+                  const target = pendingDowngrade;
+                  setPendingDowngrade(null);
+                  onSelectPlan(target, billingInterval, '/dashboard/billing');
                 }}
                 className="btn btn-primary text-xs"
               >
-                Open Polar Portal
+                Confirm Downgrade
               </button>
             </div>
           </div>

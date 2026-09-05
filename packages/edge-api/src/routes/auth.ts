@@ -367,6 +367,12 @@ authRoutes.post('/verify', siteAuthMiddleware, async (c) => {
     .bind(wpVersion || null, pluginVersion || null, callbackSecret, siteUrl, configJson, site.id)
     .run();
 
+  // Secret rotation: drop the media-signature secret cache so freshly signed
+  // asset URLs verify immediately instead of failing for up to an hour.
+  if (callbackSecret) {
+    await c.env.KV.delete(`msecret:${site.id}`).catch(() => {});
+  }
+
   // Keep the KV verification cache in sync when the config changed.
   if (configJson) {
     try {

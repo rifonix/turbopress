@@ -168,7 +168,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         clearInterval(timer);
         setIsVerifyingPurchase(false);
         addToast(
-          'Still confirming your purchase with Polar. It can take up to a minute — refresh if your plan is not active yet.',
+          'Still confirming your purchase. It can take up to a minute — refresh if your plan is not active yet.',
           'info'
         );
       }
@@ -184,7 +184,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Actions
   const handleSelectPlan = async (planId: string, interval: 'monthly' | 'annual', returnTo?: string) => {
     try {
-      addToast(`Initializing Polar checkout for ${planId.toUpperCase()} (${interval})…`, 'info');
+      addToast(`Initializing secure checkout for ${planId.toUpperCase()} (${interval})…`, 'info');
       const token = await getToken();
 
       const res = await api.createCheckout(token, planId, interval, returnTo, userEmail);
@@ -192,29 +192,29 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addToast(
           res.server === 'sandbox'
             ? res.discountApplied
-              ? 'Opening Polar test checkout — 100% discount applied, no card needed…'
-              : 'Opening Polar test checkout. Note: sandbox cards are declined unless a 100% discount is applied.'
-            : 'Redirecting to secure Polar checkout…',
+              ? 'Opening test checkout — 100% discount applied, no card needed…'
+              : 'Opening test checkout. Note: sandbox cards are declined unless a 100% discount is applied.'
+            : 'Redirecting to secure checkout…',
           'info'
         );
         window.location.href = res.checkoutUrl;
       } else {
-        addToast('Unable to initialize Polar checkout session', 'error');
+        addToast('Unable to initialize checkout session', 'error');
       }
     } catch (err: any) {
-      addToast(err?.message || 'Failed to initialize Polar checkout session', 'error');
+      addToast(err?.message || 'Failed to initialize checkout session', 'error');
     }
   };
 
   const handleOpenPortal = async () => {
     if (!billingData?.hasActivePlan) {
-      addToast('Please select and activate a plan first to access the Polar customer portal', 'info');
-      router.push('/dashboard/pricing');
+      addToast('Please select and activate a plan first to access the customer portal', 'info');
+      router.push('/dashboard/billing');
       return;
     }
 
     try {
-      addToast('Opening Polar customer portal session…', 'info');
+      addToast('Opening customer portal session…', 'info');
       const token = await getToken();
       const res = await api.createCustomerPortal(token);
       if (res?.portalUrl) {
@@ -224,7 +224,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     } catch (err: any) {
       addToast(err?.message || 'No active billing customer found. Please subscribe to a plan first.', 'error');
-      router.push('/dashboard/pricing');
+      router.push('/dashboard/billing');
     }
   };
 

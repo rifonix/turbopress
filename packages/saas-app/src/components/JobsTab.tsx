@@ -108,7 +108,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
             Optimization Jobs
           </h1>
           <p className="text-[13.5px] text-[#71717a] mt-0.5">
-            Cloudflare Browser Rendering (Puppeteer) Critical CSS & LCP Extraction Queue
+            Real-Browser Critical CSS & LCP Extraction Queue
           </p>
         </div>
 
@@ -233,7 +233,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
                       <button
                         onClick={() => {
                           onRerunJob(job.id);
-                          onToast(`Job ${job.id} re-dispatched to Cloudflare Queue`);
+                          onToast(`Job ${job.id} re-dispatched to the edge queue`);
                         }}
                         className="btn btn-ghost text-xs py-1 px-2 text-[#71717a] hover:text-[#f03e2f]"
                         title="Re-run job"
@@ -257,11 +257,11 @@ export const JobsTab: React.FC<JobsTabProps> = ({
         )}
       </div>
 
-      {/* R2 Offload Log */}
+      {/* CDN Offload Log */}
       <div className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#e4e4e7] flex-wrap">
           <h3 className="text-sm font-semibold flex items-center gap-2">
-            <HardDriveDownload className="w-4 h-4 text-[#f03e2f]" /> R2 Offload Log
+            <HardDriveDownload className="w-4 h-4 text-[#f03e2f]" /> CDN Offload Log
           </h3>
           <div className="flex items-center gap-2">
             <select
@@ -288,7 +288,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
         <div className="max-h-72 overflow-y-auto divide-y divide-[#f4f4f5]">
           {!offloadLog || offloadLog.length === 0 ? (
             <div className="px-5 py-8 text-center text-xs text-[#71717a]">
-              No R2 offload activity for this site yet.
+              No CDN offload activity for this site yet.
             </div>
           ) : (
             offloadLog.map((entry, i) => (
@@ -324,7 +324,7 @@ export const JobsTab: React.FC<JobsTabProps> = ({
               </span>
               <div>
                 <h3 className="text-base font-semibold text-[#171717]">Dispatch Optimization Run</h3>
-                <p className="text-xs text-[#71717a]">Runs Cloudflare Puppeteer AST Critical CSS Pipeline</p>
+                <p className="text-xs text-[#71717a]">Runs the real-browser critical CSS pipeline</p>
               </div>
             </div>
 

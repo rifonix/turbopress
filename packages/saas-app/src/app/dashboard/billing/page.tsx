@@ -15,7 +15,7 @@ export default function BillingPage() {
       billingData={ctx.billingData}
       onOpenPortal={ctx.handleOpenPortal}
       onNavigateToConnect={() => router.push('/connect')}
-      onNavigateToPricing={() => router.push('/dashboard/pricing')}
+      onSelectPlan={ctx.handleSelectPlan}
       onToast={ctx.addToast}
     />
   );

@@ -53,6 +53,7 @@ export interface CssConfig {
 export interface AssetsConfig {
   proxy_enabled: boolean; // serve 3rd-party css/js through the signed R2 worker route
   keep_origins: string[]; // extra origins never proxied (substring match)
+  serve_own_from_cdn: boolean; // rewrite own-host css/js to the CDN worker too
 }
 
 export interface HtaccessConfig {

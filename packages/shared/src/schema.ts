@@ -56,7 +56,8 @@ export const CssConfigSchema = z.object({
 
 export const AssetsConfigSchema = z.object({
   proxy_enabled: z.boolean().default(false),
-  keep_origins: z.array(z.string()).default([])
+  keep_origins: z.array(z.string()).default([]),
+  serve_own_from_cdn: z.boolean().default(false)
 });
 
 export const HtaccessConfigSchema = z.object({
@@ -170,8 +171,21 @@ export const HandshakeRequestSchema = z
   .refine((data) => data.state.length >= 6, { message: 'A valid state nonce is required' });
 
 export const OptimizationDispatchSchema = z.object({
-  url: z.string().url(),
-  viewports: z.array(ViewportModeSchema).optional().default(['mobile', 'desktop']),
+  url: z
+    .string()
+    .url()
+    .refine(
+      (u) => {
+        try {
+          const p = new URL(u).protocol;
+          return p === 'http:' || p === 'https:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Only absolute http(s) URLs are supported' }
+    ),
+  viewports: z.array(ViewportModeSchema).max(2).optional().default(['mobile', 'desktop']),
   structure_hash: z.string().optional(),
   priority: z.enum(['high', 'normal', 'low']).optional().default('normal')
 });

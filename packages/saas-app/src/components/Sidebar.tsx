@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { LayoutGrid, Globe, Activity, CreditCard, Link2, Tag, Sparkles, LogIn } from 'lucide-react';
+import { LayoutGrid, Globe, Activity, CreditCard, Link2, Sparkles, LogIn } from 'lucide-react';
 import { ExtendedSite } from '../types';
 import { SignedIn, SignedOut, OrganizationSwitcher } from '@clerk/nextjs';
 import Link from 'next/link';
@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Current Site Quick Pill (If on Site Detail Page) */}
         {pathname?.startsWith('/dashboard/sites/') && selectedSite && (
           <Link
-            href={`/sites/${selectedSite.id}`}
+            href={`/dashboard/sites/${selectedSite.id}`}
             onClick={onClose}
             className="flex items-center gap-2 px-2.5 py-1.5 mb-3 bg-[#fff1ef] border border-red-200 rounded-lg text-xs cursor-pointer"
           >
@@ -104,15 +104,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </p>
             <nav className="space-y-0.5">
               <Link
-                href="/"
+                href="/dashboard"
                 onClick={onClose}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/'
+                  pathname === '/dashboard'
                     ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
                     : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
                 }`}
               >
-                <LayoutGrid className={`w-4 h-4 ${pathname === '/' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
+                <LayoutGrid className={`w-4 h-4 ${pathname === '/dashboard' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
                 <span>Overview</span>
               </Link>
 
@@ -170,20 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <CreditCard className={`w-4 h-4 ${pathname === '/dashboard/billing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
-                <span>Billing & Polar</span>
-              </Link>
-
-              <Link
-                href="/dashboard/pricing"
-                onClick={onClose}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-medium text-left transition-colors ${
-                  pathname === '/dashboard/pricing'
-                    ? 'bg-[#f4f4f5] text-[#171717] font-semibold'
-                    : 'text-[#3f3f46] hover:bg-[#f8f8f7] hover:text-[#171717]'
-                }`}
-              >
-                <Tag className={`w-4 h-4 ${pathname === '/dashboard/pricing' ? 'text-[#f03e2f]' : 'text-[#71717a]'}`} />
-                <span>Plans & Upgrade</span>
+                <span>Billing</span>
               </Link>
 
               <Link

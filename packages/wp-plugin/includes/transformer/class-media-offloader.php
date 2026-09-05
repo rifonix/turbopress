@@ -27,6 +27,9 @@ class MediaOffloader {
 
     private Config $config;
 
+    /** Per-request cache of local image width lookups (srcset caps). */
+    private array $width_cache = [];
+
     public function __construct(Config $config) {
         $this->config = $config;
     }
@@ -48,29 +51,73 @@ class MediaOffloader {
         $queued = [];
 
         if ($offload_images) {
-            // <img> tags: rewrite src + srcset candidates.
+            // <img> tags: rewrite src + srcset candidates, and synthesize a
+            // responsive srcset for plain src-only images.
             $html = preg_replace_callback(
                 '/<img\b[^>]*>/i',
                 function ($m) use ($excluded, $widths, $max_w, &$queued) {
                     $tag = $m[0];
+                    $has_srcset = (bool) preg_match('/\ssrcset=["\']/i', $tag);
+                    $has_sizes = (bool) preg_match('/\ssizes=["\']/i', $tag);
 
                     // src
                     if (preg_match('/\ssrc=["\']([^"\']+)["\']/i', $tag, $sm)) {
                         $src = $sm[1];
-                        $w = preg_match('/\swidth=["\'](\d{3,4})["\']/i', $tag, $wm) ? (int) $wm[1] : $max_w;
+                        $width_attr = preg_match('/\swidth=["\'](\d{2,5})["\']/i', $tag, $wm) ? (int) $wm[1] : 0;
+
+                        // Responsive sizing: a plain src forces the browser
+                        // to download exactly the derivative we pick — which
+                        // used to be the max width (1600px) even for images
+                        // rendering at 300px. Synthesize a full srcset (never
+                        // wider than the intrinsic size, so derivatives never
+                        // upscale) plus a sizes hint, and let the browser
+                        // choose by layout width × DPR.
+                        $synth = '';
+                        $synthesized = false;
+                        if (!$has_srcset) {
+                            $intrinsic = $this->intrinsic_width($src);
+                            $cap = min($intrinsic ?? $max_w, $max_w);
+                            $candidates = array_filter($widths, fn(int $cw): bool => $cw <= $cap);
+                            $set = [];
+                            foreach ($candidates as $cw) {
+                                $cand_url = $this->rewrite_source($src, $cw, 'webp', $excluded, $queued);
+                                if ($cand_url !== null) {
+                                    $set[] = $cand_url . ' ' . $cw . 'w';
+                                }
+                            }
+                            if (count($set) > 1) {
+                                $sizes_w = $width_attr > 0 ? $width_attr : $cap;
+                                $synth = ' srcset="' . esc_attr(implode(', ', $set)) . '"';
+                                if (!$has_sizes) {
+                                    $synth .= ' sizes="(max-width: ' . $sizes_w . 'px) 100vw, ' . $sizes_w . 'px"';
+                                }
+                                $synthesized = true;
+                            }
+                        }
+
+                        $w = $width_attr > 0 ? $width_attr : $max_w;
                         $new = $this->rewrite_source($src, $w, 'webp', $excluded, $queued);
                         if ($new !== null) {
-                            $tag = str_replace($sm[0], ' src="' . esc_url($new) . '" data-wpins-orig-src="' . esc_url($src) . '"', $tag);
+                            $tag = str_replace(
+                                $sm[0],
+                                ' src="' . esc_url($new) . '"' . $synth . ' data-wpins-orig-src="' . esc_url($src) . '"',
+                                $tag
+                            );
                         }
                     }
 
-                    // srcset candidates (each with its own width descriptor)
-                    if (preg_match('/\ssrcset=["\']([^"\']+)["\']/i', $tag, $sm)) {
+                    // srcset candidates (each with its own width descriptor).
+                    // Skipped when synthesized above — re-processing the
+                    // just-escaped output would double-escape & to &amp;amp;
+                    // and corrupt every candidate URL. Candidates are entity-
+                    // decoded before rewriting (so already-escaped values from
+                    // a prior pass or the theme normalize) and escaped once.
+                    if (!$synthesized && preg_match('/\ssrcset=["\']([^"\']+)["\']/i', $tag, $sm)) {
                         $parts = array_filter(array_map('trim', explode(',', $sm[1])));
                         $out = [];
                         foreach ($parts as $part) {
                             if (preg_match('/^(\S+)(?:\s+(\d+)w)?$/i', $part, $pm)) {
-                                $cand = $pm[1];
+                                $cand = html_entity_decode($pm[1], ENT_QUOTES);
                                 $cw = isset($pm[2]) ? (int) $pm[2] : $max_w;
                                 $new = $this->rewrite_source($cand, $cw, 'webp', $excluded, $queued);
                                 $out[] = ($new !== null ? $new : $cand) . (isset($pm[2]) ? ' ' . $pm[2] . 'w' : '');
@@ -82,6 +129,51 @@ class MediaOffloader {
                     }
 
                     return $tag;
+                },
+                $html
+            ) ?? $html;
+
+            // <source srcset> inside <picture> (art direction): rewrite each
+            // candidate — invisible to the <img> pass above.
+            $html = preg_replace_callback(
+                '/(<source\b[^>]*\ssrcset=)("|\')([^"\']+)\2/i',
+                function ($m) use ($excluded, $max_w, &$queued) {
+                    $parts = array_filter(array_map('trim', explode(',', $m[3])));
+                    $out = [];
+                    foreach ($parts as $part) {
+                        if (preg_match('/^(\S+)(?:\s+(\d+)w)?$/i', $part, $pm)) {
+                            $cand = html_entity_decode($pm[1], ENT_QUOTES);
+                            $cw = isset($pm[2]) ? (int) $pm[2] : $max_w;
+                            $new = $this->rewrite_source($cand, $cw, 'webp', $excluded, $queued);
+                            $out[] = ($new !== null ? $new : $cand) . (isset($pm[2]) ? ' ' . $pm[2] . 'w' : '');
+                        } else {
+                            $out[] = $part;
+                        }
+                    }
+                    return $m[1] . $m[2] . esc_attr(implode(', ', $out)) . $m[2];
+                },
+                $html
+            ) ?? $html;
+
+            // <video poster>: image derivative, sized by the video's width
+            // attribute when present (posters render at the video size).
+            $html = preg_replace_callback(
+                '/<video\b[^>]*>/i',
+                function ($m) use ($excluded, $max_w, &$queued) {
+                    $tag = $m[0];
+                    if (!preg_match('/\sposter=["\']([^"\']+)["\']/i', $tag, $pm)) {
+                        return $tag;
+                    }
+                    $w = preg_match('/\swidth=["\'](\d{2,5})["\']/i', $tag, $wm) ? (int) $wm[1] : $max_w;
+                    $new = $this->rewrite_source($pm[1], $w, 'webp', $excluded, $queued);
+                    if ($new === null) {
+                        return $tag;
+                    }
+                    return str_replace(
+                        $pm[0],
+                        ' poster="' . esc_url($new) . '" data-wpins-orig-poster="' . esc_url($pm[1]) . '"',
+                        $tag
+                    );
                 },
                 $html
             ) ?? $html;
@@ -109,7 +201,7 @@ class MediaOffloader {
             // widget configs). These images are invisible to the <img>
             // pass — PSI flags them as "enormous" (653KB markers at 55px).
             // Full-URL substring swaps only; own-host images only.
-            $html = $this->rewrite_json_context_urls($html, $excluded, $max_w, $queued);
+            $html = $this->rewrite_json_context_urls($html, $excluded, $max_w, true, false, $queued);
         }
 
         if ($offload_video) {
@@ -132,6 +224,11 @@ class MediaOffloader {
                 },
                 $html
             ) ?? $html;
+
+            // JSON contexts again, video edition: Elementor background-video
+            // configs reference .mp4/.webm URLs that never appear as <video>
+            // tags. Raw R2 passthrough, own-host only.
+            $html = $this->rewrite_json_context_urls($html, $excluded, 0, false, true, $queued);
         }
 
         if (!empty($queued)) {
@@ -154,38 +251,59 @@ class MediaOffloader {
      *  - Attribute context gets &amp;-escaped replacement URLs (b64url
      *    alphabet contains no JSON/HTML-special characters otherwise).
      */
-    private function rewrite_json_context_urls(string $html, array $excluded, int $max_w, array &$queued): string {
+    private function rewrite_json_context_urls(string $html, array $excluded, int $max_w, bool $images, bool $videos, array &$queued): string {
         $own_host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
         if ($own_host === '') {
             return $html;
         }
 
-        $rewrite = function (string $subject, bool $attr_context) use ($own_host, $excluded, $max_w, &$queued): string {
+        $rewrite = function (string $subject, bool $attr_context) use ($own_host, $excluded, $max_w, $images, $videos, &$queued): string {
             if (stripos($subject, '<img') !== false || stripos($subject, '<script') !== false) {
                 return $subject; // never descend into nested markup
             }
 
-            // Pass 1: marker/icon/pin/logo contexts → small derivative.
-            $subject = preg_replace_callback(
-                '#(?<=(?:marker|icon|pin|logo|thumb)[^"\x27]{0,160})(https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:png|jpe?g|webp|gif|svg))#i',
-                function ($m) use ($own_host, $excluded, &$queued) {
-                    return $this->rewrite_json_url($m[1], 96, $own_host, $excluded, $queued) ?? $m[0];
-                },
-                $subject
-            ) ?? $subject;
+            if ($images) {
+                // Pass 1: marker/icon/pin/logo contexts → small derivative.
+                $subject = preg_replace_callback(
+                    '#(?<=(?:marker|icon|pin|logo|thumb)[^"\x27]{0,160})(https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:png|jpe?g|webp|gif|svg))#i',
+                    function ($m) use ($own_host, $excluded, &$queued) {
+                        return $this->rewrite_json_url($m[1], 96, 'webp', $own_host, $excluded, $queued) ?? $m[0];
+                    },
+                    $subject
+                ) ?? $subject;
 
-            // Pass 2: remaining own-host images → max-width derivative.
-            $subject = preg_replace_callback(
-                '#https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:png|jpe?g|webp|gif|svg)#i',
-                function ($m) use ($own_host, $excluded, $max_w, &$queued, $attr_context) {
-                    $new = $this->rewrite_json_url($m[1], $max_w, $own_host, $excluded, $queued);
-                    if ($new === null) {
-                        return $m[1];
-                    }
-                    return $attr_context ? str_replace('&', '&amp;', $new) : $new;
-                },
-                $subject
-            ) ?? $subject;
+                // Pass 2: remaining own-host images → max-width derivative.
+                // The pattern has no capture group: the whole match IS the
+                // URL (using $m[1] here threw a TypeError and aborted the
+                // whole transformation pipeline).
+                $subject = preg_replace_callback(
+                    '#https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:png|jpe?g|webp|gif|svg)#i',
+                    function ($m) use ($own_host, $excluded, $max_w, &$queued, $attr_context) {
+                        $new = $this->rewrite_json_url($m[0], $max_w, 'webp', $own_host, $excluded, $queued);
+                        if ($new === null) {
+                            return $m[0];
+                        }
+                        return $attr_context ? str_replace('&', '&amp;', $new) : $new;
+                    },
+                    $subject
+                ) ?? $subject;
+            }
+
+            if ($videos) {
+                // Pass 3: own-host videos (Elementor background-video
+                // configs) → raw R2 passthrough.
+                $subject = preg_replace_callback(
+                    '#https?://[^\s"\x27\\\\<>?\[\]{}]+?\.(?:mp4|webm|mov|m4v)#i',
+                    function ($m) use ($own_host, $excluded, &$queued, $attr_context) {
+                        $new = $this->rewrite_json_url($m[0], 0, 'raw', $own_host, $excluded, $queued);
+                        if ($new === null) {
+                            return $m[0];
+                        }
+                        return $attr_context ? str_replace('&', '&amp;', $new) : $new;
+                    },
+                    $subject
+                ) ?? $subject;
+            }
 
             return $subject;
         };
@@ -213,10 +331,10 @@ class MediaOffloader {
     }
 
     /**
-     * Build a signed worker URL for an own-host image found in a JSON
+     * Build a signed worker URL for an own-host image/video found in a JSON
      * context, or null when it must stay untouched.
      */
-    private function rewrite_json_url(string $url, int $w, string $own_host, array $excluded, array &$queued): ?string {
+    private function rewrite_json_url(string $url, int $w, string $f, string $own_host, array $excluded, array &$queued): ?string {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         if ($host === '' || ($host !== $own_host && !str_ends_with($host, '.' . $own_host))) {
             return null;
@@ -226,12 +344,40 @@ class MediaOffloader {
                 return null;
             }
         }
-        $new = $this->media_url($url, $w, 'webp');
+        $new = $this->media_url($url, $w, $f);
         if ($new === null) {
             return null;
         }
-        $queued[md5($url . '|' . $w . '|webp')] = ['src' => $url, 'w' => $w, 'f' => 'webp'];
+        $queued[md5($url . '|' . $w . '|' . $f)] = ['src' => $url, 'w' => $w, 'f' => $f];
         return $new;
+    }
+
+    /**
+     * Intrinsic pixel width of a same-origin image (from the local file),
+     * or null when unresolvable. Caps synthesized srcset candidates so
+     * derivatives never upscale beyond the uploaded original.
+     */
+    private function intrinsic_width(string $src): ?int {
+        if (array_key_exists($src, $this->width_cache)) {
+            return $this->width_cache[$src];
+        }
+        $result = null;
+        $home = parse_url(home_url());
+        $parsed = parse_url($src);
+        if (
+            !empty($home['host']) && !empty($parsed['host'])
+            && strtolower((string) $home['host']) === strtolower((string) $parsed['host'])
+        ) {
+            $file = wp_normalize_path(ABSPATH . ltrim((string) ($parsed['path'] ?? '/'), '/'));
+            if (str_starts_with($file, wp_normalize_path(ABSPATH)) && is_file($file)) {
+                $info = @getimagesize($file);
+                if (is_array($info) && !empty($info[0])) {
+                    $result = (int) $info[0];
+                }
+            }
+        }
+        $this->width_cache[$src] = $result;
+        return $result;
     }
 
     /**
@@ -367,16 +513,13 @@ class MediaOffloader {
         }
         update_option(self::QUEUE_OPTION, $queue, false);
 
-        // Eager processing: newly-queued derivatives must reach R2 within
-        // seconds, not at the next hourly cron tick. Kick a due-now worker
-        // (spawn_cron fires the loopback without delaying this request).
-        // Throttled: one pending kick at a time.
+        // Schedule a due-now worker, but do not call spawn_cron() from inside
+        // an output-buffer callback. On hosts using ALTERNATE_WP_CRON that
+        // can start a nested output buffer and emit a document redirect while
+        // the current response is still being transformed.
         if ($added > 0 && !get_transient('wpins_media_kick')) {
             set_transient('wpins_media_kick', 1, 2 * MINUTE_IN_SECONDS);
             wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
-            if (function_exists('spawn_cron')) {
-                spawn_cron();
-            }
         }
     }
 
@@ -454,7 +597,7 @@ class MediaOffloader {
             if ($bytes === null) {
                 return false;
             }
-            return $this->upload($src, $w, 'raw', $bytes, 'application/octet-stream');
+            return $this->upload($src, $w, 'raw', $bytes, self::raw_mime($src));
         }
 
         $bytes = $this->fetch_bytes($src);
@@ -515,16 +658,36 @@ class MediaOffloader {
         return $this->upload($src, $w, 'webp', $webp, 'image/webp');
     }
 
+    /** Serving content type for raw offloads, resolved from the file extension. */
+    private static function raw_mime(string $src): string {
+        if (preg_match('~\.(mp4|m4v)(?:[?#]|$)~i', $src)) {
+            return 'video/mp4';
+        }
+        if (preg_match('~\.webm(?:[?#]|$)~i', $src)) {
+            return 'video/webm';
+        }
+        if (preg_match('~\.mov(?:[?#]|$)~i', $src)) {
+            return 'video/quicktime';
+        }
+        return 'application/octet-stream';
+    }
+
     private function fetch_bytes(string $src): ?string {
-        // Local fast path: same-origin file under ABSPATH.
+        if (!$this->is_allowed_media_source($src)) {
+            return null;
+        }
+
+        // Only resolve a real file inside the WordPress uploads directory.
+        // Mapping any same-host URL directly into ABSPATH can expose PHP or
+        // configuration files and does not protect against symlink escapes.
         $home = parse_url(home_url());
         $parsed = parse_url($src);
         if (
             !empty($home['host']) && !empty($parsed['host'])
             && strtolower($home['host']) === strtolower($parsed['host'])
         ) {
-            $file = wp_normalize_path(ABSPATH . ltrim($parsed['path'] ?? '/', '/'));
-            if (str_starts_with($file, wp_normalize_path(ABSPATH)) && is_file($file) && filesize($file) <= self::MAX_SOURCE_BYTES) {
+            $file = $this->local_media_path($src);
+            if ($file !== null && filesize($file) <= self::MAX_SOURCE_BYTES) {
                 $bytes = @file_get_contents($file);
                 if ($bytes !== false) {
                     return $bytes;
@@ -532,12 +695,48 @@ class MediaOffloader {
             }
         }
 
-        $response = wp_remote_get($src, ['timeout' => 10]);
+        $fetch = function_exists('wp_safe_remote_get') ? 'wp_safe_remote_get' : 'wp_remote_get';
+        $response = $fetch($src, [
+            'timeout' => 10,
+            'redirection' => 3,
+            'limit_response_size' => self::MAX_SOURCE_BYTES,
+        ]);
         if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
             return null;
         }
         $body = (string) wp_remote_retrieve_body($response);
         return strlen($body) > 0 && strlen($body) <= self::MAX_SOURCE_BYTES ? $body : null;
+    }
+
+    private function is_allowed_media_source(string $src): bool {
+        $path = (string) parse_url($src, PHP_URL_PATH);
+        return (bool) preg_match('~\.(?:jpe?g|png|gif|webp|avif|svg|mp4|m4v|webm|mov)(?:$|/)~i', $path);
+    }
+
+    private function local_media_path(string $src): ?string {
+        $parsed = parse_url($src);
+        $path = (string) ($parsed['path'] ?? '');
+        if ($path === '' || !function_exists('wp_upload_dir')) {
+            return null;
+        }
+
+        $uploads = wp_upload_dir();
+        $root = is_array($uploads) ? realpath((string) ($uploads['basedir'] ?? '')) : false;
+        if ($root === false) {
+            return null;
+        }
+
+        $candidate = realpath(ABSPATH . ltrim($path, '/'));
+        if ($candidate === false || !is_file($candidate)) {
+            return null;
+        }
+
+        $root = rtrim(wp_normalize_path($root), '/');
+        $candidate = wp_normalize_path($candidate);
+        if ($candidate !== $root && !str_starts_with($candidate, $root . '/')) {
+            return null;
+        }
+        return $candidate;
     }
 
     private function upload(string $src, int $w, string $f, string $bytes, string $content_type): bool {

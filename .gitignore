@@ -47,5 +47,8 @@ packages/flying-press-example/
 # Plugin release artifacts (built in CI)
 *.zip
 
+# Claude local configs
+.claude/
+
 # TypeScript incremental build info
 *.tsbuildinfo

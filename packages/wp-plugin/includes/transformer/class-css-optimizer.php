@@ -50,7 +50,10 @@ class CssOptimizer {
         if ($links === null) {
             return null;
         }
-        [$combinable, ] = $links;
+        [$combinable, , $combine_safe] = $links;
+        if (!$combine_safe) {
+            return null; // inline <style> between links: merging would flip the cascade
+        }
 
         $main_keys = array_keys(array_filter($combinable, fn($c) => $this->is_main_media($c['media'])));
         if (empty($main_keys)) {
@@ -131,7 +134,10 @@ class CssOptimizer {
         if ($links === null) {
             return $html;
         }
-        [$combinable, ] = $links;
+        [$combinable, , $combine_safe] = $links;
+        // An inline <style> between two links makes combining cascade-unsafe;
+        // per-sheet defer (each sheet stays at its own position) still runs.
+        $combine_enabled = $combine_enabled && $combine_safe;
 
         if (empty($combinable)) {
             return $html;
@@ -210,17 +216,28 @@ class CssOptimizer {
         // Rescue script (once per page): restores the original stylesheets
         // when the preload→stylesheet swap has not applied shortly after
         // load, or immediately on preload error.
+        //
+        // The 2.5s pass rescues ONLY preloads whose fetch already completed
+        // but whose rel never swapped (CSP-stripped onload handler — a
+        // permanent state). The old `!l.sheet` condition is always true for
+        // rel=preload links (they never expose .sheet), so it also rescued
+        // merely-slow loads, duplicating every stylesheet on throttled
+        // connections. Anything still preloading at 6s is treated as
+        // stalled and rescued unconditionally.
         if ($used_rescue && is_string($html) && stripos((string) $html, 'wp-instant-css-rescue') === false) {
             $sel = 'link[rel=preload][as=style][data-wpins-css]';
-            $scan = 'var ls=document.querySelectorAll(\'' . $sel . '\');for(var i=0;i<ls.length;i++){if(!ls[i].sheet)window.__tpCssRescue(ls[i])}';
             $rescue = '<script wpins-exclude id="wp-instant-css-rescue">(function(){'
                 . 'window.__tpCssRescue=function(l){try{'
+                . 'if(l.getAttribute(\'data-wpins-rescued\'))return;'
+                . 'l.setAttribute(\'data-wpins-rescued\',\'1\');'
                 . 'var a=JSON.parse(l.getAttribute(\'data-wpins-css\')||\'[]\');'
                 . 'for(var i=0;i<a.length;i++){var s=document.createElement(\'link\');s.rel=\'stylesheet\';s.href=a[i];document.head.appendChild(s)}'
                 . 'l.removeAttribute(\'onload\');l.removeAttribute(\'onerror\');l.parentNode&&l.parentNode.removeChild(l)'
                 . '}catch(e){}};'
-                . 'function chk(){setTimeout(function(){' . $scan . '},2500);setTimeout(function(){' . $scan . '},6000);}'
-                . 'if(document.readyState!==\'loading\')chk();else document.addEventListener(\'DOMContentLoaded\',chk);'
+                . 'window.__tpCssReady=function(l){try{var e=performance.getEntriesByName(l.href);return !!(e.length&&e[e.length-1].responseEnd>0)}catch(x){return false}};'
+                . 'function chk(f){var ls=document.querySelectorAll(\'' . $sel . '\');for(var i=0;i<ls.length;i++){if(f||window.__tpCssReady(ls[i]))window.__tpCssRescue(ls[i])}}'
+                . 'function go(){setTimeout(function(){chk(false)},2500);setTimeout(function(){chk(true)},6000);}'
+                . 'if(document.readyState!==\'loading\')go();else document.addEventListener(\'DOMContentLoaded\',go);'
                 . '})();</script>';
             $html = preg_replace_callback(
                 '/(<head[^>]*>)/i',
@@ -299,14 +316,14 @@ class CssOptimizer {
      * when no stylesheet links exist at all.
      */
     private function classify_links(string $html): ?array {
-        if (!preg_match_all('/<link\s+([^>]*rel=[\'"]stylesheet[\'"][^>]*)>/i', $html, $matches, PREG_SET_ORDER)) {
+        if (!preg_match_all('/<link\s+([^>]*rel=[\'"]stylesheet[\'"][^>]*)>/i', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
             return null;
         }
 
         $excluded = (array) $this->config->get('critical_css.excluded_stylesheets', []);
         $combinable = [];
         foreach ($matches as $idx => $m) {
-            $attributes = $m[1];
+            $attributes = $m[1][0];
             if (!preg_match('/href=[\'"]([^\'"]+)[\'"]/i', $attributes, $href_match)) {
                 continue;
             }
@@ -324,10 +341,24 @@ class CssOptimizer {
                 continue; // print sheets never block screen rendering
             }
 
-            $combinable[$idx] = ['href' => $this->absolutize($href), 'media' => $media, 'attrs' => $attributes];
+            $combinable[$idx] = ['href' => $this->absolutize($href), 'media' => $media, 'attrs' => $attributes, 'pos' => $m[0][1]];
         }
 
-        return [$combinable, $excluded];
+        // Cascade safety: combining collapses every sheet into one block at
+        // the FIRST link's position. An inline <style> between two combinable
+        // links used to sit between their rules — merging across it would
+        // silently flip that cascade. Callers must skip combining (per-sheet
+        // defer keeps each sheet at its own position and stays safe).
+        $combine_safe = true;
+        if (count($combinable) >= 2) {
+            $positions = array_column($combinable, 'pos');
+            $span = substr($html, min($positions), max($positions) - min($positions));
+            if (preg_match('/<style[\s>]/i', (string) $span)) {
+                $combine_safe = false;
+            }
+        }
+
+        return [$combinable, $excluded, $combine_safe];
     }
 
     private function should_preload_font(string $html, string $font_url): bool {
@@ -515,7 +546,14 @@ class CssOptimizer {
             return null;
         }
         $path = $parsed['path'] ?? '/';
-        $file = wp_normalize_path(ABSPATH . ltrim($path, '/'));
+        // realpath resolves '..' segments and symlinks BEFORE the
+        // containment check — a string prefix check alone would let
+        // /wp-content/../wp-config.php slip through as "inside ABSPATH".
+        $real = realpath(ABSPATH . ltrim($path, '/'));
+        if ($real === false) {
+            return null;
+        }
+        $file = wp_normalize_path($real);
         $root = wp_normalize_path(ABSPATH);
         if (!str_starts_with($file, $root)) {
             return null;
@@ -534,15 +572,18 @@ class CssOptimizer {
         $key = 'wpins_css_' . md5($href);
         $cached = get_transient($key);
         if ($cached !== false) {
-            return is_string($cached) ? $cached : null;
+            // '' is the negative-cache marker (and a legacy poisoned value):
+            // return null so callers keep the original <link> instead of
+            // bundling an empty sheet and deleting the working one.
+            return (is_string($cached) && $cached !== '') ? $cached : null;
         }
 
         $response = wp_remote_get($href, ['timeout' => 5]);
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        $body = is_wp_error($response) ? '' : (string) wp_remote_retrieve_body($response);
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200 || trim($body) === '') {
             set_transient($key, '', 10 * MINUTE_IN_SECONDS); // negative cache
             return null;
         }
-        $body = (string) wp_remote_retrieve_body($response);
         set_transient($key, $body, HOUR_IN_SECONDS);
         return $body;
     }
@@ -572,22 +613,39 @@ class CssOptimizer {
     }
 
     private function resolve_relative(string $base, string $rel): string {
+        $p = parse_url($base);
+        $scheme = $p['scheme'] ?? 'https';
+        $host = $p['host'] ?? '';
+        $port = isset($p['port']) ? ':' . $p['port'] : '';
+        $origin = $scheme . '://' . $host . $port;
+
         if (str_starts_with($rel, '/')) {
-            $p = parse_url($base);
-            $scheme = $p['scheme'] ?? 'https';
-            $host = $p['host'] ?? '';
-            $port = isset($p['port']) ? ':' . $p['port'] : '';
-            return $scheme . '://' . $host . $port . $rel;
+            $path = $rel;
+        } else {
+            // Dot-segment resolution relative to the sheet directory.
+            $dir = preg_replace('#/[^/]*$#', '/', $p['path'] ?? '/');
+            $path = $dir . $rel;
         }
-        // Dot-segment resolution relative to the sheet directory.
-        $dir = preg_replace('#/[^/]*$#', '/', $base);
-        $abs = $dir . $rel;
-        $abs = preg_replace('#/(\./|\.\./)+#', '/', $abs);
-        // Collapse ../ segments
-        while (preg_match('#/[^/]+/\.\./#', (string) $abs)) {
-            $abs = preg_replace('#/[^/]+/\.\./#', '/', (string) $abs, 1);
+
+        // RFC 3986 remove_dot_segments: '..' must POP the parent segment.
+        // The previous regex replaced '/../' with '/', so /a/b/../c became
+        // /a/b/c (b kept) instead of the correct /a/c (b consumed).
+        $out = [];
+        foreach (explode('/', (string) $path) as $seg) {
+            if ($seg === '.') {
+                continue;
+            }
+            if ($seg === '..') {
+                array_pop($out);
+                continue;
+            }
+            $out[] = $seg;
         }
-        return (string) $abs;
+        $resolved = implode('/', $out);
+        if (!str_starts_with($resolved, '/')) {
+            $resolved = '/' . $resolved;
+        }
+        return $origin . $resolved;
     }
 
     /**
@@ -634,7 +692,12 @@ class CssOptimizer {
 
         $out = preg_replace('#/\*[\s\S]*?\*/#', '', (string) $out);
         $out = preg_replace('/\s+/', ' ', (string) $out);
-        $out = preg_replace('/\s*([{}:;,>~+])\s*/', '$1', (string) $out);
+        // Strip whitespace only where it is ALWAYS insignificant: braces,
+        // semicolons, commas and the >/ ~ combinators. Never around ':'
+        // ('.a :hover' must not become '.a:hover') or '+'/'-' — calc()
+        // requires spaces around those operators.
+        $out = preg_replace('/\s*([{};,])\s*/', '$1', (string) $out);
+        $out = preg_replace('/\s*([>~])\s*/', '$1', (string) $out);
         $out = str_replace(';}', '}', (string) $out);
         $out = trim((string) $out);
 

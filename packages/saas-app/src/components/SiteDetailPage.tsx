@@ -14,10 +14,14 @@ import {
   Check,
   LayoutTemplate,
   ShieldCheck,
+  Save,
+  Loader2,
 } from 'lucide-react';
 import { ExtendedSite, SitePreset, OptimizationJobItem, SitePagesData } from '../types';
-import { SiteConfig } from '@wpinstant/shared';
+import { SiteConfig, PRESETS_RECORD } from '@wpinstant/shared';
 import { api } from '../services/api';
+import { SettingsPanel } from './site-settings/SettingsPanel';
+import { setPath, type SiteContext } from './site-settings/fields';
 
 interface SiteDetailPageProps {
   site: ExtendedSite;
@@ -41,10 +45,17 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   onToast,
 }) => {
   const { getToken } = useAuth();
-  const [activeTab, setActiveTab] = useState<'presets' | 'critical-css' | 'pages' | 'connection'>('presets');
+  const [activeTab, setActiveTab] = useState<'presets' | 'settings' | 'critical-css' | 'pages' | 'connection'>('presets');
   const [currentPreset, setCurrentPreset] = useState<SitePreset>(site.config?.preset || 'ludicrous');
   const [isPurging, setIsPurging] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+
+  // Full settings draft (Settings tab): seeded from the site config, saved
+  // explicitly through the same config-update channel the embed uses.
+  const [settingsDraft, setSettingsDraft] = useState<Record<string, any> | null>(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [siteContext, setSiteContext] = useState<SiteContext>({});
 
   // Granular settings local state
   const [jsDelayTimeout, setJsDelayTimeout] = useState(site.config?.javascript?.delay_timeout_ms || 3500);
@@ -63,14 +74,26 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
   const [rerunningPage, setRerunningPage] = useState<string | null>(null);
   const [audits, setAudits] = useState<any[]>([]);
 
-  // Fetch audits once for the score trend sparkline
+  // Fetch audits once for the score trend sparkline (+ health site context
+  // for the plugin asset control in the Settings tab)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const token = await getToken();
         const detail = await api.getSiteDetail(token, site.id);
-        if (!cancelled && Array.isArray(detail.audits)) setAudits(detail.audits);
+        if (!cancelled) {
+          if (Array.isArray(detail.audits)) setAudits(detail.audits);
+          const rawHealth = (detail.site as any)?.health_json;
+          if (typeof rawHealth === 'string' && rawHealth) {
+            try {
+              const ctx = JSON.parse(rawHealth)?.site_context;
+              if (ctx && !cancelled) setSiteContext(ctx);
+            } catch {
+              // health context is optional
+            }
+          }
+        }
       } catch {
         // audits are optional decoration
       }
@@ -79,6 +102,45 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
       cancelled = true;
     };
   }, [site.id, getToken]);
+
+  // Seed the settings draft the first time the Settings tab opens.
+  useEffect(() => {
+    if (activeTab === 'settings' && !settingsDraft && site.config) {
+      setSettingsDraft(site.config as Record<string, any>);
+    }
+  }, [activeTab, settingsDraft, site.config]);
+
+  const upsertSetting = (path: string, value: any) => {
+    setSettingsDraft((draft) => (draft ? setPath(draft, path, value) : draft));
+    setSettingsDirty(true);
+  };
+
+  /** Presets carry their full tuned configuration — applying one loads it
+   *  into the draft (deployment decisions stay untouched). */
+  const applyPresetDraft = (id: string) => {
+    const preset = (PRESETS_RECORD as Record<string, any>)[id];
+    if (!preset || !settingsDraft) return;
+    const next: Record<string, any> = { ...preset, preset: id };
+    if (settingsDraft.deployment) next.deployment = { ...settingsDraft.deployment };
+    setSettingsDraft(next);
+    setSettingsDirty(true);
+    setCurrentPreset(id as SitePreset);
+    onToast(`${id[0].toUpperCase()}${id.slice(1)} preset applied — review the toggles and save`);
+  };
+
+  const handleSaveSettings = async () => {
+    if (!settingsDraft || !onUpdateConfig) return;
+    setIsSavingSettings(true);
+    try {
+      await onUpdateConfig(site.id, settingsDraft as SiteConfig);
+      setSettingsDirty(false);
+      onToast('Settings saved & applied to your site instantly');
+    } catch (err: any) {
+      onToast(err.message || 'Failed to save settings');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   // Lazy-load per-page data when the Pages tab opens
   useEffect(() => {
@@ -256,11 +318,12 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         minify: true,
         max_files: 40,
         inline_all: true,
-        inline_all_threshold: 153600,
+        inline_all_threshold: 786432,
       },
       assets: {
         proxy_enabled: true,
         keep_origins: [],
+        serve_own_from_cdn: true,
       },
       htaccess: {
         enabled: true,
@@ -554,29 +617,41 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
       {mobileScoreTrend.length >= 2 && renderSparkline(mobileScoreTrend, 'Mobile Score Trend (last 10 audits)')}
 
       {/* Sub Tabs */}
-      <div className="flex border-b border-[#e4e4e7] gap-2 pt-2">
+      <div className="flex border-b border-[#e4e4e7] gap-2 pt-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('presets')}
-          className={`pb-2.5 px-3 text-xs sm:text-[13px] font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`pb-2.5 px-3 text-xs sm:text-[13px] font-medium border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeTab === 'presets'
               ? 'border-[#f03e2f] text-[#171717] font-semibold'
               : 'border-transparent text-[#71717a] hover:text-[#171717]'
           }`}
         >
           <Sliders className="w-3.5 h-3.5" />
-          <span>Optimization Engine</span>
+          <span>Presets & Deployment</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`pb-2.5 px-3 text-xs sm:text-[13px] font-medium border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'settings'
+              ? 'border-[#f03e2f] text-[#171717] font-semibold'
+              : 'border-transparent text-[#71717a] hover:text-[#171717]'
+          }`}
+        >
+          <Check className="w-3.5 h-3.5" />
+          <span>All Settings</span>
         </button>
 
         <button
           onClick={() => setActiveTab('critical-css')}
-          className={`pb-2.5 px-3 text-xs sm:text-[13px] font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+          className={`pb-2.5 px-3 text-xs sm:text-[13px] font-medium border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeTab === 'critical-css'
               ? 'border-[#f03e2f] text-[#171717] font-semibold'
               : 'border-transparent text-[#71717a] hover:text-[#171717]'
           }`}
         >
           <Code className="w-3.5 h-3.5" />
-          <span>Critical CSS & R2 Assets</span>
+          <span>Critical CSS</span>
         </button>
 
         <button
@@ -590,6 +665,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
           <LayoutTemplate className="w-3.5 h-3.5" />
           <span>Pages</span>
         </button>
+        {/* whitespace-nowrap keeps tab labels intact while scrolling on mobile */}
 
         <button
           onClick={() => setActiveTab('connection')}
@@ -603,6 +679,69 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
           <span>Connection</span>
         </button>
       </div>
+
+      {/* TAB: ALL SETTINGS (full parity with the wp-admin control panel) */}
+      {activeTab === 'settings' && (
+        <div className="space-y-4">
+          {!site.config ? (
+            <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm text-xs text-[#71717a]">
+              Settings unlock once the plugin connects and sends its first heartbeat.
+            </div>
+          ) : !settingsDraft ? (
+            <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm text-xs text-[#71717a]">
+              Loading settings…
+            </div>
+          ) : (
+            <>
+              <SettingsPanel
+                config={settingsDraft}
+                upsert={upsertSetting}
+                applyPreset={applyPresetDraft}
+                siteContext={siteContext}
+              />
+              {/* Sticky save bar */}
+              <div className="sticky bottom-4 z-10">
+                <div
+                  className={`bg-white/95 backdrop-blur border border-[#e4e4e7] rounded-2xl shadow-lg px-5 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-opacity ${
+                    settingsDirty ? 'opacity-100' : 'opacity-60'
+                  }`}
+                >
+                  <span className="text-xs font-medium text-[#71717a] flex items-center gap-1.5">
+                    {settingsDirty && <span className="w-2 h-2 rounded-full bg-[#f03e2f] animate-pulse shrink-0" />}
+                    {settingsDirty
+                      ? 'Unsaved changes — saving pushes them to your site instantly.'
+                      : 'All changes saved.'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSettingsDraft(site.config as Record<string, any>);
+                        setSettingsDirty(false);
+                      }}
+                      disabled={!settingsDirty || isSavingSettings}
+                      className="btn btn-secondary text-xs"
+                    >
+                      Discard
+                    </button>
+                    <button
+                      onClick={handleSaveSettings}
+                      disabled={!settingsDirty || isSavingSettings || !onUpdateConfig}
+                      className="btn btn-primary text-xs inline-flex items-center gap-1.5"
+                    >
+                      {isSavingSettings ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isSavingSettings ? 'Saving…' : 'Save & Apply'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: OPTIMIZATION PRESETS & GRANULAR SWITCHES */}
       {activeTab === 'presets' && (
@@ -798,13 +937,13 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         </div>
       )}
 
-      {/* TAB 2: CRITICAL CSS & R2 ASSETS */}
+      {/* TAB: Critical CSS coverage */}
       {activeTab === 'critical-css' && (
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-6 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-base font-semibold text-[#171717]">R2 Critical CSS Storage</h3>
-              <p className="text-xs text-[#71717a]">Generated CSS is stored in Cloudflare R2 and streamed to your WordPress plugin</p>
+              <h3 className="text-base font-semibold text-[#171717]">Critical CSS Coverage</h3>
+              <p className="text-xs text-[#71717a]">Generated CSS is stored on the edge and streamed to your WordPress plugin</p>
             </div>
             <span className={`chip ${latestCssJobs.some(({ job }) => job) ? 'chip-success' : 'chip-neutral'}`}>
               <span className="chip-dot" />

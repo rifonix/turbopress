@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { optimizeImage } from 'wasm-image-optimization';
+import { sha256 } from '@wpinstant/shared';
 import { Env, AppVariables } from '../types/env.js';
 import { siteAuthMiddleware } from '../middleware/auth.js';
 import { checkRateLimit } from '../middleware/rate-limit.js';
@@ -59,7 +61,9 @@ assetRoutes.get('/css/:site_id/:css_file', async (c) => {
   }
 
   c.header('Content-Type', 'text/css; charset=utf-8');
-  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  // Artifact keys are URL+viewport (mutable across regenerations), so the
+  // policy must stay short-lived — immutable here would pin stale CSS.
+  c.header('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
   c.header('Access-Control-Allow-Origin', '*');
 
   return c.body(object.body as any);
@@ -71,9 +75,35 @@ assetRoutes.get('/css/:site_id/:css_file', async (c) => {
 
 const MEDIA_TYPES: Record<string, string> = {
   webp: 'image/webp',
-  orig: 'application/octet-stream', // sniffed/provided at upload time
+  orig: 'application/octet-stream',
   raw: 'application/octet-stream',
 };
+
+/**
+ * Resolve a serving content type for raw/orig objects from the source URL
+ * extension. Origin HEAD responses may omit Content-Type, and the previous
+ * hardcoded video/mp4 default made proxied stylesheets fail the browser's
+ * strict MIME check (a blocking <link rel=stylesheet> served as video/mp4
+ * is discarded). The extension map keeps CSS/JS/fonts/videos/images correct
+ * regardless of what the origin reports.
+ */
+export function contentTypeFor(url: string, fallback: string): string {
+  const path = url.split('?')[0].split('#')[0].toLowerCase();
+  if (path.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'text/javascript';
+  if (path.endsWith('.mp4') || path.endsWith('.m4v')) return 'video/mp4';
+  if (path.endsWith('.webm')) return 'video/webm';
+  if (path.endsWith('.mov')) return 'video/quicktime';
+  if (path.endsWith('.woff2')) return 'font/woff2';
+  if (path.endsWith('.woff')) return 'font/woff';
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.avif')) return 'image/avif';
+  if (path.endsWith('.gif')) return 'image/gif';
+  if (path.endsWith('.svg')) return 'image/svg+xml';
+  return fallback;
+}
 
 function b64urlDecode(u: string): string {
   const pad = '='.repeat((4 - (u.length % 4)) % 4);
@@ -140,7 +170,11 @@ async function verifyMediaSignature(
 
   let src: string;
   try {
-    src = decodeURIComponent(b64urlDecode(u));
+    // The plugin base64url-encodes the original URL without decoding it first.
+    // decodeURIComponent() here changes legitimate escapes such as %2F and
+    // %26 inside the origin URL, producing a different resource than the one
+    // that was signed.
+    src = b64urlDecode(u);
   } catch {
     return { ok: false, response: c.json({ success: false, error: 'Invalid source' }, 400) };
   }
@@ -171,6 +205,14 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const verified = await verifyMediaSignature(c, siteId, u, w, f, s);
   if (!verified.ok) return verified.response;
 
+  // The signature only covers u|w|f|siteId — bind the path hash to the
+  // signed source so a valid signature cannot be transplanted onto another
+  // artifact key. The plugin computes hash = sha256(src)[0:24].
+  const expectedHash = (await sha256(verified.src)).slice(0, 24);
+  if (!timingSafeEq(urlHash, expectedHash)) {
+    return c.json({ success: false, error: 'Invalid artifact identity' }, 403);
+  }
+
   const width = Math.max(0, Math.min(4000, parseInt(w, 10) || 0));
   const quality = Math.max(40, Math.min(100, parseInt(q, 10) || 82));
   const r2Key = `sites/${siteId}/media/${urlHash}_${width}_${quality}.${f}`;
@@ -181,24 +223,31 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const accept = c.req.header('accept') || '';
   const wantsAvif = f === 'webp' && /image\/avif/i.test(accept);
 
-  // Cache API fast path (per URL + format variant).
-  const cache = await caches.open('wpins-media-v1');
-  const cacheKey = new Request(c.req.url + (wantsAvif ? '&fmt=avif' : ''));
-  const cachedHit = await cache.match(cacheKey).catch(() => null);
-  if (cachedHit && cachedHit.ok) {
-    return cachedHit;
-  }
-
   // Range request support (video seeking) against an R2 hit.
   const rangeHeader = c.req.header('range');
   if (rangeHeader) {
     const meta = await c.env.ASSETS_BUCKET.head(r2Key).catch(() => null);
     if (meta) {
       const size = meta.size;
-      const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
-      if (match) {
-        const start = Math.min(Number(match[1]), Math.max(0, size - 1));
-        const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+      const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+      if (match && size > 0) {
+        let start: number;
+        let end: number;
+        if (match[1] === '') {
+          const suffixLength = Number(match[2]);
+          if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+            return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+          }
+          start = Math.max(0, size - suffixLength);
+          end = size - 1;
+        } else {
+          start = Number(match[1]);
+          end = match[2] === '' ? size - 1 : Number(match[2]);
+          if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || end < start) {
+            return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+          }
+          end = Math.min(end, size - 1);
+        }
         const partial = (await c.env.ASSETS_BUCKET.get(r2Key, {
           range: { offset: start, length: end - start + 1 },
         } as any)) as { body: ReadableStream } | null;
@@ -207,7 +256,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
           c.header('Content-Range', `bytes ${start}-${end}/${size}`);
           c.header('Accept-Ranges', 'bytes');
           c.header('Content-Length', String(end - start + 1));
-          c.header('Content-Type', meta.httpMetadata?.contentType || 'application/octet-stream');
+          c.header('Content-Type', contentTypeFor(verified.src, meta.httpMetadata?.contentType || 'application/octet-stream'));
           c.header('Cache-Control', 'public, max-age=31536000, immutable');
           c.header('Access-Control-Allow-Origin', '*');
           return c.body(partial.body as any);
@@ -216,14 +265,24 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     }
   }
 
+  // Cache API fast path (per URL + format variant). Range requests are
+  // handled above so a cached full response can never satisfy a partial one.
+  const cache = await caches.open('wpins-media-v1');
+  const cacheKey = new Request(c.req.url + (wantsAvif ? '&fmt=avif' : ''));
+  const cachedHit = await cache.match(cacheKey).catch(() => null);
+  if (cachedHit && cachedHit.ok) {
+    return cachedHit;
+  }
+
   const object = await c.env.ASSETS_BUCKET.get(r2Key);
   if (object) {
     const hit = new Response(object.body as any, {
       headers: {
-        'Content-Type': object.httpMetadata?.contentType || MEDIA_TYPES[f] || 'application/octet-stream',
+        'Content-Type': contentTypeFor(verified.src, object.httpMetadata?.contentType || MEDIA_TYPES[f] || 'application/octet-stream'),
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Accept-Ranges': 'bytes',
         'Access-Control-Allow-Origin': '*',
+        ...(wantsAvif ? { Vary: 'Accept' } : {}),
         'X-WP-Instant-Media': 'HIT',
       },
     });
@@ -240,31 +299,58 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     return c.json({ success: false, error: 'Rate limit exceeded' }, 429);
   }
 
-  // Videos: fill in the background, redirect meanwhile (unchanged).
+  // Raw assets include CSS and JavaScript as well as video. A redirect on a
+  // cold stylesheet/script adds a second origin request and can make crawler
+  // audits fail before the artifact is warmed. Proxy the first response from
+  // the Worker, then persist a bounded clone when the origin advertises a
+  // safe size. If Content-Length is absent we still serve the bytes, but do
+  // not retain an unbounded response in R2.
   if (f === 'raw') {
-    try {
-      c.executionCtx.waitUntil(
-        (async () => {
-          const head = await fetch(verified.src, { method: 'HEAD' }).catch(() => null);
-          const len = head ? Number(head.headers.get('content-length') || '0') : 0;
-          if (head && len > 0 && len <= 100 * 1024 * 1024) {
-            const res = await fetch(verified.src);
-            if (res.ok && res.body) {
-              await c.env.ASSETS_BUCKET.put(r2Key, res.body as any, {
-                httpMetadata: {
-                  contentType: head.headers.get('content-type') || 'video/mp4',
-                },
-              });
-            }
-          }
-        })()
+    const origin = await fetch(verified.src).catch(() => null);
+    if (!origin || !origin.ok || !origin.body) {
+      const upstreamStatus = origin && origin.status >= 400 && origin.status < 600 ? origin.status : 502;
+      return c.json(
+        { success: false, error: 'Origin asset unavailable' },
+        upstreamStatus as ContentfulStatusCode
       );
-    } catch {
-      // best effort
     }
-    c.header('Cache-Control', 'public, max-age=60');
-    c.header('X-WP-Instant-Media', 'MISS');
-    return c.redirect(verified.src, 302);
+
+    const originLength = Number(origin.headers.get('content-length') || '0');
+    const contentType = contentTypeFor(
+      verified.src,
+      origin.headers.get('content-type') || 'application/octet-stream'
+    );
+    if (originLength > 100 * 1024 * 1024) {
+      return new Response(origin.body, {
+        status: origin.status,
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=60',
+          'Access-Control-Allow-Origin': '*',
+          'X-WP-Instant-Media': 'PASS-OVERSIZE',
+        },
+      });
+    }
+
+    if (originLength > 0) {
+      const cachedBody = origin.clone().body;
+      if (cachedBody) {
+        c.executionCtx.waitUntil(
+          c.env.ASSETS_BUCKET.put(r2Key, cachedBody as any, { httpMetadata: { contentType } }).catch(() => {})
+        );
+      }
+    }
+
+    return new Response(origin.body, {
+      status: origin.status,
+      headers: {
+        'Content-Type': contentType,
+        ...(originLength > 0 ? { 'Content-Length': String(originLength) } : {}),
+        'Cache-Control': 'public, max-age=60',
+        'Access-Control-Allow-Origin': '*',
+        'X-WP-Instant-Media': 'MISS',
+      },
+    });
   }
 
   // Images: fetch the origin bytes once, then optimize AT THE EDGE.
@@ -346,10 +432,11 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
       }
       const response = new Response(body, {
         headers: {
-          'Content-Type': `image/${outFormat}`,
-          'Cache-Control': 'public, max-age=31536000, immutable',
-          'Access-Control-Allow-Origin': '*',
-          'X-WP-Instant-Media': 'EDGE-OPT',
+        'Content-Type': `image/${outFormat}`,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Access-Control-Allow-Origin': '*',
+        ...(wantsAvif ? { Vary: 'Accept' } : {}),
+        'X-WP-Instant-Media': 'EDGE-OPT',
         },
       });
       c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => {}));
@@ -359,16 +446,13 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     console.warn('[Media] WASM optimize failed, serving original:', err);
   }
 
-  // Optimization failed: store + serve the original bytes (self-heals when
-  // the plugin's derivative PUT lands — it overwrites the same R2 key).
-  c.executionCtx.waitUntil(
-    c.env.ASSETS_BUCKET.put(r2Key, srcBytes, {
-      httpMetadata: { contentType: srcType || 'application/octet-stream' },
-    }).catch(() => {})
-  );
+  // Optimization failed: serve the original bytes with a short TTL. The
+  // bytes are deliberately NOT persisted — an original stored under the
+  // derivative key would be served immutable on the next HIT even after the
+  // plugin's real derivative PUT landed.
   return new Response(srcBytes, {
     headers: {
-      'Content-Type': srcType || 'application/octet-stream',
+      'Content-Type': contentTypeFor(verified.src, srcType || 'application/octet-stream'),
       'Cache-Control': 'public, max-age=300',
       'Access-Control-Allow-Origin': '*',
       'X-WP-Instant-Media': 'ORIGINAL',
@@ -393,6 +477,12 @@ assetRoutes.put('/media/:site_id/:url_hash', siteAuthMiddleware, async (c) => {
   const verified = await verifyMediaSignature(c, site.id, u, w, f, s);
   if (!verified.ok) return verified.response;
 
+  // Same identity binding as the GET route: path hash must be sha256(src)[0:24].
+  const expectedHash = (await sha256(verified.src)).slice(0, 24);
+  if (!timingSafeEq(urlHash, expectedHash)) {
+    return c.json({ success: false, error: 'Invalid artifact identity' }, 403);
+  }
+
   if (!['webp', 'orig', 'raw'].includes(f)) {
     return c.json({ success: false, error: 'Invalid format' }, 400);
   }
@@ -413,6 +503,18 @@ assetRoutes.put('/media/:site_id/:url_hash', siteAuthMiddleware, async (c) => {
   await c.env.ASSETS_BUCKET.put(r2Key, body, {
     httpMetadata: { contentType },
   });
+
+  // The upload overwrites a mutable key: drop any cached variant (including
+  // the AVIF cache-only variant) so the next GET sees the new bytes.
+  const cache = await caches.open('wpins-media-v1').catch(() => null);
+  if (cache) {
+    c.executionCtx.waitUntil(
+      Promise.all([
+        cache.delete(new Request(c.req.url)).catch(() => false),
+        cache.delete(new Request(c.req.url + '&fmt=avif')).catch(() => false),
+      ])
+    );
+  }
 
   return c.json({ success: true, data: { key: r2Key, bytes: body.byteLength } });
 });

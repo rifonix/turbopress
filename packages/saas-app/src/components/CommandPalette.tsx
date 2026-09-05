@@ -90,14 +90,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     {
       id: 'nav-billing',
       group: 'Navigation',
-      label: 'Go to Billing & Usage',
+      label: 'Go to Billing & Plans',
       action: () => onNavigate('billing'),
-    },
-    {
-      id: 'nav-pricing',
-      group: 'Navigation',
-      label: 'Go to Plans & Pricing',
-      action: () => onNavigate('pricing'),
     },
     {
       id: 'act-quick-job',

@@ -256,20 +256,33 @@ export async function consumeReservationForJob(
     .run();
   if (flipped.meta.changes !== 1) return null;
   const now = Math.floor(Date.now() / 1000);
-  if (reservation.is_overage === 1) {
+  try {
+    if (reservation.is_overage === 1) {
+      await env.DB.prepare(
+        `UPDATE usage_periods SET overage_credits_reserved = overage_credits_reserved - ?,
+           overage_credits_used = overage_credits_used + ?, updated_at = ? WHERE id = ?`
+      )
+        .bind(reservation.units, reservation.units, now, reservation.usage_period_id)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE usage_periods SET credits_reserved = credits_reserved - ?,
+           credits_used = credits_used + ?, updated_at = ? WHERE id = ?`
+      )
+        .bind(reservation.units, reservation.units, now, reservation.usage_period_id)
+        .run();
+    }
+  } catch (err) {
+    // Compensate: without the counter update the accounting is incomplete, so
+    // return the reservation to 'reserved' and let a retry finish the pair.
+    // (D1 has no multi-statement transaction here; the state machine makes
+    // the two writes idempotent under retry.)
     await env.DB.prepare(
-      `UPDATE usage_periods SET overage_credits_reserved = overage_credits_reserved - ?,
-         overage_credits_used = overage_credits_used + ?, updated_at = ? WHERE id = ?`
+      "UPDATE optimization_credit_reservations SET state = 'reserved', updated_at = ? WHERE id = ? AND state = 'consumed'"
     )
-      .bind(reservation.units, reservation.units, now, reservation.usage_period_id)
+      .bind(now, reservation.id)
       .run();
-  } else {
-    await env.DB.prepare(
-      `UPDATE usage_periods SET credits_reserved = credits_reserved - ?,
-         credits_used = credits_used + ?, updated_at = ? WHERE id = ?`
-    )
-      .bind(reservation.units, reservation.units, now, reservation.usage_period_id)
-      .run();
+    throw err;
   }
   return {
     reservationId: reservation.id,
@@ -292,7 +305,18 @@ export async function releaseReservationForJob(env: Env, jobId: string): Promise
     .bind(Math.floor(Date.now() / 1000), reservation.id)
     .run();
   if (flipped.meta.changes !== 1) return;
-  await decrementReserved(env, reservation.usage_period_id, reservation.units, reservation.is_overage === 1);
+  try {
+    await decrementReserved(env, reservation.usage_period_id, reservation.units, reservation.is_overage === 1);
+  } catch (err) {
+    // Same crash window as consumeReservationForJob: roll the reservation
+    // back so a retry releases the counter instead of leaking the reservation.
+    await env.DB.prepare(
+      "UPDATE optimization_credit_reservations SET state = 'reserved', updated_at = ? WHERE id = ? AND state = 'released'"
+    )
+      .bind(Math.floor(Date.now() / 1000), reservation.id)
+      .run();
+    throw err;
+  }
 }
 
 export async function loadSubscriptionForSite(

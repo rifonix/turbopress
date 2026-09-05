@@ -254,7 +254,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             Fleet Overview
           </h1>
           <p className="text-[13.5px] text-[#71717a] mt-0.5">
-            Fleet health across {sites.length} connected WordPress site{sites.length === 1 ? '' : 's'} · Cloudflare Edge Active
+            Fleet health across {sites.length} connected WordPress site{sites.length === 1 ? '' : 's'} · Edge Active
           </p>
         </div>
 

@@ -2,8 +2,8 @@
 /**
  * Plugin Name: WP Instant - Next-Gen Page Optimizer
  * Plugin URI: https://wpinstant.dev
- * Description: Ultra-high performance WordPress page speed optimization engine powered by Cloudflare Edge & Browser Rendering.
- * Version: 1.12.1
+ * Description: Ultra-high performance WordPress page speed optimization engine powered by global Edge Delivery & Real-Browser Engine.
+ * Version: 1.14.0
  * Author: WP Instant Team
  * Author URI: https://wpinstant.dev
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WP_INSTANT_VERSION', '1.12.1');
+define('WP_INSTANT_VERSION', '1.14.0');
 define('WP_INSTANT_PLUGIN_FILE', __FILE__);
 define('WP_INSTANT_PATH', plugin_dir_path(__FILE__));
 define('WP_INSTANT_URL', plugin_dir_url(__FILE__));
@@ -63,6 +63,12 @@ require_once WP_INSTANT_PATH . 'includes/class-health-check.php';
 require_once WP_INSTANT_PATH . 'includes/class-optimize-callback.php';
 require_once WP_INSTANT_PATH . 'includes/class-telemetry.php';
 require_once WP_INSTANT_PATH . 'includes/class-auto-degrade.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-settings-base.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-page-dashboard.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-page-assets.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-page-html-css.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-page-js.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-page-advanced.php';
 require_once WP_INSTANT_PATH . 'admin/class-admin-page.php';
 
 // Activation Hook

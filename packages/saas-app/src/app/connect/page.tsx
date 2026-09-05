@@ -195,10 +195,10 @@ function ConnectContent() {
       if (res?.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       } else {
-        setErrorMessage('Failed to start Polar checkout. Please try again.');
+        setErrorMessage('Failed to start checkout. Please try again.');
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to start Polar checkout');
+      setErrorMessage(err?.message || 'Failed to start checkout');
     }
   };
 
@@ -570,7 +570,7 @@ function ConnectContent() {
                   >
                     Switch to Annual ($15.20/mo · Save 20% · $182.40/yr)
                   </button>
-                  <Link href="/dashboard/pricing" className="text-[#f03e2f] hover:underline font-medium">
+                  <Link href="/dashboard/billing" className="text-[#f03e2f] hover:underline font-medium">
                     Compare all plans →
                   </Link>
                 </div>

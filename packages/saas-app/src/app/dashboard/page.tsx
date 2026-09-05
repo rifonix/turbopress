@@ -14,7 +14,7 @@ export default function OverviewPage() {
       sites={ctx.sites}
       totalRunsUsed={ctx.billingData?.plan?.usedRuns ?? 0}
       totalRunsMax={ctx.billingData?.plan?.maxRuns ?? 200}
-      onSelectSite={(site) => router.push(`/sites/${site.id}`)}
+      onSelectSite={(site) => router.push(`/dashboard/sites/${site.id}`)}
       onNavigateToJobs={() => router.push('/dashboard/jobs')}
       onNavigateToConnect={() => router.push('/connect')}
       onPurgeSite={ctx.handlePurgeSite}

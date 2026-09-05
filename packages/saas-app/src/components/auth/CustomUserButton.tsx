@@ -180,7 +180,7 @@ export const CustomUserButton: React.FC<CustomUserButtonProps> = ({
               >
                 <div className="flex items-center gap-2">
                   <ExternalLink className="w-3.5 h-3.5 text-[#71717a]" />
-                  <span>Polar Customer Portal</span>
+                  <span>Customer Portal</span>
                 </div>
                 <ChevronRight className="w-3 h-3 text-[#a1a1aa]" />
               </button>

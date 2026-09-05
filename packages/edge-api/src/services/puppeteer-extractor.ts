@@ -74,11 +74,15 @@ export function safeMinifyCss(css: string): string {
   // 2. Strip comments.
   out = out.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  // 3. Collapse whitespace / trim around syntax tokens.
+  // 3. Collapse whitespace / trim around syntax tokens. Whitespace is only
+  // stripped where it is ALWAYS insignificant: around braces, semicolons,
+  // commas and the >/ ~ combinators. It is never stripped around ':'
+  // (`a :hover` must not become `a:hover`) or '+'/'-' (calc() requires
+  // spaces around those operators).
   out = out
     .replace(/\s+/g, ' ')
-    .replace(/\s*([{}:;,>~+])\s*/g, '$1')
-    .replace(/\s*([>+~])\s*/g, '$1')
+    .replace(/\s*([{};,])\s*/g, '$1')
+    .replace(/\s*([>~])\s*/g, '$1')
     .replace(/;}/g, '}')
     .trim();
 
@@ -131,7 +135,9 @@ export function computePerformanceScore(m: {
  * - Always keeps :root vars, @font-face, @keyframes, @layer statements and
  *   property/declaration defaults needed to avoid FOUC.
  */
-async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOriginHrefs: string[] }> {
+async function extractUsedCssViaCssom(
+  page: any
+): Promise<{ segments: Array<string | { __xref: string }>; crossOriginHrefs: string[] }> {
   // IMPORTANT: this code executes inside the remote browser via CDP.
   // It MUST be passed as a string: esbuild (keepNames) rewrites function
   // callbacks with a __name() wrapper that only exists in the worker bundle,
@@ -140,12 +146,14 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
   const src = `
     (() => {
       const MAX_RULES = 60000;
-      const MAX_OUTPUT_BYTES = 512 * 1024;
+      const MAX_OUTPUT_BYTES = 768 * 1024;
       // Second, larger envelope for rules that must never be dropped even
       // when the budget is exhausted: pseudo-element rules (::before/::after
-      // carry icons/overlays), custom-property definitions and font/keyframes
-      // foundations. These are byte-small but visually critical.
-      const MAX_PROTECTED_BYTES = 768 * 1024;
+      // carry icons/overlays), custom-property definitions, font/keyframes
+      // foundations, and background/gradient declarations (builder sites put
+      // their visual identity there). These are byte-small but visually
+      // critical.
+      const MAX_PROTECTED_BYTES = 1024 * 1024;
       const out = [];
       const crossOrigin = [];
       let ruleCount = 0;
@@ -174,9 +182,32 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
         }
       }
 
-      // Rules too important to lose when the output cap hits.
+      // Rules too important to lose when the output cap hits. Beyond the
+      // pseudo/font/var foundations, gradient and background-image rules,
+      // any rule embedding an asset url(), and overlay/backdrop selectors
+      // are protected: builder sites (Elementor) carry their visual
+      // identity (hero gradients, section overlays) in exactly these
+      // declarations, and they live in the LATE stylesheets that a
+      // sheet-granular budget dropped wholesale.
       function isProtectedRule(cssText) {
-        return /::|:(?:before|after)\\b|@font-face|@keyframes|@property|--[\\w-]+\\s*:/.test(cssText);
+        return /::|:(?:before|after)\\b|@font-face|@keyframes|@property|--[\\w-]+\\s*:|gradient\\(|background-image\\s*:|\\burl\\(|[-.#][\\w-]*(?:overlay|backdrop)\\b/i.test(cssText);
+      }
+
+      // Rebase relative url() references against the stylesheet URL: inlined
+      // into a page with a different base, relative asset URLs would 404.
+      // Absolute/data/blob/protocol-relative URLs are left untouched.
+      function rebaseCss(css, base) {
+        if (!base || !css || css.indexOf('url(') === -1) return css;
+        return css.replace(/url\\(\\s*(['"]?)([^'")]+)\\1\\s*\\)/gi, (m, q, u) => {
+          const t = u.trim();
+          if (/^(?:data:|blob:|https?:|#|\/\/)/i.test(t)) return m;
+          try { return 'url(' + q + new URL(t, base).href + q + ')'; } catch (e) { return m; }
+        });
+      }
+
+      function mediaMatches(mediaText) {
+        if (!mediaText || mediaText === 'all') return true;
+        try { return window.matchMedia(mediaText).matches; } catch (e) { return true; }
       }
 
       function push(text) {
@@ -193,35 +224,46 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
         }
       }
 
-      function collectRules(rules) {
-        const parts = [];
+      function collectRules(rules, emit, base) {
         for (let i = 0; i < rules.length; i++) {
           // Stop only when even the protected envelope is full — pseudo/
           // foundation rules keep flowing past the main budget.
-          if (ruleCount++ > MAX_RULES || (outputBytes > MAX_OUTPUT_BYTES && protectedBytes > MAX_PROTECTED_BYTES)) return parts.join('\\n');
+          if (ruleCount++ > MAX_RULES || (outputBytes > MAX_OUTPUT_BYTES && protectedBytes > MAX_PROTECTED_BYTES)) return;
           const rule = rules[i];
           switch (rule.constructor.name) {
             case 'CSSMediaRule': {
               const media = rule;
               const query = media.media.mediaText;
-              let matches = false;
-              try { matches = window.matchMedia(query).matches; } catch (e) {}
-              if (matches) {
+              if (mediaMatches(query)) {
                 // Keep the WHOLE matching block (v1.7.0): filtering inner
                 // rules was how overlay/background rules inside media
                 // queries went missing. Whole blocks are conservative —
                 // size is bounded by the output cap.
-                parts.push(media.cssText);
+                emit(rebaseCss(media.cssText, base));
               }
               break;
             }
             case 'CSSSupportsRule': {
-              const supports = rule;
-              let ok = false;
-              try { ok = CSS.supports(supports.conditionText); } catch (e) { ok = true; }
-              if (ok) {
-                parts.push('@supports ' + supports.conditionText + '{' + collectRules(supports.cssRules) + '}');
-              }
+              // Keep the WHOLE @supports block with its condition intact:
+              // a condition matching in THIS extraction browser may not
+              // match in a visitor's browser — flattening would apply
+              // unsupported rules unconditionally there.
+              emit(rebaseCss(rule.cssText, base));
+              break;
+            }
+            case 'CSSImportRule': {
+              // @import was previously dropped, silently losing styles.
+              // Recurse into the imported sheet (same-origin only — a
+              // cross-origin sheet throws on cssRules access) so its rules
+              // land at exactly this cascade position.
+              try {
+                if (mediaMatches((rule.media && rule.media.mediaText) || '')) {
+                  const imp = rule.styleSheet;
+                  if (imp && imp.cssRules && imp.cssRules.length) {
+                    collectRules(imp.cssRules, emit, imp.href || base);
+                  }
+                }
+              } catch (e) { /* cross-origin @import: cannot inline safely */ }
               break;
             }
             case 'CSSStyleRule': {
@@ -231,7 +273,7 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
               // dropping them breaks every var() consumer downstream.
               const onlyVars = style.style.length > 0 && Array.from(style.style).every((p) => String(p).startsWith('--'));
               if (foundation || onlyVars || style.selectorText.split(',').some(selectorMatches)) {
-                parts.push(style.cssText);
+                emit(rebaseCss(style.cssText, base));
               }
               break;
             }
@@ -242,35 +284,53 @@ async function extractUsedCssViaCssom(page: any): Promise<{ css: string; crossOr
             case 'CSSPropertyRule':
             case 'CSSCounterStyleRule':
             case 'CSSFontFeatureValuesRule':
-              parts.push(rule.cssText);
+              emit(rebaseCss(rule.cssText, base));
               break;
             default:
               // Unknown/at-rule: keep cssText conservatively (e.g. @container, @scope).
               try {
                 if (rule.cssText && !/^@import/i.test(rule.cssText)) {
-                  parts.push(rule.cssText);
+                  emit(rebaseCss(rule.cssText, base));
                 }
               } catch (e) {}
           }
         }
-        return parts.join('\\n');
       }
 
       for (let i = 0; i < document.styleSheets.length; i++) {
         const sheet = document.styleSheets[i];
+        // Skip disabled sheets and sheets whose media never matches this
+        // viewport (e.g. media="print") — otherwise their rules would leak
+        // in as unconditional screen CSS.
+        try {
+          if (sheet.disabled) continue;
+          if (!mediaMatches((sheet.media && sheet.media.mediaText) || '')) continue;
+        } catch (e) {}
         let rules = null;
         try {
           rules = sheet.cssRules;
         } catch (e) {
-          // Cross-origin without CORS — fall back to coverage for this sheet.
-          if (sheet.href) crossOrigin.push(sheet.href);
+          // Cross-origin without CORS — mark its exact cascade position so
+          // the coverage fallback splices the slice in HERE instead of
+          // appending it after all same-origin CSS.
+          if (sheet.href) {
+            crossOrigin.push(sheet.href);
+            out.push({ __xref: sheet.href });
+          }
           continue;
         }
         if (!rules) continue;
-        push(collectRules(rules));
+        // PER-RULE budgeting (v1.13.0): push() applies the output cap to
+        // each rule individually. The previous push(collectRules(...))
+        // handed whole-sheet blobs through the budget, so a large early
+        // sheet exhausted it and LATE sheets (Elementor post-*.css widget
+        // backgrounds/overlays/gradients) were dropped wholesale — the
+        // root cause of "gradients and overlays missing with critical
+        // CSS on" for builder sites.
+        collectRules(rules, push, sheet.href || location.href);
       }
 
-      return { css: out.join('\\n'), crossOriginHrefs: crossOrigin };
+      return { segments: out, crossOriginHrefs: crossOrigin };
     })()
   `;
   return page.evaluate(src);
@@ -414,6 +474,23 @@ export async function extractCriticalCssAndLcp(
     await page.goto(fetchUrl, {
       waitUntil: 'networkidle2',
       timeout: 45000,
+    }).then((navResponse: any) => {
+      // 2b. Never extract from an error document: a 4xx/5xx page (or an
+      // off-origin login/redirect landing) has none of the target page's
+      // styles, and publishing its "critical CSS" would break the real page.
+      const navStatus = navResponse && typeof navResponse.status === 'function' ? navResponse.status() : 0;
+      if (!navResponse || navStatus < 200 || navStatus >= 300) {
+        throw new Error(`Origin returned HTTP ${navStatus || 'no response'} — refusing to extract from an error page.`);
+      }
+      try {
+        const finalOrigin = new URL(page.url()).origin;
+        if (finalOrigin !== new URL(url).origin) {
+          throw new Error(`Navigation redirected off-origin to ${page.url()} — refusing to extract.`);
+        }
+      } catch (e) {
+        if (e instanceof Error && /refusing to extract/.test(e.message)) throw e;
+        // Unparseable final URL: status was already validated above.
+      }
     });
 
     // 3. Let rendering settle so LCP/CLS observations stabilise.
@@ -446,24 +523,30 @@ export async function extractCriticalCssAndLcp(
       console.warn('[Extractor] CSS coverage stop failed:', covErr);
     }
 
-    // 5. CSSOM-based extraction (same-origin) + coverage fallback (cross-origin)
+    // 5. CSSOM-based extraction (same-origin) + coverage fallback (cross-origin).
+    // Segments preserve DOCUMENT ORDER: cross-origin coverage slices are
+    // spliced back at their original cascade position instead of being
+    // appended after all same-origin CSS (which inverted the cascade).
     const cssomResult = await extractUsedCssViaCssom(page);
-    let fullCriticalCss = cssomResult.css;
-    if (cssomResult.crossOriginHrefs.length > 0) {
-      const crossOriginCss = coverageSlicesForUrls(coverage as any, cssomResult.crossOriginHrefs);
-      if (crossOriginCss) {
-        fullCriticalCss += '\n' + crossOriginCss;
+    const cssParts: string[] = [];
+    for (const seg of cssomResult.segments) {
+      if (typeof seg === 'string') {
+        cssParts.push(seg);
+      } else if (seg && typeof seg.__xref === 'string') {
+        const slice = coverageSlicesForUrls(coverage as any, [seg.__xref]);
+        if (slice) cssParts.push(slice);
       }
     }
+    let fullCriticalCss = cssParts.join('\n');
 
     // 6. Safe minification (protects url()/data-URIs → background images keep working)
     fullCriticalCss = safeMinifyCss(fullCriticalCss);
     const criticalCssBytes = Buffer.byteLength(fullCriticalCss, 'utf8');
 
     // 6b. Sanity guard: a real page virtually always yields more than 1KB of
-    // used CSS with more than 2 stylesheets. Tiny output on a normal-looking
-    // page means we captured an interstitial/error shell — do not save it.
-    if (criticalCssBytes < 1024 && (probe.sheets ?? 99) <= 2) {
+    // used CSS with more than 2 stylesheets, and NEVER yields under 256 bytes.
+    // Tiny output means we captured an interstitial/error shell — do not save it.
+    if (criticalCssBytes < 256 || (criticalCssBytes < 1024 && (probe.sheets ?? 99) <= 2)) {
       throw new Error(
         'Extraction captured too little CSS (likely an error/interstitial page). Retrying is safe.'
       );
@@ -557,7 +640,9 @@ export async function extractCriticalCssAndLcp(
     await env.ASSETS_BUCKET.put(r2Key, fullCriticalCss, {
       httpMetadata: {
         contentType: 'text/css; charset=utf-8',
-        cacheControl: 'public, max-age=31536000, immutable',
+        // Regenerated in place at the same URL+viewport key: MUST NOT be
+        // immutable, or browsers/edges keep the stale artifact forever.
+        cacheControl: 'public, max-age=3600, stale-while-revalidate=86400',
       },
       customMetadata: {
         siteId,

@@ -128,12 +128,27 @@ optimizeRoutes.post('/dispatch', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const payload = OptimizationDispatchSchema.parse(body);
 
+  // The dispatch target must be an absolute http(s) URL; its host is the
+  // canonical identity used to bind the job to the authenticated site.
+  let payloadHost = '';
+  try {
+    payloadHost = normalizeDomain(new URL(payload.url).hostname);
+  } catch {
+    payloadHost = '';
+  }
+  if (!payloadHost) {
+    return c.json({ success: false, error: 'A valid absolute http(s) URL is required' }, 400);
+  }
+
   let siteId = '';
   let targetDomain = '';
 
   if (rawDomain && authHeader.startsWith('Bearer sk_live_')) {
     // Site-authenticated request: verify the API key against the stored hash.
     targetDomain = normalizeDomain(rawDomain);
+    if (payloadHost !== targetDomain) {
+      return c.json({ success: false, error: 'Dispatch URL does not belong to the authenticated site' }, 403);
+    }
     const apiKeyHash = await sha256(authHeader.replace('Bearer ', '').trim());
     const site = await c.env.DB.prepare(
       'SELECT id FROM sites WHERE domain = ? AND site_api_key_hash = ? AND is_active = 1'
@@ -165,18 +180,13 @@ optimizeRoutes.post('/dispatch', async (c) => {
       return c.json({ success: false, error: 'Unauthorized: Invalid or expired token' }, 401);
     }
 
-    // Extract domain from target URL
-    try {
-      targetDomain = new URL(payload.url).hostname;
-    } catch {
-      targetDomain = payload.url.split('/')[0];
-    }
-    targetDomain = normalizeDomain(targetDomain);
+    // Extract domain from target URL (already validated above)
+    targetDomain = payloadHost;
 
     const site = await c.env.DB.prepare(
       orgId
-        ? 'SELECT id FROM sites WHERE (domain = ? OR id = ?) AND (user_id = ? OR organization_id = ?) AND is_active = 1'
-        : 'SELECT id FROM sites WHERE (domain = ? OR id = ?) AND user_id = ? AND is_active = 1'
+        ? 'SELECT id, domain FROM sites WHERE (domain = ? OR id = ?) AND (user_id = ? OR organization_id = ?) AND is_active = 1'
+        : 'SELECT id, domain FROM sites WHERE (domain = ? OR id = ?) AND user_id = ? AND is_active = 1'
     )
       .bind(
         targetDomain,
@@ -184,17 +194,23 @@ optimizeRoutes.post('/dispatch', async (c) => {
         userId,
         ...(orgId ? [orgId] : [])
       )
-      .first<{ id: string }>();
+      .first<{ id: string; domain: string }>();
 
     if (!site) {
       // No auto-create: sites are established exclusively via the pairing
       // handshake (POST /api/v1/auth/pair), which enforces plan limits.
       return c.json({ success: false, error: 'Site not registered. Pair the site from your WordPress admin first.' }, 404);
     }
+    // Prevent site_id-of-A + URL-of-B mismatches: the resolved site must own
+    // the dispatch URL's host.
+    if (normalizeDomain(site.domain) !== payloadHost) {
+      return c.json({ success: false, error: 'Dispatch URL does not belong to the selected site' }, 403);
+    }
     siteId = site.id;
   }
 
-  const viewports: ViewportMode[] = payload.viewports && payload.viewports.length > 0 ? payload.viewports : ['mobile', 'desktop'];
+  const requestedViewports = payload.viewports.length > 0 ? payload.viewports : (['mobile', 'desktop'] as ViewportMode[]);
+  const viewports: ViewportMode[] = [...new Set(requestedViewports)];
   const createdJobs: Array<{ jobId: string; viewport: ViewportMode; status: string }> = [];
 
   // Commercial gate: the site must map to an active/trialing subscription,
@@ -233,6 +249,20 @@ optimizeRoutes.post('/dispatch', async (c) => {
         success: false,
         code: 'CONCURRENCY_LIMIT',
         error: `Plan concurrency limit reached (${plan.maxConcurrentJobs} concurrent optimizations). Wait for running jobs to finish.`,
+      },
+      429
+    );
+  }
+
+  // The whole batch must fit in the remaining capacity so one dispatch with
+  // multiple viewports cannot exceed either cap.
+  const remainingCapacity = Math.min(12 - (activeRow?.count || 0), plan.maxConcurrentJobs - fleetActive);
+  if (viewports.length > remainingCapacity) {
+    return c.json(
+      {
+        success: false,
+        code: 'CONCURRENCY_LIMIT',
+        error: `Requested ${viewports.length} viewport jobs but only ${remainingCapacity} slot(s) remain — wait for running jobs to finish.`,
       },
       429
     );

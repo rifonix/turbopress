@@ -14,6 +14,7 @@ import {
 } from '@wpinstant/shared';
 import { saasUserAuthMiddleware, siteAuthMiddleware } from '../middleware/auth.js';
 import { loadSubscriptionForScope, resolveBillingScope } from '../services/entitlements.js';
+import { pushPluginCommand } from '../services/plugin-commands.js';
 
 export const siteRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -557,30 +558,28 @@ siteRoutes.post('/:site_id/purge', saasUserAuthMiddleware, async (c) => {
   const bindings = siteScopeBindings(scope);
 
   const site = await c.env.DB.prepare(
-    `SELECT domain FROM sites WHERE id = ? AND ${clause}`
+    `SELECT domain, site_url, callback_secret FROM sites WHERE id = ? AND ${clause}`
   )
     .bind(siteId, ...bindings)
-    .first<{ domain: string }>();
+    .first<{ domain: string; site_url: string | null; callback_secret: string | null }>();
 
   if (!site) {
     return c.json({ success: false, error: 'Site not found' }, 404);
   }
 
-  // Record purge command timestamp in KV
-  await c.env.KV.put(
-    `purge:${site.domain}`,
-    JSON.stringify({
-      timestamp: Date.now(),
-      urls: payload.urls || [],
-      purgeAll: payload.purge_all,
-    }),
-    { expirationTtl: 300 }
-  );
+  // Push a signed purge command straight to the plugin so the static cache
+  // is actually cleared. (The plugin purges all static entries; per-URL
+  // payloads are therefore covered.) The previous purge:<domain> KV record
+  // had no reader and has been removed.
+  const pushed = await pushPluginCommand(c.env, site, { command: 'purge' });
 
   return c.json({
     success: true,
     data: {
-      message: `Cache purge broadcasted for ${site.domain}`,
+      message: pushed
+        ? `Cache purge pushed to plugin for ${site.domain}`
+        : `Plugin unreachable; purge not delivered for ${site.domain}`,
+      pushedToPlugin: pushed,
       details: payload,
     },
   });

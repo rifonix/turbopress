@@ -103,6 +103,11 @@ class Plugin {
         // Async optimization pipeline: dispatch to edge, poll, download critical CSS
         add_action('wp_instant_async_optimize', [$this, 'run_async_optimize'], 10, 2);
 
+        // Config sync: after local settings saves, mirror the config to the
+        // cloud dashboard (verify_connection) instead of waiting a day for
+        // the heartbeat.
+        add_action('wp_instant_config_sync', [$this, 'run_config_sync']);
+
         // Daily health heartbeat to the SaaS control plane
         add_action('wp_instant_health_heartbeat', [$this, 'run_health_heartbeat']);
         if (!wp_next_scheduled('wp_instant_health_heartbeat')) {
@@ -134,6 +139,11 @@ class Plugin {
         if (!wp_next_scheduled('wp_instant_media_offload')) {
             wp_schedule_event(time() + 2 * MINUTE_IN_SECONDS, 'wp_instant_5min', 'wp_instant_media_offload');
         }
+
+        // Google Fonts localization runs off the render path: the first
+        // request schedules this event and keeps the original Google link
+        // until the localized package exists.
+        add_action('wp_instant_localize_font', [FontOptimizer::class, 'localize_scheduled']);
 
         // Edge push callback (HMAC-verified REST route)
         OptimizeCallback::register_routes();
@@ -233,7 +243,14 @@ class Plugin {
 
         if ($preview && !headers_sent()) {
             header('X-WP-Instant-Preview: 1');
+            // Preview output is admin-only and must never land in an edge
+            // cache between checks.
+            header('Cache-Control: no-store');
         }
+        // NOTE: no public Cache-Control here. Later hooks (redirects,
+        // membership/cart plugins, DONOTCACHEPAGE) can still change the
+        // response after template_redirect; cacheability is decided at
+        // buffer flush via response_allows_cache().
 
         ob_start([$this, 'process_output_buffer']);
     }
@@ -256,8 +273,21 @@ class Plugin {
         // Preview requests are never written to the static page cache.
         $is_preview = $this->is_preview_request();
 
-        if (!$is_preview && $this->config->get('caching.enabled', true)) {
+        if (
+            !$is_preview &&
+            $this->config->get('caching.enabled', true) &&
+            $this->response_allows_cache($transformed)
+        ) {
             $this->cache_manager->write_cache($transformed);
+            if (!headers_sent()) {
+                // Edge-cacheable HTML: fresh renders carry the SAME cache
+                // headers the advanced-cache drop-in sends on HITs, so any
+                // CDN/proxy in front of the origin can cache uniformly.
+                header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
+                // Transformation changed the bytes: a pre-set Content-Length
+                // is now stale and would truncate or pad the response.
+                header_remove('Content-Length');
+            }
         }
 
         if ($is_preview) {
@@ -276,6 +306,38 @@ class Plugin {
         // Any admin carrying the preview flag (Test or Live mode): preview
         // output is never written to the static page cache.
         return current_user_can('manage_options') && isset($_GET['wpins_preview']);
+    }
+
+    /**
+     * Final-response cache eligibility, evaluated at buffer flush — AFTER
+     * every late hook (redirects, cookies, cache-policy headers) has run.
+     * Anything a shared cache must not store stays out of the page cache
+     * and keeps its original (non-public) cache headers.
+     */
+    private function response_allows_cache(string $buffer): bool {
+        if (defined('DONOTCACHEPAGE') && DONOTCACHEPAGE) {
+            return false;
+        }
+        if (http_response_code() !== 200 || stripos($buffer, '<html') === false) {
+            return false;
+        }
+        foreach (headers_list() as $header) {
+            $lower = strtolower($header);
+            if (strpos($lower, 'set-cookie:') === 0) {
+                return false;
+            }
+            if (strpos($lower, 'cache-control:') === 0) {
+                foreach (['private', 'no-store', 'no-cache'] as $flag) {
+                    if (strpos($lower, $flag) !== false) {
+                        return false;
+                    }
+                }
+            }
+            if (strpos($lower, 'content-type:') === 0 && strpos($lower, 'text/html') === false) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -365,6 +427,21 @@ class Plugin {
         AutoDegrade::evaluate($this->config);
     }
 
+    /**
+     * Cron: mirror the current config to the cloud dashboard. Scheduled
+     * after local settings-page saves so the SaaS UI reflects plugin-side
+     * edits within seconds instead of at the next daily heartbeat.
+     */
+    public function run_config_sync(): void {
+        if (!$this->config->is_connected()) {
+            return;
+        }
+        $result = $this->api_client->verify_connection();
+        if (!empty($result['success'])) {
+            update_option('wp_instant_config_synced_at', time());
+        }
+    }
+
     /** Cron: push aggregated RUM + evaluate auto-degrade (hourly). */
     public function run_rum_heartbeat(): void {
         Telemetry::push_to_edge($this->api_client);
@@ -410,7 +487,7 @@ class Plugin {
         CacheIntegration::purge_foreign_caches('all');
 
         // Unschedule heartbeats and background optimization tasks
-        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize'] as $hook) {
+        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize', 'wp_instant_config_sync', 'wp_instant_localize_font'] as $hook) {
             $timestamp = wp_next_scheduled($hook);
             while ($timestamp) {
                 wp_unschedule_event($timestamp, $hook);

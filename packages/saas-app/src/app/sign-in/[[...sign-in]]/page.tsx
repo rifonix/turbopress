@@ -68,7 +68,7 @@ function SignInContent() {
                   AST Critical CSS
                 </span>
                 <p className="text-[11.5px] text-[#71717a]">
-                  Cloudflare Puppeteer pipeline saves to zero-egress R2 storage.
+                  A real-browser pipeline saves to zero-egress edge storage.
                 </p>
               </div>
 

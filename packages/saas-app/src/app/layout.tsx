@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: '%s · WP Instant',
   },
   description:
-    'Automatic critical CSS, image transcoding, script delay, and full-page caching on Cloudflare\'s edge. Install the plugin and your WordPress site loads instantly.',
+    'Automatic critical CSS, image transcoding, script delay, and full-page caching on the edge. Install the plugin and your WordPress site loads instantly.',
   icons: {
     icon: '/favicon.ico',
   },

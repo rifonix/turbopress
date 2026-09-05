@@ -48,6 +48,7 @@ class MediaOptimizer {
 
     public function transform(string $html): string {
         $lcp_image = null;
+        $lcp_img_final = null;
 
         // Edge-verified LCP (covers CSS-background images the <img> scan
         // below can never see).
@@ -56,7 +57,7 @@ class MediaOptimizer {
         // Process <img> tags
         $html = preg_replace_callback(
             '/<img\s+([^>]+)>/i',
-            function ($matches) use (&$lcp_image, $verified_lcp) {
+            function ($matches) use (&$lcp_image, &$lcp_img_final, $verified_lcp) {
                 $full_tag = $matches[0];
                 $attributes = $matches[1];
 
@@ -93,6 +94,11 @@ class MediaOptimizer {
                     $clean = preg_replace('/loading=[\'"][^\'"]*[\'"]/i', '', $attributes);
                     $clean = preg_replace('/fetchpriority=[\'"][^\'"]*[\'"]/i', '', (string) $clean);
                     $clean = preg_replace('/decoding=[\'"][^\'"]*[\'"]/i', '', (string) $clean);
+                    // Remember the FINAL (offloader-rewritten) attributes so
+                    // the preload below fetches the exact URL/candidates the
+                    // browser will — a preload built from a different URL
+                    // double-fetches the LCP image.
+                    $lcp_img_final = trim((string) $clean);
                     return '<img ' . trim((string) $clean) . ' fetchpriority="high" decoding="sync">';
                 }
 
@@ -134,10 +140,21 @@ class MediaOptimizer {
         if ($this->config->get('media.preload_lcp_image', true)) {
             $preload = null;
             if ($verified_lcp !== null) {
-                $preload = sprintf(
-                    '<link rel="preload" as="image" href="%s" fetchpriority="high">',
-                    esc_url($this->lcp_fetch_url($verified_lcp))
-                );
+                // When the verified LCP is an <img>, preload its FINAL
+                // rewritten src/srcset exactly (see the callback above).
+                // lcp_fetch_url() mirrors the offloader's max-width
+                // background-image derivative and is only correct for
+                // CSS-background LCPs — using it for <img> LCPs whose src
+                // was rewritten at a different width double-fetches.
+                if ($lcp_img_final !== null) {
+                    $preload = $this->build_lcp_preload($lcp_img_final);
+                }
+                if ($preload === null) {
+                    $preload = sprintf(
+                        '<link rel="preload" as="image" href="%s" fetchpriority="high">',
+                        esc_url($this->lcp_fetch_url($verified_lcp))
+                    );
+                }
             } elseif ($lcp_image !== null) {
                 $preload = $this->build_lcp_preload($lcp_image);
             }

@@ -154,6 +154,18 @@ async function enqueueCrawlJobs(
           await env.OPTIMIZATION_QUEUE.send({ jobId, siteId, url, viewport, attempt: 1 });
         } catch (sendErr) {
           console.warn('[Crawl] queue send failed:', sendErr);
+          // Mark the orphaned job terminally failed too — otherwise it sits
+          // 'queued' until the zombie sweeper reaps it 30 minutes later.
+          await env.DB.prepare(
+            "UPDATE optimization_jobs SET status = 'failed', error_message = 'Queue send failed', completed_at = unixepoch() WHERE id = ? AND status = 'queued'"
+          )
+            .bind(jobId)
+            .run();
+          await env.KV.put(
+            `job:${jobId}`,
+            JSON.stringify({ status: 'failed', error: 'Queue send failed' }),
+            { expirationTtl: 3600 }
+          );
           await releaseReservationForJob(env, jobId);
         }
       }
@@ -198,6 +210,9 @@ export async function processOptimizationQueue(
             JSON.stringify({ status: 'failed', error: 'Browser rendering unavailable' }),
             { expirationTtl: 3600 }
           );
+          // Terminal infrastructure failure is NEVER charged: release the
+          // credit reservation (previously stranded here until period reset).
+          await releaseReservationForJob(env, msg.body.jobId);
           msg.ack();
         }
       } catch (dbErr) {
@@ -226,12 +241,20 @@ export async function processOptimizationQueue(
       const { jobId, siteId, url, viewport } = msg.body;
 
       try {
-        // Mark job as processing
-        await env.DB.prepare(
-          "UPDATE optimization_jobs SET status = 'processing', attempts = attempts + 1 WHERE id = ?"
+        // Idempotent claim: at-least-once delivery can redeliver a message
+        // for a job that is already processing/terminal (or was re-run).
+        // Only a queued job may transition to processing — anything else is
+        // a duplicate and is acked WITHOUT redoing extraction/callbacks.
+        const claim = await env.DB.prepare(
+          "UPDATE optimization_jobs SET status = 'processing', attempts = attempts + 1 WHERE id = ? AND status = 'queued'"
         )
           .bind(jobId)
           .run();
+        if ((claim.meta?.changes ?? 0) === 0) {
+          console.warn(`[Queue] Job ${jobId} not queued (duplicate/stale delivery) — acking without work`);
+          msg.ack();
+          continue;
+        }
 
         // Ensure browser instance is active / re-connect if previous run crashed
         const activeBrowser = await getActiveBrowser();

@@ -6,14 +6,16 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Admin experience: two pages.
+ * Admin experience: native multi-page UI.
  *
- *  - Dashboard (wp-admin/admin.php?page=wp-instant): the full SaaS control
- *    panel, embedded full-width via a signed 1h HMAC token. Requires a
- *    connection; otherwise visitors are bounced to the Connect page.
- *  - Connect (wp-admin/admin.php?page=wp-instant-connect): local page. When
- *    disconnected it is the onboarding screen; when connected it shows the
- *    connection details and hosts the Disconnect action.
+ *  - Dashboard (wp-instant): templates/presets, deployment, RUM stats,
+ *    quick actions. Native page (no embed) since v1.14.0.
+ *  - Assets (wp-instant-assets): CDN offload, lazy loading, css/js
+ *    delivery, fonts, plugin asset control.
+ *  - HTML & CSS (wp-instant-html-css), JavaScript (wp-instant-js),
+ *    Cache & Advanced (wp-instant-advanced): granular settings pages.
+ *  - Connect (wp-instant-connect): onboarding when disconnected;
+ *    connection details + Disconnect when connected.
  *
  * Also renders the admin-bar actions (purge this page / purge all caches /
  * warm cache) for logged-in administrators.
@@ -73,10 +75,13 @@ class AdminPage {
                 wp_enqueue_style('dashicons');
             }
         });
+        // Central save handler shared by every native settings page.
+        add_action('admin_post_wp_instant_save_settings', [Admin\Settings_Page::class, 'handle_save']);
         add_action('wp_ajax_wp_instant_purge_cache', [$this, 'ajax_purge_cache']);
         add_action('wp_ajax_wp_instant_warm_cache', [$this, 'ajax_warm_cache']);
         add_action('wp_ajax_wp_instant_deploy', [$this, 'ajax_deploy']);
         add_action('wp_ajax_wp_instant_disconnect', [$this, 'ajax_disconnect']);
+        add_action('wp_ajax_wp_instant_sync_config', [$this, 'ajax_sync_config']);
     }
 
     /* ------------------------------------------------------------------ */
@@ -84,24 +89,34 @@ class AdminPage {
     /* ------------------------------------------------------------------ */
 
     public function register_menu(): void {
+        $titles = [
+            'wp-instant' => 'Dashboard',
+            'wp-instant-assets' => 'Assets',
+            'wp-instant-html-css' => 'HTML & CSS',
+            'wp-instant-js' => 'JavaScript',
+            'wp-instant-advanced' => 'Cache & Advanced',
+        ];
+
         add_menu_page(
             'WP Instant',
             'WP Instant',
             'manage_options',
             self::PAGE_DASHBOARD,
-            [$this, 'render_dashboard_page'],
+            [$this, 'render_settings_page'],
             'dashicons-performance',
             58
         );
 
-        add_submenu_page(
-            self::PAGE_DASHBOARD,
-            'Dashboard',
-            'Dashboard',
-            'manage_options',
-            self::PAGE_DASHBOARD,
-            [$this, 'render_dashboard_page']
-        );
+        foreach ($titles as $slug => $title) {
+            add_submenu_page(
+                self::PAGE_DASHBOARD,
+                'WP Instant — ' . $title,
+                $title,
+                'manage_options',
+                $slug,
+                [$this, 'render_settings_page']
+            );
+        }
 
         add_submenu_page(
             self::PAGE_DASHBOARD,
@@ -111,6 +126,20 @@ class AdminPage {
             self::PAGE_CONNECT,
             [$this, 'render_connect_page']
         );
+    }
+
+    /** Render one of the native settings pages (Dashboard/Assets/…). */
+    public function render_settings_page(): void {
+        $slug = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        $registered = Admin\Settings_Page::registered_pages();
+        if (!isset($registered[$slug])) {
+            wp_safe_redirect(add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php')));
+            exit;
+        }
+
+        $class = $registered[$slug];
+        (new $class(new Config()))->render_form();
+        $this->render_toast_shell();
     }
 
     /**
@@ -141,13 +170,14 @@ class AdminPage {
     }
 
     /**
-     * Access control: the Dashboard requires a connection. The Connect page
-     * stays reachable when connected (it hosts the connection details and
-     * the Disconnect action).
+     * Access control: every settings page requires a connection. The
+     * Connect page stays reachable when connected (it hosts the connection
+     * details and the Disconnect action).
      */
     public function guard_pages(): void {
         $screen = isset($_GET['page']) ? sanitize_key($_GET['page']) : '';
-        if ($screen === self::PAGE_DASHBOARD && !(new Config())->is_connected()) {
+        $needs_connection = isset(Admin\Settings_Page::registered_pages()[$screen]);
+        if ($needs_connection && !(new Config())->is_connected()) {
             wp_safe_redirect(add_query_arg(['page' => self::PAGE_CONNECT], admin_url('admin.php')));
             exit;
         }
@@ -224,80 +254,6 @@ class AdminPage {
             }
         });
         </script>
-        <?php
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* Dashboard page (embedded SaaS control panel)                         */
-    /* ------------------------------------------------------------------ */
-
-    public function render_dashboard_page(): void {
-        $config = new Config();
-        $site_id = $config->get_site_id();
-        $domain = wp_parse_url(home_url(), PHP_URL_HOST) ?: '';
-
-        // Signed embed token: siteId.expiry.hmac(callback_secret). The
-        // edge verifies it, so the iframe needs no Clerk session and no
-        // API key exposure in the browser. 12h TTL: a 1h token expired
-        // mid-session and every subsequent save silently failed with 401.
-        $exp = time() + 12 * HOUR_IN_SECONDS;
-        $sig = hash_hmac('sha256', $site_id . '.' . $exp, Config::get_callback_secret_static());
-        $saas_url = defined('WP_INSTANT_SAAS_URL') ? WP_INSTANT_SAAS_URL : 'https://wpinstant.dev';
-        $embed_url = rtrim($saas_url, '/')
-            . '/embed/sites/' . rawurlencode($site_id)
-            . '?t=' . rawurlencode($site_id . '.' . $exp . '.' . $sig);
-
-        ?>
-        <div class="wrap wp-instant-admin-wrap wpins-dashboard-wrap">
-            <div class="wpins-embed-frame">
-                <iframe
-                    src="<?php echo esc_url($embed_url); ?>"
-                    title="WP Instant Control Panel"
-                ></iframe>
-            </div>
-
-            <p class="wpins-embed-footnote">
-                <?php if (!empty($_GET['connected'])): ?>
-                    <span class="wpins-notice-ok"><span class="dashicons dashicons-yes-alt"></span> Connected — optimization started in the background.</span>
-                <?php endif; ?>
-                Every optimization control for this site lives in the panel above — presets, critical CSS,
-                JavaScript engine, media offload, fonts, deployment. Changes apply instantly through the
-                signed command channel. Connection details live on the
-                <a href="<?php echo esc_url(add_query_arg(['page' => self::PAGE_CONNECT], admin_url('admin.php'))); ?>">Connect page</a>.
-            </p>
-        </div>
-
-        <script>
-        // Fit the embed frame to the ACTUAL remaining viewport space.
-        // The static CSS height (100vh - 52px) breaks whenever wp-admin
-        // notices (update nags, other plugins) push the frame down — the
-        // iframe's bottom (and the panel's fixed save bar) then lands below
-        // the fold. Re-fit on load, resize, and whenever notices are
-        // added/dismissed so the save bar is always pinned to the visible
-        // page bottom.
-        (function () {
-            var frame = document.querySelector('.wpins-embed-frame');
-            if (!frame) { return; }
-            var last = 0;
-            var fit = function () {
-                var rect = frame.getBoundingClientRect();
-                var h = Math.max(320, window.innerHeight - rect.top - 12);
-                if (h !== last) {
-                    last = h;
-                    frame.style.height = h + 'px';
-                }
-            };
-            fit();
-            window.addEventListener('resize', fit);
-            window.addEventListener('load', fit);
-            if ('MutationObserver' in window) {
-                var target = document.getElementById('wpbody-content') || document.body;
-                new MutationObserver(fit).observe(target, { childList: true, subtree: true });
-            }
-        })();
-        </script>
-
-        <?php $this->render_toast_shell(); ?>
         <?php
     }
 
@@ -440,7 +396,7 @@ class AdminPage {
         </p>
         <p class="description" style="margin-top:8px;">
             For reusable rules across this post type or “All pages”, use the
-            <a href="<?php echo esc_url(admin_url('admin.php?page=' . self::PAGE_DASHBOARD)); ?>">WP Instant dashboard</a>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=wp-instant-assets')); ?>">WP Instant → Assets</a>
             Plugin Asset Control card.
         </p>
         <?php
@@ -618,7 +574,7 @@ class AdminPage {
                     <h1>Connect to WP Instant</h1>
                     <p>
                         Link this site to the WP Instant edge to unlock automated critical CSS, JavaScript
-                        optimization, R2 media delivery and the cloud control panel.
+                        optimization, CDN media delivery and the cloud control panel.
                     </p>
                 </div>
 
@@ -633,7 +589,7 @@ class AdminPage {
                     </li>
                     <li>
                         <span class="dashicons dashicons-images-alt2"></span>
-                        <div><strong>R2 media offload</strong><span>Images and video served from the edge with webp derivatives and immutable caching.</span></div>
+                        <div><strong>CDN media offload</strong><span>Images and video served from the edge with modern-format derivatives and immutable caching.</span></div>
                     </li>
                     <li>
                         <span class="dashicons dashicons-shield-alt"></span>
@@ -930,7 +886,12 @@ class AdminPage {
             wp_send_json_error('Unauthorized');
         }
 
-        $status = sanitize_text_field($_POST['status'] ?? 'live');
+        if (!isset($_POST['status'])) {
+            // Never assume a direction: a missing target previously flipped
+            // "Enter Test Mode" into 'live'.
+            wp_send_json_error('Missing status');
+        }
+        $status = sanitize_text_field(wp_unslash((string) $_POST['status']));
         if (!in_array($status, ['test', 'live'], true)) {
             wp_send_json_error('Invalid status');
         }
@@ -957,5 +918,25 @@ class AdminPage {
         CacheIntegration::purge_foreign_caches('all');
 
         wp_send_json_success();
+    }
+
+    /**
+     * Push the current config to the cloud dashboard now (verify_connection
+     * mirrors it) instead of waiting for the daily heartbeat.
+     */
+    public function ajax_sync_config(): void {
+        check_ajax_referer('wp_instant_admin', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        $result = $this->api_client->verify_connection();
+        if (!empty($result['success'])) {
+            update_option('wp_instant_config_synced_at', time());
+            wp_send_json_success();
+        }
+
+        wp_send_json_error($result['error'] ?? 'Sync failed');
     }
 }

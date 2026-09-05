@@ -182,7 +182,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </h2>
             <p className="text-[13.5px] text-[#71717a]">
               {isVerifyingPurchase
-                ? 'Hang tight — Polar is activating your subscription. This page unlocks automatically.'
+                ? 'Hang tight — your subscription is activating. This page unlocks automatically.'
                 : hasActivePlan
                 ? `${planName || 'Your plan'} is ready for 1-Click Zero-DNS edge optimization.`
                 : 'An active plan is required to connect your WordPress site and unlock sub-15ms edge caching.'}
@@ -291,12 +291,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   onClick={() => onSelectPlan('starter', billingInterval, '/dashboard/onboarding')}
                   className="w-full btn btn-primary py-2.5 text-xs font-semibold"
                 >
-                  Activate Starter Plan via Polar Checkout →
+                  Activate Starter Plan →
                 </button>
 
                 <p className="text-center text-xs text-[#71717a]">
                   Need more sites or runs?{' '}
-                  <a href="/dashboard/pricing" className="text-[#f03e2f] underline font-medium">
+                   <a href="/dashboard/billing" className="text-[#f03e2f] underline font-medium">
                     Compare all plans →
                   </a>
                 </p>
@@ -449,7 +449,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               Extract Critical CSS & Warm Edge Cache
             </h2>
             <p className="text-[13.5px] text-[#71717a] max-w-md mx-auto">
-              Cloudflare Browser Rendering (Puppeteer) will inspect{' '}
+              A real browser will inspect{' '}
               <code className="text-[#171717]">{siteDomain}</code> for the first time.
             </p>
           </div>
@@ -475,7 +475,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   <div className="flex justify-between font-mono text-xs text-[#71717a]">
                     <span>
                       {latestJob.status === 'queued'
-                        ? 'Queued on Cloudflare Workers…'
+                        ? 'Queued on the edge…'
                         : 'Rendering pages & extracting critical CSS…'}
                     </span>
                     <span className="capitalize">{latestJob.status}</span>

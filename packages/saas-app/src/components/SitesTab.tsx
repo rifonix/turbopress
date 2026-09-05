@@ -15,6 +15,76 @@ interface SitesTabProps {
   onToast: (msg: string) => void;
 }
 
+/** Live homepage screenshot (WordPress mShots generator), falling back to the
+ *  letter avatar while a capture is unavailable or fails to load. */
+const SiteScreenshot: React.FC<{ domain: string }> = ({ domain }) => {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div className="absolute inset-0 grid place-items-center bg-[#171717] text-white font-bold text-xl transition-colors group-hover:bg-[#f03e2f]">
+        {domain.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={`https://s0.wp.com/mshots/v1/${encodeURIComponent(`https://${domain}`)}?w=400`}
+      alt={`${domain} homepage screenshot`}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="absolute inset-0 w-full h-full object-cover object-top"
+    />
+  );
+};
+
+/** Google CDN favicon with a neutral globe fallback. */
+const SiteFavicon: React.FC<{ domain: string }> = ({ domain }) => {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return <Globe className="w-4 h-4 text-[#71717a] flex-none" />;
+  }
+
+  return (
+    <img
+      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`}
+      alt=""
+      width={16}
+      height={16}
+      onError={() => setFailed(true)}
+      className="w-4 h-4 rounded-[3px] flex-none"
+    />
+  );
+};
+
+const StatusChip: React.FC<{ site: ExtendedSite }> = ({ site }) => (
+  <span
+    className={`chip flex-none ${
+      site.status === 'optimized'
+        ? 'chip-success'
+        : site.status === 'optimizing'
+        ? 'chip-warn'
+        : site.status === 'attention'
+        ? 'chip-danger'
+        : 'chip-neutral'
+    }`}
+  >
+    {site.status !== 'disconnected' && <span className="chip-dot" />}
+    {site.status === 'optimized' && site.score != null ? `${site.score} Score` : site.status}
+  </span>
+);
+
+const Metric: React.FC<{ label: string; value: string; strong?: boolean }> = ({ label, value, strong }) => (
+  <div className="text-center px-4 sm:px-5">
+    <span className="text-[10.5px] uppercase tracking-wider text-[#a1a1aa] block">{label}</span>
+    <span className={`font-mono text-[15px] ${strong ? 'font-bold' : 'font-medium'} text-[#171717]`}>
+      {value}
+    </span>
+  </div>
+);
+
 export const SitesTab: React.FC<SitesTabProps> = ({
   sites,
   onSelectSite,
@@ -118,7 +188,7 @@ export const SitesTab: React.FC<SitesTabProps> = ({
         </div>
       </div>
 
-      {/* Sites Grid */}
+      {/* Sites List — horizontal rows with live screenshot rail */}
       {filteredSites.length === 0 ? (
         <div className="bg-white border border-[#e4e4e7] rounded-2xl p-12 text-center shadow-sm space-y-4">
           <p className="text-sm font-medium text-[#171717]">
@@ -129,67 +199,58 @@ export const SitesTab: React.FC<SitesTabProps> = ({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="space-y-3">
           {filteredSites.map((site) => (
             <div
               key={site.id}
               onClick={() => onSelectSite(site)}
-              className="bg-white border border-[#e4e4e7] rounded-2xl p-5 hover:border-[#a1a1aa] transition-all duration-200 shadow-sm cursor-pointer flex flex-col justify-between group"
+              className="bg-white border border-[#e4e4e7] rounded-2xl shadow-sm cursor-pointer group hover:border-[#a1a1aa] transition-all duration-200"
             >
-              <div>
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-8 h-8 rounded-lg bg-[#171717] text-white flex items-center justify-center font-bold text-xs flex-none group-hover:bg-[#f03e2f] transition-colors">
-                      {site.domain.charAt(0).toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className="font-mono font-semibold text-[13.5px] text-[#171717] truncate group-hover:text-[#f03e2f] transition-colors">
-                        {site.domain}
-                      </h3>
-                      <p className="text-[11.5px] text-[#71717a] truncate">{site.subTitle || (site.is_active ? 'Connected · WP Instant' : 'Not connected')}</p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`chip flex-none ${
-                      site.status === 'optimized'
-                        ? 'chip-success'
-                        : site.status === 'optimizing'
-                        ? 'chip-warn'
-                        : site.status === 'attention'
-                        ? 'chip-danger'
-                        : site.status === 'connected'
-                        ? 'chip-neutral'
-                        : 'chip-neutral'
-                    }`}
-                  >
-                    {site.status !== 'disconnected' && <span className="chip-dot" />}
-                    {site.status === 'optimized' && site.score != null ? `${site.score} Score` : site.status}
-                  </span>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4">
+                {/* Screenshot rail */}
+                <div className="relative w-full sm:w-44 lg:w-52 flex-none aspect-[16/10] rounded-xl border border-[#f1f1f2] bg-[#f8f8f7] overflow-hidden">
+                  <SiteScreenshot domain={site.domain} />
                 </div>
 
-                {/* Performance Metrics Mini Row */}
-                <div className="grid grid-cols-3 gap-2 py-3 my-2 border-y border-[#f1f1f2] text-center font-mono">
-                  <div>
-                    <span className="text-[10.5px] text-[#71717a] block">Score</span>
-                    <span className="text-sm font-bold text-[#171717]">{site.score != null ? site.score : '—'}</span>
+                {/* Identity */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <SiteFavicon domain={site.domain} />
+                    <h3 className="font-mono font-semibold text-[14px] text-[#171717] truncate group-hover:text-[#f03e2f] transition-colors">
+                      {site.domain}
+                    </h3>
+                    <StatusChip site={site} />
                   </div>
-                  <div>
-                    <span className="text-[10.5px] text-[#71717a] block">LCP</span>
-                    <span className="text-sm font-medium text-[#171717]">{site.lcp != null ? `${site.lcp.toFixed(1)}s` : '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10.5px] text-[#71717a] block">Cache</span>
-                    <span className="text-sm font-medium text-[#171717]">{site.cacheHitRate != null ? `${site.cacheHitRate}%` : '—'}</span>
-                  </div>
+                  <p className="text-[11.5px] text-[#71717a] mt-1 truncate">
+                    {site.subTitle || (site.is_active ? 'Connected · WP Instant' : 'Not connected')}
+                  </p>
+                  <p className="meta text-[11px] mt-2 truncate">
+                    {site.lastJobTime || 'never run'}
+                  </p>
                 </div>
-              </div>
 
-              {/* Card Footer Actions */}
-              <div className="pt-3 flex items-center justify-between">
-                <span className="meta text-[11px] truncate">{site.lastJobTime || 'never run'}</span>
+                {/* Metrics cluster */}
+                <div className="flex items-center justify-between sm:justify-end flex-none divide-x divide-[#f1f1f2] border-t sm:border-t-0 border-[#f1f1f2] pt-3 sm:pt-0">
+                  <Metric
+                    label="Score"
+                    value={site.score != null ? String(site.score) : '—'}
+                    strong
+                  />
+                  <Metric
+                    label="LCP"
+                    value={site.lcp != null ? `${site.lcp.toFixed(1)}s` : '—'}
+                  />
+                  <Metric
+                    label="Cache"
+                    value={site.cacheHitRate != null ? `${site.cacheHitRate}%` : '—'}
+                  />
+                </div>
 
-                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {/* Actions */}
+                <div
+                  className="flex items-center gap-1 flex-none justify-end"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     title="Purge cache"
                     onClick={() => {

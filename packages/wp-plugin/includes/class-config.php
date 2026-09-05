@@ -17,7 +17,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.10.0';
+    public const CONFIG_VERSION = '1.11.0';
 
     private array $data = [];
 
@@ -179,6 +179,19 @@ class Config {
             ));
         }
 
+        if (version_compare($stored_version, '1.11.0', '<')) {
+            // v1.13.0: builder sites with >512KB CSS fell through Tier 1
+            // inline-all onto the Tier 2 critical-CSS path, where any
+            // extraction gap shows up as missing gradients/overlays.
+            // Inline-all is safe by construction (page-cache brotli keeps
+            // the wire small), so raise the ceiling to 768KB unless the
+            // site explicitly tuned it away from the old default.
+            $current_threshold = (int) ($this->data['css']['inline_all_threshold'] ?? 0);
+            if ($current_threshold === 524288) {
+                $this->data['css']['inline_all_threshold'] = 786432;
+            }
+        }
+
         update_option(self::OPTION_KEY, $this->data);
         $this->write_rules_manifest();
     }
@@ -194,10 +207,14 @@ class Config {
         }
         $caching = $this->data['caching'] ?? [];
         $rules = [
+            'enabled' => (bool) ($caching['enabled'] ?? true),
+            'deployment_status' => (string) ($this->data['deployment']['status'] ?? 'live'),
             'ttl' => (int) ($caching['ttl'] ?? 604800),
             'mobile_cache' => (bool) ($caching['mobile_cache'] ?? true),
             'strip_query_params' => array_values((array) ($caching['strip_query_params'] ?? [])),
             'excluded_cookies' => array_values((array) ($caching['excluded_cookies'] ?? [])),
+            'optimize_only_urls' => array_values((array) ($caching['optimize_only_urls'] ?? [])),
+            'excluded_urls' => array_values((array) ($caching['excluded_urls'] ?? [])),
         ];
         if (!file_exists(WP_INSTANT_CACHE_DIR)) {
             wp_mkdir_p(WP_INSTANT_CACHE_DIR);
@@ -369,7 +386,7 @@ class Config {
                 'minify' => true,
                 'max_files' => 40,
                 'inline_all' => $preset !== 'safe',
-                'inline_all_threshold' => 524288 // 512KB raw (~60-80KB brotli on the wire)
+                'inline_all_threshold' => 786432 // 768KB raw (~90-120KB brotli on the wire)
             ],
             'assets' => [
                 // Generic 3rd-party asset proxy: foreign css/js (unpkg,
@@ -377,7 +394,13 @@ class Config {
                 // R2 worker route — case-by-case, no vendored files in the
                 // plugin. Consent/payment origins are always kept original.
                 'proxy_enabled' => $preset !== 'safe',
-                'keep_origins' => []
+                'keep_origins' => [],
+                // Own-host css/js (theme bundles, the combined stylesheet,
+                // localized font CSS, wp-includes scripts) served from the
+                // CDN worker. OPT-IN: a warm CDN HIT changes the resource
+                // base URL, which breaks relative CSS url()/@import and
+                // module imports (no rebasing yet), so this ships disabled.
+                'serve_own_from_cdn' => false
             ],
             'htaccess' => [
                 // Long-cache immutable optimized assets + precompressed
@@ -414,8 +437,9 @@ class Config {
                 'lazyload_iframes' => true,
                 'lazyload_offset_px' => 300,
                 'excluded_images' => [],
-                // Zero-DNS R2 media CDN (worker 302-fallback makes rewrites
-                // always safe; derivatives generated eagerly + at the edge).
+                // Zero-DNS R2 media CDN (the worker serves a cold MISS
+                // straight from origin — no redirect — then fills R2 in the
+                // background; derivatives generated eagerly + at the edge).
                 'offload_images' => false,
                 'offload_video' => false,
                 'offload_widths' => [320, 480, 768, 1200, 1600],
@@ -450,10 +474,11 @@ class Config {
                 'unload_rules' => []
             ],
             'deployment' => [
-                // Test Mode: fresh installs serve visitors UNOPTIMIZED while
-                // admins verify the optimized page via ?wpins_preview=1, then
-                // hit Deploy. Existing sites are migrated to 'live'.
-                'status' => 'test',
+                // Live by default: connecting a site must improve real
+                // visitor and crawler performance immediately. Admins can
+                // still flip to Test Mode from the dashboard to verify via
+                // ?wpins_preview=1 before exposing optimizations.
+                'status' => 'live',
                 // Safety net: automatically step down interaction_delay →
                 // defer → none when live RUM error rates spike.
                 'auto_degrade' => true

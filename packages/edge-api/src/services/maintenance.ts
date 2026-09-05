@@ -18,7 +18,10 @@ export async function processDlqBatch(
     try {
       const jobId = msg.body?.jobId;
       if (jobId) {
-        await env.DB.prepare(`
+        // Only touch jobs still in flight: without the changes guard, a DLQ
+        // replay of an already-completed job flipped its KV status back to
+        // 'failed' (status polling prefers KV over D1).
+        const flipped = await env.DB.prepare(`
           UPDATE optimization_jobs
           SET status = 'failed',
               error_message = coalesce(error_message, 'Job exhausted all queue retries'),
@@ -27,11 +30,14 @@ export async function processDlqBatch(
         `)
           .bind(jobId)
           .run();
-        await env.KV.put(
-          `job:${jobId}`,
-          JSON.stringify({ status: 'failed', error: 'Job exhausted all queue retries' }),
-          { expirationTtl: 3600 }
-        );
+        if ((flipped.meta?.changes ?? 0) > 0) {
+          await env.KV.put(
+            `job:${jobId}`,
+            JSON.stringify({ status: 'failed', error: 'Job exhausted all queue retries' }),
+            { expirationTtl: 3600 }
+          );
+        }
+        // Idempotent by reservation state: safe even when already released.
         await releaseReservationForJob(env, jobId);
       }
       msg.ack();

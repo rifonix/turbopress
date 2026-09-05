@@ -293,7 +293,11 @@ export const saasUserAuthMiddleware: MiddlewareHandler<{ Bindings: Env; Variable
 
   let organizationId = verified.orgId || undefined;
   const headerOrg = c.req.header('X-Organization-Id');
-  if (!organizationId && headerOrg && /^[a-zA-Z0-9_-]+$/.test(headerOrg)) {
+  // Clerk's verified org claim is authoritative. Keep the header only for
+  // the local user_* test harness; accepting it in staging/production would
+  // let a valid user select another organization's scope without a
+  // membership check.
+  if (c.env.ENVIRONMENT === 'development' && !organizationId && headerOrg && /^[a-zA-Z0-9_-]+$/.test(headerOrg)) {
     organizationId = headerOrg;
   }
 

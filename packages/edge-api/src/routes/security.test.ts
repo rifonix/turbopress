@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { generateKeyPairSync, sign as nodeSign, createHash, createHmac } from 'node:crypto';
 import { Hono } from 'hono';
 import { createTestEnv } from '../test-helpers/mock-env.js';
 import { authRoutes } from './auth.js';
@@ -106,6 +107,56 @@ describe('Security regression tests (review criticals)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('C1: production ignores a forged X-Organization-Id on a verified JWT without an org claim', async () => {
+    // Real RS256 keypair so verifyClerkJwt passes cryptographically in
+    // production mode; the JWKS is pre-seeded into the KV cache.
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const kid = 'kid-' + Math.random().toString(36).slice(2);
+    const jwk = { ...publicKey.export({ format: 'jwk' }), kid };
+
+    const env = createTestEnv({ ENVIRONMENT: 'production' });
+    await env.KV.put('clerk:jwks', JSON.stringify({ keys: [jwk] }));
+
+    await seedSubscription(env, 'user_victim');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, organization_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_org', 'user_victim', 'org_victim', 'sub_user_victim', 'victim.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+
+    // Verified JWT for user_mallory WITHOUT any org_id claim.
+    const b64u = (s: string) => Buffer.from(s).toString('base64url');
+    const header = b64u(JSON.stringify({ alg: 'RS256', kid }));
+    const payload = b64u(JSON.stringify({ sub: 'user_mallory', exp: Math.floor(Date.now() / 1000) + 600 }));
+    const signature = nodeSign('sha256', Buffer.from(`${header}.${payload}`), privateKey).toString('base64url');
+    const jwt = `${header}.${payload}.${signature}`;
+
+    const app = buildApp(env);
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/sites', {
+        headers: { Authorization: `Bearer ${jwt}`, 'X-Organization-Id': 'org_victim' },
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.some((s: any) => s.domain === 'victim.com')).toBe(false);
+  });
+
+  it('C1-dev: development harness still honors X-Organization-Id for user_* tokens', async () => {
+    const env = createTestEnv(); // ENVIRONMENT: development
+    await seedSubscription(env, 'user_victim');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, organization_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_org', 'user_victim', 'org_victim', 'sub_user_victim', 'victim.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+    const app = buildApp(env);
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/sites', {
+        headers: { Authorization: 'Bearer user_mallory', 'X-Organization-Id': 'org_victim' },
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.some((s: any) => s.domain === 'victim.com')).toBe(true);
+  });
+
   it('C4-rollback: queue-send failure deletes the job row and returns 503', async () => {
     const env = createTestEnv();
     await seedSubscription(env, 'user_a');
@@ -146,6 +197,55 @@ describe('Security regression tests (review criticals)', () => {
     const raw = await res.text();
     expect(raw).not.toContain('supersecret_hash');
     expect(raw).not.toContain('supersecret_cb');
+  });
+
+  it('Secret rotation: /verify drops the cached media secret so new signatures verify immediately', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    const OLD = 'old-callback-secret-0123456789abcdef';
+    const NEW = 'new-callback-secret-0123456789abcdef';
+    const apiKey = 'sk_live_rotationtestkey';
+    const keyHash = createHash('sha256').update(apiKey).digest('hex');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, callback_secret, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', ?, ?, '{}', 1, unixepoch(), unixepoch())"
+    )
+      .bind(keyHash, OLD)
+      .run();
+
+    // Simulate the 1h media-secret cache (msecret:*) warmed before rotation.
+    await env.KV.put('msecret:site_1', OLD);
+
+    const srcUrl = 'https://a.com/style.css';
+    const u = Buffer.from(srcUrl).toString('base64url');
+    const hash = createHash('sha256').update(srcUrl).digest('hex').slice(0, 24);
+    const mediaUrlWith = (secret: string) => {
+      const s = createHmac('sha256', secret).update(`${u}|0|raw|site_1`).digest('hex').slice(0, 32);
+      return `https://api.test/api/v1/assets/media/site_1/${hash}?u=${u}&w=0&f=raw&s=${s}`;
+    };
+
+    const app = buildApp(env);
+    // Pre-rotation, a URL signed with the NEW secret must fail.
+    const before = await app.fetch(new Request(mediaUrlWith(NEW)));
+    expect(before.status).toBe(403);
+
+    const verify = await app.fetch(
+      new Request('https://api.test/api/v1/auth/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          'X-Site-Domain': 'a.com',
+        },
+        body: JSON.stringify({ callback_secret: NEW }),
+      })
+    );
+    expect(verify.status).toBe(200);
+
+    // Post-rotation, the same URL verifies immediately (no 1h stale-cache
+    // window). The origin fetch is stubbed offline, so the asset route ends
+    // at 502 — anything except the 403 signature rejection proves the fix.
+    const after = await app.fetch(new Request(mediaUrlWith(NEW)));
+    expect(after.status).not.toBe(403);
   });
 
   it('Redeem: state exchanges for API key once, bound to domain', async () => {

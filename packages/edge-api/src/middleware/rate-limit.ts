@@ -16,12 +16,32 @@ export async function checkRateLimit(
 ): Promise<boolean> {
   try {
     const key = `rl:${scope}:${identifier}`;
-    const current = await env.KV.get(key);
-    const count = current ? parseInt(current, 10) : 0;
+    const now = Date.now();
+    const raw = await env.KV.get(key);
+
+    let count = 0;
+    let resetAt = 0;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { count?: number; resetAt?: number };
+        count = parsed.count || 0;
+        resetAt = parsed.resetAt || 0;
+      } catch {
+        // Legacy plain-integer value: honor the count, reset the window.
+        count = parseInt(raw, 10) || 0;
+      }
+    }
+    if (resetAt <= now) {
+      count = 0;
+      resetAt = now + windowSec * 1000;
+    }
     if (count >= max) {
       return false;
     }
-    await env.KV.put(key, String(count + 1), { expirationTtl: windowSec });
+    // TTL tracks the remaining window so accepted requests can never extend
+    // it — continuous sub-limit traffic cannot accumulate indefinitely.
+    const ttlSec = Math.max(1, Math.ceil((resetAt - now) / 1000));
+    await env.KV.put(key, JSON.stringify({ count: count + 1, resetAt }), { expirationTtl: ttlSec });
     return true;
   } catch (err) {
     // KV failure must never take the API down — fail open, log loudly.

@@ -7,6 +7,11 @@ if (!defined('ABSPATH')) {
 
 class CacheRules {
     public static function should_cache_request(Config $config): bool {
+        // 0. Hard opt-out: plugins/themes declare the page non-cacheable.
+        if (defined('DONOTCACHEPAGE') && DONOTCACHEPAGE) {
+            return false;
+        }
+
         // 1. Only cache GET and HEAD
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method !== 'GET' && $method !== 'HEAD') {

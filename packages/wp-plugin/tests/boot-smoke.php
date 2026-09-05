@@ -61,6 +61,12 @@ $required = [
     'WPInstant\Telemetry',
     'WPInstant\AutoDegrade',
     'WPInstant\AdminPage',
+    'WPInstant\Admin\Settings_Page',
+    'WPInstant\Admin\Page_Dashboard',
+    'WPInstant\Admin\Page_Assets',
+    'WPInstant\Admin\Page_Html_Css',
+    'WPInstant\Admin\Page_Javascript',
+    'WPInstant\Admin\Page_Advanced',
 ];
 
 $failures = 0;

@@ -149,6 +149,15 @@ class DomEngine {
                 $html = $this->stage($html, fn(string $h): string => $this->critical_css_transformer->transform($h), 'critical_css');
             }
 
+            // 4a. Own-host asset CDN: rewrite same-origin css/js (including
+            //     the combined bundle the critical-CSS stage just emitted)
+            //     to signed CDN worker URLs. Runs after the CSS pipeline so
+            //     bundle URLs exist, and before the script delayer so
+            //     interaction-delay data-wpins-src values carry the CDN URL.
+            if ($this->config->get('assets.serve_own_from_cdn', false)) {
+                $html = $this->stage($html, fn(string $h): string => $this->asset_proxy->transform_own($h), 'assets_cdn');
+            }
+
             // 4. JavaScript Deferral (all external scripts) / Interaction Delay
             if ($this->config->get('javascript.execution_mode', 'defer') !== 'none') {
                 $html = $this->stage($html, fn(string $h): string => $this->script_delayer->transform($h), 'scripts');
