@@ -814,6 +814,10 @@ billingRoutes.post('/polar-webhook', async (c) => {
         for (const row of affected.results || []) {
           await c.env.KV.delete(`site:${row.domain}`);
           await c.env.KV.delete(`msecret:${row.id}`);
+          // The /css route consults this flag with a 5m KV TTL — clearing it
+          // stops critical-CSS serving within one request instead of five
+          // minutes after revocation.
+          await c.env.KV.delete(`siteactive:${row.id}`);
         }
 
         break;

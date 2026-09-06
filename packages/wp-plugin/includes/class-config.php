@@ -17,7 +17,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.11.0';
+    public const CONFIG_VERSION = '1.12.0';
 
     private array $data = [];
 
@@ -189,6 +189,23 @@ class Config {
             $current_threshold = (int) ($this->data['css']['inline_all_threshold'] ?? 0);
             if ($current_threshold === 524288) {
                 $this->data['css']['inline_all_threshold'] = 786432;
+            }
+        }
+
+        if (version_compare($stored_version, '1.12.0', '<')) {
+            // v1.16.0 full CDN coverage: connected sites get videos and
+            // own-host css/js served from the edge too. Set unconditionally
+            // (not only when the key is absent): save() persists the full
+            // defaults, so default-false and explicitly-chosen-false are
+            // indistinguishable in stored data — keying on existence would
+            // make this migration a no-op for every real site. Re-disabling
+            // a flag after the upgrade is a one-toggle operation in the
+            // dashboard. Sites not yet connected keep the flags untouched
+            // (rewrites require site_id + secret anyway).
+            if ($this->get_site_id() !== '' && $this->get_api_key() !== '') {
+                $this->data['media']['offload_images'] = true;
+                $this->data['media']['offload_video'] = true;
+                $this->data['assets']['serve_own_from_cdn'] = true;
             }
         }
 
@@ -436,6 +453,9 @@ class Config {
                 'lazyload_images' => true,
                 'lazyload_iframes' => true,
                 'lazyload_offset_px' => 300,
+                // Blur-up placeholders: 24px CDN derivative shown instantly,
+                // real image swapped in after decode (needs offload_images).
+                'lazyload_lqip' => true,
                 'excluded_images' => [],
                 // Zero-DNS R2 media CDN (the worker serves a cold MISS
                 // straight from origin — no redirect — then fills R2 in the

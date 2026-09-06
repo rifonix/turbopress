@@ -339,6 +339,26 @@ class DomEngine {
     }
 
     private function inject_hydrator_scripts(string $html): string {
+        // Idempotency: a re-transformed document (host cache feeding our own
+        // output back through the buffer) must never gain a second hydrator
+        // — byte-identical duplicate hydrator/RUM blocks were observed in
+        // production on exactly such a double pass.
+        if (stripos($html, 'id="wp-instant-hydrator-js"') !== false || stripos($html, "id='wp-instant-hydrator-js'") !== false) {
+            return $html;
+        }
+
+        // Pages without any form/nonce surface get nothing from the hydrator
+        // (the script early-returns client-side, but still downloads). Skip
+        // the request entirely; JS-injected forms fetch their nonces from
+        // REST fresh anyway, so there is nothing to refresh.
+        if (
+            stripos($html, '<form') === false &&
+            stripos($html, '_wpnonce') === false &&
+            stripos($html, 'wp_nonce') === false
+        ) {
+            return $html;
+        }
+
         $hydrator_url = WP_INSTANT_URL . 'assets/js/hydrator.min.js';
         $nonce_endpoint = esc_url_raw(rest_url('wp-instant/v1/nonces'));
 
@@ -359,6 +379,11 @@ class DomEngine {
      * that produced the page so error rates are attributable per mode.
      */
     private function inject_rum_beacon(string $html): string {
+        // Idempotency (see inject_hydrator_scripts).
+        if (stripos($html, 'id="wp-instant-rum"') !== false || stripos($html, "id='wp-instant-rum'") !== false) {
+            return $html;
+        }
+
         $mode = (string) $this->config->get('javascript.execution_mode', 'defer');
         $endpoint = esc_url_raw(rest_url('wp-instant/v1/telemetry'));
         $preview = $this->rum_preview ? 'true' : 'false';

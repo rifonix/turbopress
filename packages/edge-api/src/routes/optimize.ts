@@ -299,6 +299,34 @@ optimizeRoutes.post('/dispatch', async (c) => {
         }>(templateKey, 'json');
 
         if (cachedTemplate?.criticalCssR2Key) {
+          // Instant completion from Cloudflare KV template cache. The
+          // artifact must exist under THIS url's key before the job is
+          // marked completed — the plugin downloads per-URL (sha256(url)),
+          // so a bare status flip would 404 the fetch and silently drop
+          // the deduped page's critical CSS. Copy is cheap (KBs of CSS).
+          const thisUrlKey = `sites/${siteId}/css/${(await sha256(payload.url)).slice(0, 32)}_${viewport}`;
+          if (thisUrlKey !== cachedTemplate.criticalCssR2Key) {
+            try {
+              const src = await c.env.ASSETS_BUCKET.get(cachedTemplate.criticalCssR2Key);
+              if (src) {
+                await c.env.ASSETS_BUCKET.put(thisUrlKey, src.body, {
+                  httpMetadata: src.httpMetadata,
+                });
+              } else {
+                // Template artifact is gone (site cleanup): fall through to
+                // a real extraction instead of completing into a dead key.
+                console.warn('[Template KV] artifact missing, falling back to extraction', cachedTemplate.criticalCssR2Key);
+                cachedTemplate.criticalCssR2Key = '';
+              }
+            } catch (copyErr) {
+              console.warn('[Template KV] artifact copy failed, falling back to extraction', copyErr);
+              cachedTemplate.criticalCssR2Key = '';
+            }
+          }
+
+          if (!cachedTemplate.criticalCssR2Key) {
+            // fall through past the template branch (artifact unavailable)
+          } else {
           // Instant completion from Cloudflare KV template cache
           await c.env.DB.prepare(`
             INSERT INTO optimization_jobs (id, site_id, url, viewport, status, priority, credit_reservation_id, critical_css_r2_key, critical_css_bytes, lcp_selector, lcp_image_url, attempts, created_at, completed_at)
@@ -337,6 +365,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
 
           createdJobs.push({ jobId, viewport, status: 'completed' });
           continue;
+          }
         }
       } catch (kvErr) {
         console.warn('[Template KV lookup warning]', kvErr);

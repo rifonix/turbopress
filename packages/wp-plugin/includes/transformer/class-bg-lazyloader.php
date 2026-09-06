@@ -9,9 +9,12 @@ if (!defined('ABSPATH')) {
  * Lazy-loads CSS background images declared in inline style attributes
  * (Elementor section/column backgrounds below the fold).
  *
- * The image url() is swapped for a 1px placeholder and the real URL moved
- * to data-wpins-bg; an IntersectionObserver (rootMargin 300px) swaps it back
- * in as the element approaches the viewport.
+ * Each background url() is swapped for a tiny (24px) CDN derivative that
+ * upscales into a naturally soft placeholder, and the real URLs move to
+ * data-wpins-bg; an IntersectionObserver swaps them back in as the element
+ * approaches the viewport — with a preload+decode gate so the background
+ * fades in complete instead of painting progressively. Without CDN offload
+ * (or for third-party URLs) the classic 1px transparent gif is used.
  *
  * LCP safety: the FIRST inline-background element in the document (the
  * hero on builder sites) and the edge-verified LCP image URL are always
@@ -34,38 +37,81 @@ class BgLazyLoader {
         $verified_lcp = MediaOptimizer::get_lcp_image($this->current_url(), wp_is_mobile() ? 'mobile' : 'desktop');
         $skipped_first = false;
         $changed = 0;
+        $lqip_available = (bool) $this->config->get('media.offload_images', false)
+            && (bool) $this->config->get('media.lazyload_lqip', true)
+            && $this->config->get_site_id() !== ''
+            && $this->config->get_api_key() !== '';
+        $offloader = null;
 
         $html = preg_replace_callback(
             '/\sstyle=(["\'])([^"\']*background[^"\']*url\([^)]*\)[^"\']*)\1/i',
-            function (array $m) use (&$skipped_first, &$changed, $verified_lcp): string {
-                if (!preg_match('/url\((["\']?)(https?:\/\/[^"\')]+)\1\)/i', $m[2], $um)) {
+            function (array $m) use (&$skipped_first, &$changed, &$offloader, $verified_lcp, $lqip_available): string {
+                if (!preg_match_all('/url\((["\']?)(https?:\/\/[^"\')]+)\1\)/i', $m[2], $ums, PREG_SET_ORDER)) {
                     return $m[0]; // only remote image urls qualify
                 }
-                $url = html_entity_decode($um[2], ENT_QUOTES);
 
                 // Hero heuristic: first inline-bg element stays eager.
                 if (!$skipped_first) {
                     $skipped_first = true;
                     return $m[0];
                 }
-                // Never lazy the verified LCP image.
-                if ($verified_lcp !== null && stripos($url, $verified_lcp) !== false) {
+
+                $new_style = $m[2];
+                $urls = [];
+                $placeholders = 0;
+                foreach ($ums as $um) {
+                    $url = html_entity_decode($um[2], ENT_QUOTES);
+                    // Never lazy the verified LCP image.
+                    if ($verified_lcp !== null && stripos($url, $verified_lcp) !== false) {
+                        continue;
+                    }
+                    $urls[] = $url;
+
+                    $placeholder = self::PLACEHOLDER;
+                    if ($lqip_available) {
+                        $origin = $this->origin_url_for($url);
+                        if ($origin !== null) {
+                            if ($offloader === null) {
+                                $offloader = new MediaOffloader($this->config);
+                            }
+                            $tiny = $offloader->lqip_url($origin);
+                            if ($tiny !== null) {
+                                $placeholder = $tiny;
+                                $offloader->queue_derivative($origin, MediaOffloader::LQIP_WIDTH, 'webp');
+                            }
+                        }
+                    }
+                    if ($placeholder !== self::PLACEHOLDER) {
+                        $placeholders++;
+                    }
+                    $new_style = str_replace($um[0], 'url("' . $placeholder . '")', $new_style);
+                }
+
+                if (empty($urls)) {
                     return $m[0];
                 }
 
-                $new_style = str_replace($um[0], 'url("' . self::PLACEHOLDER . '")', $m[2]);
                 $changed++;
-                return ' style=' . $m[1] . $new_style . $m[1] . ' data-wpins-bg="' . esc_attr($url) . '"';
+                return ' style=' . $m[1] . $new_style . $m[1]
+                    . ' data-wpins-bg="' . esc_attr((string) wp_json_encode(array_values($urls))) . '"'
+                    . ($placeholders > 0 ? ' data-wpins-bg-lqip="1"' : '');
             },
             $html
         ) ?? $html;
 
         if ($changed > 0) {
+            $offset = max(0, min(2000, (int) $this->config->get('media.lazyload_offset_px', 300)));
             $js = '<script wpins-exclude>(function(){'
                 . 'var io=new IntersectionObserver(function(es){es.forEach(function(en){'
-                . 'if(!en.isIntersecting)return;var el=en.target,u=el.getAttribute("data-wpins-bg");'
-                . 'if(u){el.style.backgroundImage="url(\'"+u+"\')";el.removeAttribute("data-wpins-bg")}io.unobserve(el)'
-                . '})},{rootMargin:"300px 0px"});'
+                . 'if(!en.isIntersecting)return;var el=en.target;io.unobserve(el);'
+                . 'var raw=el.getAttribute("data-wpins-bg");if(!raw)return;'
+                . 'el.removeAttribute("data-wpins-bg");'
+                . 'var urls;try{urls=JSON.parse(raw)}catch(e){urls=[raw]}'
+                . 'if(!urls.length)return;'
+                . 'var apply=function(){var parts=[];for(var i=0;i<urls.length;i++){parts.push("url(\\""+urls[i]+"\\")")}el.style.backgroundImage=parts.join(",")};'
+                . 'var im=new Image();im.onload=function(){if(im.decode){im.decode().then(apply,function(){apply()})}else{apply()}};im.onerror=apply;im.src=urls[0];'
+                . 'if(im.complete)apply();'
+                . '})},{rootMargin:"' . (int) $offset . 'px 0px"});'
                 . 'var boot=function(){document.querySelectorAll("[data-wpins-bg]").forEach(function(el){io.observe(el)})};'
                 . 'if(document.readyState!=="loading")boot();else document.addEventListener("DOMContentLoaded",boot);'
                 . '})();</script>';
@@ -73,6 +119,30 @@ class BgLazyLoader {
         }
 
         return $html;
+    }
+
+    /**
+     * Recover the ORIGIN image URL behind a rewritten CDN url(). The offload
+     * stage runs before this one, so inline background styles already carry
+     * signed worker URLs — the original URL rides along in the signed `u`
+     * parameter, which is all the LQIP derivative needs.
+     */
+    private function origin_url_for(string $url): ?string {
+        if (stripos($url, 'wpinstant') === false || strpos($url, '/api/v1/assets/media/') === false) {
+            return null; // not ours — nothing to sign
+        }
+        $query = (string) wp_parse_url($url, PHP_URL_QUERY);
+        foreach (explode('&', $query) as $pair) {
+            if (str_starts_with($pair, 'u=')) {
+                $b64 = substr($pair, 2);
+                $decoded = base64_decode(strtr($b64, '-_', '+/'));
+                if (is_string($decoded) && preg_match('#^https?://#i', $decoded)) {
+                    return $decoded;
+                }
+                return null;
+            }
+        }
+        return null;
     }
 
     private function current_url(): string {

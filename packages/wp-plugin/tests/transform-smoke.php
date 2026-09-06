@@ -15,7 +15,11 @@ error_reporting(E_ALL & ~E_DEPRECATED);
 
 define('ABSPATH', '/tmp/wp/');
 define('WP_CONTENT_DIR', '/tmp/wp-content');
+define('WP_CONTENT_URL', 'https://example.test/wp-content');
 define('MINUTE_IN_SECONDS', 60);
+define('HOUR_IN_SECONDS', 3600);
+define('DAY_IN_SECONDS', 86400);
+define('WEEK_IN_SECONDS', 604800);
 
 $GLOBALS['__options'] = [
     'wp_instant_site_id' => 'site_123',
@@ -151,6 +155,99 @@ $media_optimizer = new WPInstant\MediaOptimizer($config);
 $piped = $media_optimizer->transform($once);
 check('pipeline preserves alt attribute', strpos($piped, 'alt="hero"') !== false);
 check('pipeline has high fetchpriority or lazy loading', strpos($piped, 'fetchpriority="high"') !== false || strpos($piped, 'loading="lazy"') !== false);
+
+/* ---------------- LQIP: blur-up placeholder markup + runtime ---------------- */
+
+$two_imgs = '<html><head><title>t</title></head><body>'
+    . '<img src="https://example.test/wp-content/uploads/first.jpg" alt="first">'
+    . '<img src="https://example.test/wp-content/uploads/second.jpg" alt="second" loading="lazy" width="800" height="600">'
+    . '</body></html>';
+$offloaded = $offloader->transform($two_imgs);
+$lqip_out = $media_optimizer->transform($offloaded);
+
+check('LQIP: below-fold image carries blur-up class', strpos($lqip_out, 'wpins-lqip') !== false);
+check('LQIP: full src stashed in data attribute', strpos($lqip_out, 'data-wpins-full-src="https://cdn.wpinstant.dev') !== false);
+check('LQIP: placeholder src uses 24px derivative', strpos($lqip_out, '&w=24&') !== false);
+check('LQIP: LCP candidate image untouched by LQIP', substr_count($lqip_out, 'data-wpins-full-src="') === 1);
+check('LQIP: runtime swapper injected once', substr_count($lqip_out, 'querySelectorAll("img.wpins-lqip[data-wpins-full-src]")') === 1 && strpos($lqip_out, 'wpins-lqip-done') !== false);
+check('LQIP: CSS injected', strpos($lqip_out, 'id="wp-instant-lqip-css"') !== false);
+
+$rerun = $media_optimizer->transform($offloaded);
+check('LQIP: idempotent', $rerun === $lqip_out);
+
+// Entity-encoded attribute values (how real HTML arrives) must not be
+// double-encoded when stashed into data attributes.
+$encoded_img = '<html><head></head><body><img src="https://cdn.wpinstant.dev/api/v1/assets/media/site_123/aaaaaaaaaaaaaaaaaaaaaaaa?u=bbb&amp;w=800&amp;f=webp&amp;q=82&amp;s=cc" data-wpins-orig-src="https://example.test/wp-content/uploads/enc.jpg" srcset="https://cdn.wpinstant.dev/api/v1/assets/media/site_123/bbbbbbbbbbbbbbbbbbbbbbbb?u=ddd&amp;w=400&amp;f=webp&amp;q=82&amp;s=ee 400w" loading="lazy" decoding="async" width="800" height="600"></body></html>';
+$enc_out = $media_optimizer->transform($encoded_img);
+check('LQIP: entity-encoded srcset stashed single-encoded', strpos($enc_out, '&amp;amp;') === false && strpos($enc_out, 'data-wpins-srcset="https://cdn.wpinstant.dev') !== false && strpos($enc_out, 'w=400') !== false);
+
+/* ---------------- Critical CSS font-face slimming ---------------- */
+
+$faces = ''
+    . '@font-face{font-family:Argestra;font-weight:400;src:url(a.woff2);font-display:auto}'
+    . '@font-face{font-family:Argestra;font-weight:400;src:url(a.woff2);font-display:auto}'
+    . '@font-face{font-family:Gotham;font-weight:700;font-style:normal;src:url(b.woff2);font-display:block}'
+    . '@font-face{font-family:Gotham;font-weight:300;src:url(c.woff2)}';
+$slimmed = WPInstant\CssOptimizer::slim_font_faces($faces);
+check('font slim: duplicate face removed', substr_count($slimmed, '@font-face') === 3);
+check('font slim: font-display auto/block forced to swap', strpos($slimmed, 'font-display:auto') === false && strpos($slimmed, 'font-display:block') === false && strpos($slimmed, 'font-display:swap') !== false);
+check('font slim: distinct faces kept', strpos($slimmed, 'Gotham') !== false && strpos($slimmed, 'c.woff2') !== false);
+
+/* ---------------- Video: preload=none on non-autoplay videos ---------------- */
+
+$video_facade = new WPInstant\VideoFacade($config);
+$videos = '<video src="https://example.test/v.mp4" controls></video><video src="https://example.test/hero.mp4" autoplay muted loop playsinline></video>';
+$v_out = $video_facade->transform($videos);
+check('video: non-autoplay gets preload=none', strpos($v_out, '<video preload="none" src="https://example.test/v.mp4"') !== false);
+check('video: autoplay hero untouched', strpos($v_out, '<video src="https://example.test/hero.mp4" autoplay') !== false && substr_count($v_out, 'preload="none"') === 1);
+
+/* ---------------- Fonts: localized packages served via the CDN ---------------- */
+
+$font_optimizer = new WPInstant\FontOptimizer($config);
+$google_href = 'https://fonts.googleapis.com/css2?family=Argestra&display=swap';
+$pkg_dir = WP_INSTANT_CACHE_DIR . '/fonts/' . md5($google_href);
+@mkdir($pkg_dir, 0777, true);
+$font_css = '@font-face{font-family:Argestra;font-style:normal;font-weight:400;font-display:swap;src:url('
+    . WP_CONTENT_URL . '/cache/wp-instant/fonts/' . md5($google_href) . '/font-abc.woff2) format("woff2")}';
+file_put_contents($pkg_dir . '/fonts.css', $font_css);
+file_put_contents($pkg_dir . '/.stamp', (string) time());
+file_put_contents($pkg_dir . '/font-abc.woff2', 'FAKEWOFF2');
+
+$font_html = '<html><head><link rel="stylesheet" href="' . $google_href . '" media="all"></head><body></body></html>';
+$font_out = $font_optimizer->transform($font_html);
+
+check('fonts: stylesheet link swapped to signed CDN URL', strpos($font_out, 'href="https://cdn.wpinstant.dev/api/v1/assets/media/site_123/') !== false && strpos($font_out, '&f=raw') !== false);
+check('fonts: signed URL carries the origin fonts.css identity', strpos($font_out, urlencode(rtrim(strtr(base64_encode(WP_CONTENT_URL . '/cache/wp-instant/fonts/' . md5($google_href) . '/fonts.css'), '+/', '-_'), '='))) !== false);
+check('fonts: preload points at the CDN woff2 derivative', preg_match('/rel="preload" as="font"[^>]*href="[^"]*&f=orig/', $font_out) === 1);
+check('fonts: crossorigin attr stripped from the localized link', preg_match('/<link rel="stylesheet" href="https:\/\/cdn\.wpinstant\.dev[^"]*"[^>]*crossorigin/i', $font_out) !== 1);
+
+// Deleted package (dir survives, fonts.css gone): must fall back to the
+// working Google link instead of emitting a dead origin URL.
+@unlink($pkg_dir . '/fonts.css');
+$font_out_missing = $font_optimizer->transform($font_html);
+check('fonts: dead package falls back to the Google link', strpos($font_out_missing, 'fonts.googleapis.com/css2?family=Argestra') !== false && strpos($font_out_missing, 'wp-instant/fonts/' . md5($google_href)) === false);
+
+/* ---------------- Own-host gate: third-party media stays put ---------------- */
+
+$foreign_img = '<img src="https://images.example-cdn.net/photo.jpg" alt="third party">';
+$foreign_out = $offloader->transform($foreign_img);
+check('own-host gate: third-party img untouched', strpos($foreign_out, 'cdn.wpinstant.dev') === false && strpos($foreign_out, 'images.example-cdn.net/photo.jpg') !== false);
+$sub_out = $offloader->transform('<img src="https://media.example.test/wp-content/uploads/cdn.jpg" alt="subdomain">');
+check('own-host gate: own subdomain rewritten', strpos($sub_out, 'cdn.wpinstant.dev') !== false);
+
+/* ---------------- LCP preload: exact-match dedupe ---------------- */
+
+$with_own_preload = '<html><head><link rel="preload" as="image" href="https://cdn.wpinstant.dev/api/v1/assets/media/site_123/deadbeefdeadbeefdeadbeefdeadbeef?u=zz&amp;w=800&amp;f=webp&amp;q=82&amp;s=yy"></head><body>'
+    . '<img src="https://example.test/wp-content/uploads/lcp.jpg" alt="lcp">'
+    . '</body></html>';
+$dedupe_out = $media_optimizer->transform($with_own_preload);
+check('LCP preload: different theme preload does not suppress ours', substr_count($dedupe_out, 'rel="preload" as="image"') === 2);
+
+$same_preload = '<html><head><link rel="preload" as="image" href="https://example.test/wp-content/uploads/lcp.jpg"></head><body>'
+    . '<img src="https://example.test/wp-content/uploads/lcp.jpg" alt="lcp">'
+    . '</body></html>';
+$same_out = $media_optimizer->transform($same_preload);
+check('LCP preload: identical theme preload suppresses ours', substr_count($same_out, 'rel="preload" as="image"') === 1);
 
 if ($failures > 0) {
     fwrite(STDERR, "TRANSFORM SMOKE FAILED ({$failures} failures)\n");

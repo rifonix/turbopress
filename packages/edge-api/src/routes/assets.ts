@@ -9,6 +9,20 @@ import { checkRateLimit } from '../middleware/rate-limit.js';
 export const assetRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 /**
+ * Background work without an execution context: Hono's c.executionCtx getter
+ * THROWS when the app was fetched without one (tests, direct dispatch), so
+ * every fire-and-forget write goes through this guard.
+ */
+function defer(c: any, p: Promise<unknown>): void {
+  try {
+    c.executionCtx.waitUntil(p);
+  } catch {
+    /* no execution context — run inline, swallow result */
+    p.catch(() => {});
+  }
+}
+
+/**
  * Public download of the latest WP Instant WordPress plugin zip.
  * GET /api/v1/assets/plugin/download
  */
@@ -27,12 +41,67 @@ assetRoutes.get('/plugin/download', async (c) => {
 });
 
 /**
+ * Public version probe for the plugin's self-update channel. Version comes
+ * from the `plugin/latest.json` sidecar ({"version":"X.Y.Z"}) uploaded next
+ * to the zip — this wrangler's r2 put has no --custom-metadata — with R2
+ * customMetadata as a preferred override when present. Without either the
+ * endpoint reports null and the plugin stays silent (no bogus prompts).
+ * GET /api/v1/assets/plugin/version
+ */
+assetRoutes.get('/plugin/version', async (c) => {
+  const head = await c.env.ASSETS_BUCKET.head('plugin/wp-instant.zip').catch(() => null);
+  if (!head) {
+    return c.json({ success: false, error: 'Plugin package not published yet' }, 404);
+  }
+
+  let version: string | null = null;
+  const meta = (head as any).customMetadata || {};
+  if (typeof meta.version === 'string' && meta.version) {
+    version = meta.version;
+  } else {
+    const sidecar = await c.env.ASSETS_BUCKET.get('plugin/latest.json').catch(() => null);
+    if (sidecar) {
+      try {
+        const parsed = (await sidecar.json()) as { version?: unknown };
+        if (typeof parsed?.version === 'string' && parsed.version) {
+          version = parsed.version;
+        }
+      } catch {
+        /* malformed sidecar: report null */
+      }
+    }
+  }
+
+  return c.json(
+    {
+      success: true,
+      data: {
+        version,
+        uploaded: head.uploaded instanceof Date ? head.uploaded.toISOString() : String(head.uploaded),
+        download: '/api/v1/assets/plugin/download',
+      },
+    },
+    200,
+    { 'Cache-Control': 'public, max-age=60' }
+  );
+});
+
+/**
  * Proxy & Serve Generated Critical CSS directly from R2
  * GET /api/v1/assets/css/:site_id/:css_file
  */
 assetRoutes.get('/css/:site_id/:css_file', async (c) => {
   const siteId = c.req.param('site_id');
   const cssFile = c.req.param('css_file');
+
+  // Per-colo memoization: the commercial-policy checks below still run per
+  // request, but R2 reads and misses are absorbed by the edge cache.
+  const cache = typeof caches !== 'undefined' ? await caches.open('wpins-css-v1').catch(() => null) : null;
+  const cacheKey = new Request(c.req.url);
+  if (cache) {
+    const cached = await cache.match(cacheKey).catch(() => null);
+    if (cached) return cached;
+  }
 
   // Commercial policy: stop edge serving CSS immediately if the site is inactive
   // (subscription canceled/revoked). KV-cached for 5m to protect R2 performance.
@@ -46,18 +115,26 @@ assetRoutes.get('/css/:site_id/:css_file', async (c) => {
     await c.env.KV.put(activeKvKey, isActive, { expirationTtl: 300 });
   }
   if (isActive !== '1') {
-    return c.text('/* Site optimization inactive */', 403, {
+    const resp = c.text('/* Site optimization inactive */', 403, {
       'Content-Type': 'text/css; charset=utf-8',
+      'Cache-Control': 'public, max-age=30',
     });
+    if (cache) defer(c, cache.put(cacheKey, resp.clone()).catch(() => {}));
+    return resp;
   }
 
   const r2Key = `sites/${siteId}/css/${cssFile}`;
 
   const object = await c.env.ASSETS_BUCKET.get(r2Key);
   if (!object) {
-    return c.text('/* Critical CSS not found */', 404, {
+    // Missing artifacts are retried aggressively by browsers (font/CSS
+    // pull-ups); a short negative TTL absorbs the burst without pinning.
+    const resp = c.text('/* Critical CSS not found */', 404, {
       'Content-Type': 'text/css; charset=utf-8',
+      'Cache-Control': 'public, max-age=30',
     });
+    if (cache) defer(c, cache.put(cacheKey, resp.clone()).catch(() => {}));
+    return resp;
   }
 
   c.header('Content-Type', 'text/css; charset=utf-8');
@@ -65,8 +142,11 @@ assetRoutes.get('/css/:site_id/:css_file', async (c) => {
   // policy must stay short-lived — immutable here would pin stale CSS.
   c.header('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
   c.header('Access-Control-Allow-Origin', '*');
+  c.header('X-WP-Instant-Media', 'CSS-HIT');
 
-  return c.body(object.body as any);
+  const resp = c.body(object.body as any);
+  if (cache) defer(c, cache.put(cacheKey, resp.clone()).catch(() => {}));
+  return resp;
 });
 
 /* ------------------------------------------------------------------ */
@@ -109,6 +189,75 @@ function b64urlDecode(u: string): string {
   const pad = '='.repeat((4 - (u.length % 4)) % 4);
   const b64 = u.replace(/-/g, '+').replace(/_/g, '/') + pad;
   return atob(b64);
+}
+
+function b64urlEncode(s: string): string {
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Serve a content type for a stored object. Stored httpMetadata wins UNLESS
+ * it contradicts the source extension (legacy objects were written with a
+ * hardcoded video/mp4 content type for everything) or is generic.
+ * Extension mapping then keeps CSS/JS/fonts/images correct regardless of
+ * what the origin reported — a stylesheet served as video/mp4 is discarded
+ * by the browser's strict MIME check.
+ */
+function servingContentType(src: string, stored: string | undefined, fallback: string): string {
+  const path = src.split('?')[0].split('#')[0].toLowerCase();
+  const byExtension = contentTypeFor(src, '');
+  if (
+    stored &&
+    !/octet-stream/i.test(stored) &&
+    !(byExtension && /^video\//i.test(stored) && !/^video\//i.test(byExtension))
+  ) {
+    return stored;
+  }
+  return byExtension || stored || fallback;
+}
+
+/**
+ * Rewrite absolute image/font url() references inside a CSS body to signed
+ * CDN media URLs (same HMAC contract as the plugin: u|w|f|siteId). Lets
+ * proxied stylesheets (localized font packages, own-host Elementor sheets)
+ * survive origin purges: the CSS and every referenced asset become immutable
+ * R2-backed edge objects. data:/blob:/fragment/already-CDN URLs are skipped;
+ * signing is local HMAC computation — no subrequests.
+ */
+const CSS_ASSET_EXT = /\.(?:woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|m4v)(?:[?#]|$)/i;
+async function rewriteCssAssetUrls(css: string, siteId: string, secret: string, cdnBase: string): Promise<string> {
+  if (!css || css.indexOf('url(') === -1) return css;
+  const rewrite = async (m: string[]): Promise<string> => {
+    const raw = m[2].trim().replace(/^['"]|['"]$/g, '');
+    if (!raw) return m[0];
+    let url = raw;
+    try {
+      url = decodeURIComponent(raw);
+    } catch {
+      /* keep raw — malformed escapes stay untouched */
+    }
+    if (!/^https?:\/\//i.test(url)) return m[0]; // relative/data/fragment stay as-is
+    if (url.includes('/api/v1/assets/')) return m[0]; // already ours
+    if (!CSS_ASSET_EXT.test(url)) return m[0];
+    const f = /\.(?:woff2?|ttf|otf|eot|svg)(?:[?#]|$)/i.test(url) ? 'orig' : 'webp';
+    const w = 0;
+    const u = b64urlEncode(url);
+    const sig = (await hmacHex(secret, `${u}|${w}|${f}|${siteId}`)).slice(0, 32);
+    const hash = (await sha256(url)).slice(0, 24);
+    return `url(${m[1]}${cdnBase}/api/v1/assets/media/${siteId}/${hash}?u=${u}&w=${w}&f=${f}&q=82&s=${sig}${m[1]})`;
+  };
+  const matches = [...css.matchAll(/url\((\s*['"]?)([^)'"]+)['"]?\s*\)/gi)];
+  if (matches.length === 0) return css;
+  let out = css;
+  // Replace from the end so earlier offsets stay valid.
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const m = matches[i];
+    const replaced = await rewrite(m as unknown as string[]);
+    if (replaced !== m[0]) {
+      out = out.slice(0, m.index) + replaced + out.slice((m.index ?? 0) + m[0].length);
+    }
+  }
+  return out;
 }
 
 async function hmacHex(secret: string, data: string): Promise<string> {
@@ -220,6 +369,71 @@ async function verifyMediaSignature(
 }
 
 /**
+ * Stream an origin raw response to the visitor while persisting it: a
+ * streaming clone into R2 when the origin declared its length (≤100MB),
+ * a buffered put when it didn't (≤25MB — chunked origins used to never
+ * persist, re-fetching the origin on every single request). The visitor-
+ * facing response is immutable because the artifact is content-pinned.
+ */
+async function serveRawStream(
+  origin: Response,
+  src: string,
+  siteId: string,
+  c: any,
+  r2Key: string,
+  cache: Cache,
+  cacheKey: Request,
+  declaredLength = Number(origin.headers.get('content-length') || '0')
+): Promise<Response> {
+  const contentType = servingContentType(src, origin.headers.get('content-type') || undefined, 'application/octet-stream');
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'Accept-Ranges': 'bytes',
+    'Access-Control-Allow-Origin': '*',
+    'X-WP-Instant-Media': 'MISS',
+  };
+
+  if (declaredLength > 0 && origin.body) {
+    headers['Content-Length'] = String(declaredLength);
+    const cachedBody = origin.clone().body;
+    if (cachedBody) {
+      defer(c, 
+        c.env.ASSETS_BUCKET.put(r2Key, cachedBody as any, { httpMetadata: { contentType } }).catch(() => {})
+      );
+    }
+    const response = new Response(origin.body, { status: 200, headers });
+    defer(c, cache.put(cacheKey, response.clone()).catch(() => {}));
+    return response;
+  }
+
+  // Unknown length: buffer up to 25MB, persist, serve the buffered bytes.
+  const bytes = await origin.arrayBuffer().catch(() => null);
+  if (!bytes || bytes.byteLength === 0) {
+    return new Response(null, { status: 502, headers: { 'X-WP-Instant-Media': 'EMPTY' } });
+  }
+  if (bytes.byteLength > 25 * 1024 * 1024) {
+    return new Response(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(bytes.byteLength),
+        'Cache-Control': 'public, max-age=60',
+        'Access-Control-Allow-Origin': '*',
+        'X-WP-Instant-Media': 'PASS-OVERSIZE',
+      },
+    });
+  }
+  defer(c, 
+    c.env.ASSETS_BUCKET.put(r2Key, bytes, { httpMetadata: { contentType } }).catch(() => {})
+  );
+  headers['Content-Length'] = String(bytes.byteLength);
+  const response = new Response(bytes, { status: 200, headers });
+  defer(c, cache.put(cacheKey, response.clone()).catch(() => {}));
+  return response;
+}
+
+/**
  * Serve a media derivative from R2; on miss, optimize AT THE EDGE (WASM
  * resize/convert) and fill R2 — images never redirect to the origin except
  * as a last-resort fallback. Videos (f=raw) are cache-filled from the
@@ -290,9 +504,10 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
           c.header('Content-Range', `bytes ${start}-${end}/${size}`);
           c.header('Accept-Ranges', 'bytes');
           c.header('Content-Length', String(end - start + 1));
-          c.header('Content-Type', contentTypeFor(verified.src, meta.httpMetadata?.contentType || 'application/octet-stream'));
+          c.header('Content-Type', servingContentType(verified.src, meta.httpMetadata?.contentType, 'application/octet-stream'));
           c.header('Cache-Control', 'public, max-age=31536000, immutable');
           c.header('Access-Control-Allow-Origin', '*');
+          c.header('X-WP-Instant-Media', 'RANGE-HIT');
           return c.body(partial.body as any);
         }
       }
@@ -301,26 +516,80 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
 
   // Cache API fast path (per URL + format variant). Range requests are
   // handled above so a cached full response can never satisfy a partial one.
-  const cache = await caches.open('wpins-media-v1');
+  // Non-ok entries are negative-cached origin failures (60s TTL from their
+  // Cache-Control) — returning them spares the origin the retry storm.
+  // A no-op shim keeps the rest of the handler simple when the Cache API is
+  // unavailable (plain Node test environments).
+  const cache = typeof caches !== 'undefined'
+    ? await caches.open('wpins-media-v1')
+    : ({
+        match: async () => undefined,
+        put: async () => undefined,
+        delete: async () => false,
+      } as unknown as Cache);
   const cacheKey = new Request(c.req.url + (wantsAvif ? '&fmt=avif' : ''));
   const cachedHit = await cache.match(cacheKey).catch(() => null);
-  if (cachedHit && cachedHit.ok) {
-    return cachedHit;
+  if (cachedHit && (cachedHit.ok || cachedHit.status >= 400)) {
+    if (cachedHit.ok && wantsAvif && !cachedHit.headers.get('x-wpins-avif')) {
+      // A webp-only entry cached before the AVIF variant existed: keep
+      // looking so the AVIF path below can fill its own R2 key.
+    } else {
+      return cachedHit;
+    }
+  }
+
+  // AVIF variants are persisted under a suffixed key so a warm variant
+  // survives colo eviction instead of being re-encoded per colo forever.
+  if (wantsAvif) {
+    const avifObject = await c.env.ASSETS_BUCKET.get(`${r2Key}.avif`).catch(() => null);
+    if (avifObject) {
+      const avifHit = new Response(avifObject.body as any, {
+        headers: {
+          'Content-Type': 'image/avif',
+          ...(avifObject.size > 0 ? { 'Content-Length': String(avifObject.size) } : {}),
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Access-Control-Allow-Origin': '*',
+          Vary: 'Accept',
+          'X-WP-Instant-Media': 'HIT-AVIF',
+          'X-WPins-Avif': '1',
+        },
+      });
+      defer(c, cache.put(cacheKey, avifHit.clone()).catch(() => {}));
+      return avifHit;
+    }
   }
 
   const object = await c.env.ASSETS_BUCKET.get(r2Key);
   if (object) {
+    // Conditional request support: R2's stored ETag lets repeat visits 304
+    // instead of re-downloading (matters for the short-TTL fallback paths'
+    // siblings and for proxies that strip immutable).
+    const etag = `"${object.httpEtag}"`;
+    if (c.req.header('if-none-match') === etag) {
+      object.body?.cancel().catch(() => {});
+      return new Response(null, {
+        status: 304,
+        headers: {
+          ETag: etag,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Access-Control-Allow-Origin': '*',
+          ...(wantsAvif ? { Vary: 'Accept' } : {}),
+        },
+      });
+    }
     const hit = new Response(object.body as any, {
       headers: {
-        'Content-Type': contentTypeFor(verified.src, object.httpMetadata?.contentType || MEDIA_TYPES[f] || 'application/octet-stream'),
+        'Content-Type': servingContentType(verified.src, object.httpMetadata?.contentType, MEDIA_TYPES[f] || 'application/octet-stream'),
+        ...(object.size > 0 ? { 'Content-Length': String(object.size) } : {}),
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Accept-Ranges': 'bytes',
+        ETag: etag,
         'Access-Control-Allow-Origin': '*',
         ...(wantsAvif ? { Vary: 'Accept' } : {}),
         'X-WP-Instant-Media': 'HIT',
       },
     });
-    c.executionCtx.waitUntil(cache.put(cacheKey, hit.clone()).catch(() => {}));
+    defer(c, cache.put(cacheKey, hit.clone()).catch(() => {}));
     return hit;
   }
 
@@ -336,25 +605,60 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   // Raw assets include CSS and JavaScript as well as video. A redirect on a
   // cold stylesheet/script adds a second origin request and can make crawler
   // audits fail before the artifact is warmed. Proxy the first response from
-  // the Worker, then persist a bounded clone when the origin advertises a
-  // safe size. If Content-Length is absent we still serve the bytes, but do
-  // not retain an unbounded response in R2.
+  // the Worker, then persist a bounded clone. Chunked/unknown-length origins
+  // are buffered (≤25MB) so they persist too — streaming-only persistence
+  // left every request on those origins re-fetching forever.
   if (f === 'raw') {
-    const origin = await fetch(verified.src).catch(() => null);
-    if (!origin || !origin.ok || !origin.body) {
-      const upstreamStatus = origin && origin.status >= 400 && origin.status < 600 ? origin.status : 502;
-      return c.json(
-        { success: false, error: 'Origin asset unavailable' },
-        upstreamStatus as ContentfulStatusCode
-      );
+    const originFailure = async (upstreamStatus: number): Promise<Response> => {
+      const body = c.json({ success: false, error: 'Origin asset unavailable' }, upstreamStatus as ContentfulStatusCode, {
+        // Mandatory: the Cache API does not expire headerless entries — a
+        // missing TTL would poison this URL with a stale failure forever.
+        'Cache-Control': 'public, max-age=60',
+        'Access-Control-Allow-Origin': '*',
+      });
+      // Negative-cache origin failures for 60s so a burst of visitors (or a
+      // page with the same missing sheet referenced 5×) doesn't hammer the
+      // origin once per request.
+      defer(c, cache.put(cacheKey, body.clone()).catch(() => {}));
+      return body;
+    };
+
+    // Video seeking on a cold object: forward Range to the origin and pass
+    // the 206 straight through (no R2 fill — partial bytes must never be
+    // stored under the full-object key).
+    const rangeHeader = c.req.header('range');
+    if (rangeHeader) {
+      const ranged = await fetch(verified.src, { headers: { Range: rangeHeader }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+      if (ranged && (ranged.status === 206 || ranged.status === 200) && ranged.body) {
+        return new Response(ranged.body, {
+          status: ranged.status,
+          headers: {
+            'Content-Type': servingContentType(verified.src, ranged.headers.get('content-type') || undefined, 'application/octet-stream'),
+            ...(ranged.headers.get('content-range') ? { 'Content-Range': ranged.headers.get('content-range')! } : {}),
+            ...(ranged.headers.get('content-length') ? { 'Content-Length': ranged.headers.get('content-length')! } : {}),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'public, max-age=60',
+            'Access-Control-Allow-Origin': '*',
+            'X-WP-Instant-Media': 'RANGE-MISS',
+          },
+        });
+      }
+      // Origin ignored/refused Range: fall through to the full GET below.
     }
 
-    const originLength = Number(origin.headers.get('content-length') || '0');
-    const contentType = contentTypeFor(
+    const origin = await fetch(verified.src, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+    if (!origin || !origin.ok || !origin.body) {
+      const upstreamStatus = origin && origin.status >= 400 && origin.status < 600 ? origin.status : 502;
+      return originFailure(upstreamStatus);
+    }
+
+    const declaredLength = Number(origin.headers.get('content-length') || '0');
+    const contentType = servingContentType(
       verified.src,
-      origin.headers.get('content-type') || 'application/octet-stream'
+      origin.headers.get('content-type') || undefined,
+      'application/octet-stream'
     );
-    if (originLength > 100 * 1024 * 1024) {
+    if (declaredLength > 100 * 1024 * 1024) {
       return new Response(origin.body, {
         status: origin.status,
         headers: {
@@ -366,31 +670,63 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
       });
     }
 
-    if (originLength > 0) {
-      const cachedBody = origin.clone().body;
-      if (cachedBody) {
-        c.executionCtx.waitUntil(
-          c.env.ASSETS_BUCKET.put(r2Key, cachedBody as any, { httpMetadata: { contentType } }).catch(() => {})
-        );
+    // CSS: rewrite absolute image/font url()s to signed CDN URLs so the
+    // sheet (and everything it references) becomes edge-immutable. Applied
+    // on fill only — stored objects keep their rewritten bodies.
+    let fillBody: ArrayBuffer | ReadableStream = origin.body;
+    let fillLength = declaredLength;
+    const isCss = /text\/css/i.test(contentType);
+    if (isCss) {
+      try {
+        const secret2 = await siteSecret(c, siteId);
+        if (secret2.ok && secret2.secret) {
+          const cssText = await origin.text();
+          const rewritten = await rewriteCssAssetUrls(
+            cssText,
+            siteId,
+            secret2.secret,
+            new URL(c.req.url).origin
+          );
+          fillBody = new TextEncoder().encode(rewritten) as unknown as ArrayBuffer;
+          fillLength = (fillBody as unknown as Uint8Array).byteLength;
+          const cssResponse = new Response(fillBody, {
+            status: 200,
+            headers: {
+              'Content-Type': contentType,
+              'Content-Length': String(fillLength),
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'Access-Control-Allow-Origin': '*',
+              'X-WP-Instant-Media': 'MISS-CSS',
+            },
+          });
+          defer(c, 
+            Promise.all([
+              c.env.ASSETS_BUCKET.put(r2Key, fillBody as any, { httpMetadata: { contentType } }).catch(() => {}),
+              cache.put(cacheKey, cssResponse.clone()).catch(() => {}),
+            ])
+          );
+          return cssResponse;
+        }
+      } catch (e) {
+        console.warn('[assets] css rewrite failed, serving raw', e);
+        // Fall through to the generic raw path with the consumed body —
+        // re-fetch instead of serving a half-processed stream.
+        const refetch = await fetch(verified.src, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        if (refetch && refetch.ok && refetch.body) {
+          return serveRawStream(refetch, verified.src, siteId, c, r2Key, cache, cacheKey);
+        }
+        return originFailure(502);
       }
     }
 
-    return new Response(origin.body, {
-      status: origin.status,
-      headers: {
-        'Content-Type': contentType,
-        ...(originLength > 0 ? { 'Content-Length': String(originLength) } : {}),
-        'Cache-Control': 'public, max-age=60',
-        'Access-Control-Allow-Origin': '*',
-        'X-WP-Instant-Media': 'MISS',
-      },
-    });
+    return serveRawStream(origin, verified.src, siteId, c, r2Key, cache, cacheKey, fillLength);
   }
 
   // Images: fetch the origin bytes once, then optimize AT THE EDGE.
   const srcRes = await fetch(verified.src, {
     headers: { Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
     cf: { cacheKey: verified.src } as any,
+    signal: AbortSignal.timeout(8000),
   }).catch(() => null);
 
   if (!srcRes || !srcRes.ok) {
@@ -422,7 +758,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const isVectorOrGif = /image\/(svg\+xml|gif)/i.test(srcType) || /\.svg(?:[?#]|$)/i.test(verified.src);
   if (isVectorOrGif || f === 'orig') {
     const ct = isVectorOrGif && srcType ? srcType : srcType || 'application/octet-stream';
-    c.executionCtx.waitUntil(
+    defer(c, 
       c.env.ASSETS_BUCKET.put(r2Key, srcBytes, { httpMetadata: { contentType: ct } }).catch(() => {})
     );
     const passthrough = new Response(srcBytes, {
@@ -433,7 +769,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
         'X-WP-Instant-Media': 'EDGE-FILL',
       },
     });
-    c.executionCtx.waitUntil(cache.put(cacheKey, passthrough.clone()).catch(() => {}));
+    defer(c, cache.put(cacheKey, passthrough.clone()).catch(() => {}));
     return passthrough;
   }
 
@@ -456,11 +792,19 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
         optimized.data.byteOffset + optimized.data.byteLength
       ) as ArrayBuffer;
       // Persist the requested-format derivative in R2 (the canonical,
-      // plugin-compatible artifact). The AVIF variant stays cache-only.
+      // plugin-compatible artifact). AVIF variants get a suffixed key so a
+      // warm encode is reused across colos instead of re-running the WASM
+      // encoder after every eviction.
       if (outFormat === f) {
-        c.executionCtx.waitUntil(
+        defer(c, 
           c.env.ASSETS_BUCKET.put(r2Key, body, {
             httpMetadata: { contentType: `image/${outFormat}` },
+          }).catch(() => {})
+        );
+      } else if (outFormat === 'avif') {
+        defer(c, 
+          c.env.ASSETS_BUCKET.put(`${r2Key}.avif`, body, {
+            httpMetadata: { contentType: 'image/avif' },
           }).catch(() => {})
         );
       }
@@ -470,10 +814,11 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Access-Control-Allow-Origin': '*',
         ...(wantsAvif ? { Vary: 'Accept' } : {}),
+        ...(wantsAvif ? { 'X-WPins-Avif': '1' } : {}),
         'X-WP-Instant-Media': 'EDGE-OPT',
         },
       });
-      c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => {}));
+      defer(c, cache.put(cacheKey, response.clone()).catch(() => {}));
       return response;
     }
   } catch (err) {
@@ -542,7 +887,7 @@ assetRoutes.put('/media/:site_id/:url_hash', siteAuthMiddleware, async (c) => {
   // the AVIF cache-only variant) so the next GET sees the new bytes.
   const cache = await caches.open('wpins-media-v1').catch(() => null);
   if (cache) {
-    c.executionCtx.waitUntil(
+    defer(c, 
       Promise.all([
         cache.delete(new Request(c.req.url)).catch(() => false),
         cache.delete(new Request(c.req.url + '&fmt=avif')).catch(() => false),

@@ -59,6 +59,25 @@ class VideoFacade {
             return $full_tag;
         }, $html) ?? $html;
 
+        // Self-hosted video lazyload (media.video_lazyload_selfhosted):
+        // non-autoplaying <video> elements get preload="none" so the browser
+        // fetches nothing until the visitor hits play. Autoplay/hero videos
+        // (background videos have autoplay+ muted) are left untouched — they
+        // must start immediately by design.
+        if (!empty($media['video_lazyload_selfhosted'])) {
+            $html = preg_replace_callback(
+                '/<video\b[^>]*>/i',
+                static function (array $vm): string {
+                    $tag = $vm[0];
+                    if (preg_match('/[\s"\']autoplay[\s"\'<>\/=]/i', $tag) || stripos($tag, 'preload=') !== false) {
+                        return $tag;
+                    }
+                    return str_ireplace('<video', '<video preload="none"', $tag);
+                },
+                $html
+            ) ?? $html;
+        }
+
         if ($this->facade_injected) {
             $html = $this->inject_facade_assets($html);
         }

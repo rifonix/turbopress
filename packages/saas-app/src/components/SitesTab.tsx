@@ -70,6 +70,7 @@ const StatusChip: React.FC<{ site: ExtendedSite }> = ({ site }) => (
         ? 'chip-danger'
         : 'chip-neutral'
     }`}
+    title={site.statusReason || undefined}
   >
     {site.status !== 'disconnected' && <span className="chip-dot" />}
     {site.status === 'optimized' && site.score != null ? `${site.score} Score` : site.status}

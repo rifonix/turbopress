@@ -434,6 +434,17 @@ class MediaOffloader {
         if (($api_base !== '' && stripos($src, $api_base) === 0) || ($cdn_base !== '' && stripos($src, $cdn_base) === 0)) {
             return null; // already a worker/CDN URL
         }
+        // Own host (and its subdomains) only: proxied media consumes this
+        // site's traffic quota and the edge fetches from the origin URL —
+        // routing a third party's images/videos through the customer's
+        // signed route burns quota for assets that aren't theirs (and
+        // hotlink-protected hosts would 403 the fill). Matches the
+        // JSON-context rule, which was already own-host-only.
+        $own = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
+        $host = strtolower((string) parse_url($src, PHP_URL_HOST));
+        if ($own === '' || ($host !== $own && ($host === '' || !str_ends_with($host, '.' . $own)))) {
+            return null;
+        }
         foreach ($excluded as $ex) {
             if ($ex !== '' && stripos($src, $ex) !== false) {
                 return null;
@@ -492,6 +503,31 @@ class MediaOffloader {
         }
         sort($widths);
         return $widths;
+    }
+
+    /** Intrinsic pixel width of an LQIP placeholder derivative. */
+    public const LQIP_WIDTH = 24;
+
+    /**
+     * Signed CDN URL for the tiny blur-up placeholder of an origin image,
+     * or null when the source can't be offloaded. Same signed-URL contract
+     * and R2 keys as every other derivative — the placeholder is just the
+     * narrowest member of the srcset family.
+     */
+    public function lqip_url(string $origin_src): ?string {
+        return $this->media_url($origin_src, self::LQIP_WIDTH, 'webp');
+    }
+
+    /**
+     * Public queueing for derivatives generated outside transform() (the
+     * LQIP pass runs in MediaOptimizer, after this class's own rewrite).
+     * Deduped by the same queue-key scheme; a no-op when disconnected.
+     */
+    public function queue_derivative(string $src, int $w, string $f): void {
+        if ($this->config->get_site_id() === '' || $this->config->get_api_key() === '') {
+            return;
+        }
+        $this->enqueue([md5($src . '|' . $w . '|' . $f) => ['src' => $src, 'w' => $w, 'f' => $f]]);
     }
 
     private function enqueue(array $items): void {

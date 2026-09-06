@@ -13,6 +13,11 @@ class SpeculationRules {
     }
 
     public function transform(string $html): string {
+        // Idempotency: never inject a second copy on a re-transformed page.
+        if (stripos($html, 'id="wp-instant-speculation-rules"') !== false || stripos($html, "id='wp-instant-speculation-rules'") !== false) {
+            return $html;
+        }
+
         $eagerness = $this->config->get('dynamic.speculation_rules_eagerness', 'moderate');
         $excluded_paths = (array) $this->config->get('dynamic.excluded_prerender_paths', [
             '/wp-admin/**',

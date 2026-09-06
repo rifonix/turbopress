@@ -103,6 +103,7 @@ export interface MediaConfig {
   lazyload_images: boolean;
   lazyload_iframes: boolean;
   lazyload_offset_px: number;
+  lazyload_lqip: boolean;
   excluded_images: string[];
   offload_images: boolean;
   offload_video: boolean;

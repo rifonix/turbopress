@@ -63,10 +63,12 @@ class CriticalCssTransformer {
 
             $style_id = $used_local_fallback ? 'wp-instant-critical-css wpins-fallback' : 'wp-instant-critical-css';
             $style_tag = sprintf(
-                '<style id="%s">%s%s</style>',
+                '<style id="%s">%s</style>',
                 $style_id,
-                $font_faces,
-                $critical_css
+                CssOptimizer::slim_font_faces(
+                    $font_faces . $critical_css,
+                    (bool) $this->config->get('critical_css.font_display_swap', true)
+                )
             );
             $html = preg_replace_callback(
                 '/(<head[^>]*>)/i',

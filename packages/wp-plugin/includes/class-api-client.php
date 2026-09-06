@@ -118,7 +118,7 @@ class ApiClient {
         CacheIntegration::purge_foreign_caches('all');
     }
 
-    public function dispatch_optimization(string $url, array $viewports = ['mobile', 'desktop']): array {
+    public function dispatch_optimization(string $url, array $viewports = ['mobile', 'desktop'], ?string $structure_hash = null): array {
         $api_key = $this->config->get_api_key();
         if (empty($api_key)) {
             return ['success' => false, 'error' => 'API Key is missing'];
@@ -127,6 +127,17 @@ class ApiClient {
         $domain = $this->get_site_domain();
         $api_url = rtrim($this->config->get_api_url(), '/') . '/api/v1/optimize/dispatch';
 
+        $payload = [
+            'url' => $url,
+            'viewports' => $viewports,
+        ];
+        // Template fingerprint: the edge keeps a per-site KV of completed
+        // structures — a page sharing another page's DOM structure completes
+        // instantly from the template cache instead of paying a Chromium job.
+        if ($structure_hash !== null && $structure_hash !== '') {
+            $payload['structure_hash'] = $structure_hash;
+        }
+
         $response = wp_remote_post($api_url, [
             'timeout' => 15,
             'headers' => [
@@ -134,10 +145,7 @@ class ApiClient {
                 'X-Site-Domain' => $domain,
                 'Content-Type' => 'application/json',
             ],
-            'body' => json_encode([
-                'url' => $url,
-                'viewports' => $viewports,
-            ]),
+            'body' => json_encode($payload),
         ]);
 
         if (is_wp_error($response)) {

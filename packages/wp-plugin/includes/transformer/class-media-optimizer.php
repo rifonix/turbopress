@@ -49,15 +49,23 @@ class MediaOptimizer {
     public function transform(string $html): string {
         $lcp_image = null;
         $lcp_img_final = null;
+        $lqip_count = 0;
+        $offloader = null;
 
         // Edge-verified LCP (covers CSS-background images the <img> scan
         // below can never see).
         $verified_lcp = self::get_lcp_image($this->get_current_url(), wp_is_mobile() ? 'mobile' : 'desktop');
 
+        // Blur-up placeholders need signed CDN derivatives.
+        $lqip_enabled = (bool) $this->config->get('media.offload_images', false)
+            && (bool) $this->config->get('media.lazyload_lqip', true)
+            && $this->config->get_site_id() !== ''
+            && $this->config->get_api_key() !== '';
+
         // Process <img> tags
         $html = preg_replace_callback(
             '/<img\s+([^>]+)>/i',
-            function ($matches) use (&$lcp_image, &$lcp_img_final, $verified_lcp) {
+            function ($matches) use (&$lcp_image, &$lcp_img_final, &$lqip_count, &$offloader, $verified_lcp, $lqip_enabled) {
                 $full_tag = $matches[0];
                 $attributes = $matches[1];
 
@@ -129,10 +137,57 @@ class MediaOptimizer {
                     }
                 }
 
+                // Blur-up placeholder: src becomes a 24px CDN derivative, the
+                // real candidates move to data attributes. An inline
+                // IntersectionObserver swaps them back in (after decode) as
+                // the element nears the viewport — perceived load is instant
+                // (blur first, sharp transition) instead of an empty box.
+                // LCP and native-eager images never take the detour.
+                if ($lqip_enabled && $orig_src !== '' && !$is_tiny) {
+                    if ($offloader === null) {
+                        $offloader = new MediaOffloader($this->config);
+                    }
+                    $tiny = $offloader->lqip_url($orig_src);
+                    if ($tiny !== null) {
+                        // Work on a sentinel-prefixed copy so every attribute
+                        // match can require leading whitespace (srcset can be
+                        // the FIRST attribute — a bare /srcset=/ would also
+                        // never collide, but /src=/ would match data-src).
+                        $work = ' ' . $attributes;
+                        $srcset = '';
+                        if (preg_match('/\ssrcset=[\'"]([^\'"]+)[\'"]/i', $work, $ssm)) {
+                            // Attribute values arrive entity-encoded (&amp;);
+                            // decode so the single esc_attr() below doesn't
+                            // double-encode and corrupt every candidate URL.
+                            $srcset = html_entity_decode($ssm[1], ENT_QUOTES);
+                        }
+                        $work = preg_replace('/\ssrcset=[\'"][^\'"]*[\'"]/i', '', $work, 1);
+                        $work = preg_replace('/\ssizes=[\'"][^\'"]*[\'"]/i', '', $work, 1);
+                        $work = preg_replace('/\ssrc=[\'"][^\'"]*[\'"]/i', ' src="' . esc_url($tiny) . '"', $work, 1);
+                        $lqip_attributes = ' data-wpins-full-src="' . esc_url($src) . '"'
+                            . ($srcset !== '' ? ' data-wpins-srcset="' . esc_attr($srcset) . '"' : '')
+                            . $work;
+
+                        if (preg_match('/\sclass=[\'"]([^\'"]*)[\'"]/i', $lqip_attributes, $cm)) {
+                            $lqip_attributes = str_replace($cm[0], ' class="' . esc_attr(trim($cm[1] . ' wpins-lqip')) . '"', $lqip_attributes);
+                        } else {
+                            $lqip_attributes .= ' class="wpins-lqip"';
+                        }
+
+                        $offloader->queue_derivative($orig_src, MediaOffloader::LQIP_WIDTH, 'webp');
+                        $lqip_count++;
+                        return '<img' . $lqip_attributes . '>';
+                    }
+                }
+
                 return '<img ' . trim($attributes) . '>';
             },
             $html
         );
+
+        if ($lqip_count > 0) {
+            $html = $this->inject_lqip_runtime($html);
+        }
 
         // Preload LCP Image in <head> (with responsive hints when available).
         // Edge-verified URL wins — it is the *measured* LCP element, which on
@@ -158,8 +213,10 @@ class MediaOptimizer {
             } elseif ($lcp_image !== null) {
                 $preload = $this->build_lcp_preload($lcp_image);
             }
-            // Avoid duplicate image preloads if the theme already has one.
-            if ($preload && stripos($html, 'rel="preload" as="image"') === false && stripos($html, "rel='preload' as='image'") === false) {
+            // Avoid duplicate image preloads — but only a TRUE duplicate: the
+            // old substring check suppressed OUR preload whenever the theme
+            // preloaded ANY image. Compare exact preload hrefs instead.
+            if ($preload && !$this->has_image_preload($html, $preload)) {
                 $html = preg_replace_callback(
                     '/(<head[^>]*>)/i',
                     static fn(array $m): string => $m[1] . "\n" . $preload,
@@ -320,6 +377,82 @@ class MediaOptimizer {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether the document already preloads the same image our LCP preload
+     * targets (exact href comparison, entity-decoded both sides).
+     */
+    private function has_image_preload(string $html, string $our_preload): bool {
+        if (!preg_match('/href=[\'"]([^\'"]+)[\'"]/i', $our_preload, $om)) {
+            return false;
+        }
+        $ours = strtolower(html_entity_decode($om[1], ENT_QUOTES));
+        if (!preg_match_all('/<link\s+[^>]*rel=[\'"]preload[\'"][^>]*>/i', $html, $links)) {
+            return false;
+        }
+        foreach ($links[0] as $link) {
+            if (!preg_match('/as=[\'"]image[\'"]/i', $link)) {
+                continue;
+            }
+            if (!preg_match('/href=[\'"]([^\'"]+)[\'"]/i', $link, $hm)) {
+                continue;
+            }
+            if (strtolower(html_entity_decode($hm[1], ENT_QUOTES)) === $ours) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Blur-up runtime: a ~15-line placeholder style plus an
+     * IntersectionObserver that swaps the tiny derivative for the real
+     * candidates once the full image has decoded. rootMargin comes from
+     * media.lazyload_offset_px so the swap starts before the image scrolls
+     * into view. Inline (not the deferred loader) so it works on every
+     * execution_mode and needs no user interaction.
+     */
+    private function inject_lqip_runtime(string $html): string {
+        if (stripos($html, 'wpins-lqip') !== false && stripos($html, 'data-wpins-full-src') === false) {
+            return $html; // foreign class name collision — never double-inject
+        }
+        if (stripos($html, 'id="wp-instant-lqip-css"') !== false) {
+            return $html; // idempotency (host cache re-serving transformed HTML)
+        }
+
+        $offset = max(0, min(2000, (int) $this->config->get('media.lazyload_offset_px', 300)));
+
+        $css = '<style id="wp-instant-lqip-css">img.wpins-lqip{filter:blur(14px);transform:scale(1.04);transition:filter .45s ease,transform .45s ease}img.wpins-lqip.wpins-lqip-done{filter:none;transform:none}</style>';
+        $js = '<script wpins-exclude>(function(){'
+            . 'var io=new IntersectionObserver(function(es){es.forEach(function(en){'
+            . 'if(!en.isIntersecting)return;var el=en.target;io.unobserve(el);'
+            . 'var s=el.getAttribute("data-wpins-full-src");if(!s)return;'
+            . 'var done=function(){'
+            . 'el.setAttribute("src",s);'
+            . 'var ss=el.getAttribute("data-wpins-srcset");if(ss)el.setAttribute("srcset",ss);'
+            . 'el.removeAttribute("data-wpins-full-src");el.removeAttribute("data-wpins-srcset");'
+            . 'if(el.classList)el.classList.add("wpins-lqip-done");else el.className+=" wpins-lqip-done";'
+            . '};'
+            . 'var im=new Image();'
+            . 'im.onload=function(){if(im.decode){im.decode().then(done,function(){done()})}else{done()}};'
+            . 'im.onerror=function(){};' // keep the blur placeholder on failure
+            . 'im.src=s;'
+            . 'if(im.complete)done();'
+            . '})},{rootMargin:"' . (int) $offset . 'px 0px"});'
+            . 'var boot=function(){var ls=document.querySelectorAll("img.wpins-lqip[data-wpins-full-src]");for(var i=0;i<ls.length;i++){io.observe(ls[i])}};'
+            . 'if(document.readyState!=="loading")boot();else document.addEventListener("DOMContentLoaded",boot);'
+            . '})();</script>';
+
+        $html = preg_replace_callback(
+            '/(<\/head>)/i',
+            static fn(array $m): string => $css . $m[1],
+            $html,
+            1
+        ) ?? $html;
+        $html = str_ireplace('</body>', $js . '</body>', $html);
+
+        return $html;
     }
 
     private function get_current_url(): string {

@@ -96,14 +96,61 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
       const score = s.mobile_score != null ? s.mobile_score : s.desktop_score;
       const lcp = s.mobile_lcp != null ? Number((s.mobile_lcp / 1000).toFixed(1)) : null;
 
+      // Front-end reality signals from the plugin's daily heartbeat. A site
+      // whose served HTML carries no current fingerprint (host cache pinning
+      // unoptimized HTML, test mode, DOM engine inactive) must NOT read
+      // "optimized" just because extraction jobs completed — the extractor
+      // always sees the raw origin, so job rows alone can't prove visitors
+      // get optimized HTML.
+      let servedFingerprint: 'ok' | 'stale' | 'missing' | null = null;
+      let healthAgeDays: number | null = null;
+      try {
+        if (s.health_json) {
+          const health = JSON.parse(s.health_json) as {
+            checked_at?: number;
+            checks?: Array<{ key?: string; status?: string }>;
+          };
+          if (typeof health.checked_at === 'number') {
+            healthAgeDays = Math.max(0, Math.floor((Date.now() / 1000 - health.checked_at) / 86400));
+          }
+          const served = (health.checks || []).find((ch) => ch.key === 'served_html_current');
+          if (served) {
+            servedFingerprint =
+              served.status === 'ok' ? 'ok' : served.status === 'error' ? 'stale' : 'missing';
+          }
+        }
+      } catch {
+        /* malformed health report: ignore */
+      }
+
+      const deploymentStatus = parsedConfig?.deployment?.status ?? 'live';
+
       let status: 'connected' | 'optimized' | 'optimizing' | 'attention' | 'disconnected' = 'connected';
+      let statusReason: string | null = null;
       if (!s.is_active) {
         status = 'disconnected';
       } else if (s.latest_job_status === 'processing' || s.latest_job_status === 'queued') {
         status = 'optimizing';
+      } else if (s.latest_job_status === 'needs_attention') {
+        status = 'attention';
+        statusReason = 'Extraction hit a bot challenge or firewall — allowlist the extractor (attention feed has details)';
       } else if (s.latest_job_status === 'failed' || (score != null && score < 60)) {
         status = 'attention';
-      } else if (s.latest_job_status === 'completed' || score != null) {
+        statusReason = s.latest_job_status === 'failed' ? 'Latest optimization job failed' : 'Performance score below 60';
+      } else if (deploymentStatus === 'test') {
+        status = 'attention';
+        statusReason = 'Test Mode is active — visitors receive the unoptimized page until you Deploy';
+      } else if (
+        healthAgeDays !== null &&
+        healthAgeDays <= 3 &&
+        (servedFingerprint === 'stale' || servedFingerprint === 'missing')
+      ) {
+        status = 'attention';
+        statusReason =
+          servedFingerprint === 'stale'
+            ? 'A host/foreign cache is serving outdated HTML — purge it (LiteSpeed etc.)'
+            : 'No WP Instant fingerprint on served HTML — front-end optimization is not reaching visitors';
+      } else if (s.latest_job_status === 'completed' || (score != null && servedFingerprint === 'ok')) {
         status = 'optimized';
       }
 
@@ -122,6 +169,7 @@ siteRoutes.get('/', saasUserAuthMiddleware, async (c) => {
         ttfbMs: s.mobile_ttfb != null ? Math.round(s.mobile_ttfb) : null,
         cacheHitRate: null,
         status,
+        statusReason,
         lastJobTime: s.latest_job_time ? formatRelativeTime(s.latest_job_time) : null,
         subTitle: s.wp_version
           ? `WordPress ${s.wp_version} · WP Instant`

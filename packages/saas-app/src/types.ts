@@ -34,6 +34,7 @@ export interface ExtendedSite extends Partial<Site> {
   cacheHitRate?: number | null;
   lastJobTime: string | null;
   status: 'connected' | 'optimized' | 'optimizing' | 'attention' | 'disconnected';
+  statusReason?: string | null;
   config?: SiteConfig;
 }
 

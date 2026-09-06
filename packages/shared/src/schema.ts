@@ -97,6 +97,7 @@ export const MediaConfigSchema = z.object({
   lazyload_images: z.boolean().default(true),
   lazyload_iframes: z.boolean().default(true),
   lazyload_offset_px: z.number().int().min(0).max(2000).default(300),
+  lazyload_lqip: z.boolean().default(true),
   excluded_images: z.array(z.string()).default([]),
   offload_images: z.boolean().default(false),
   offload_video: z.boolean().default(false),

@@ -74,6 +74,14 @@ class OptimizeCallback {
             if (!is_array($incoming)) {
                 return new \WP_Error('wp_instant_invalid_config', 'Missing config payload', ['status' => 400]);
             }
+
+            // Deployment status is provenance-guarded: it may ONLY change via
+            // the explicit signed 'deploy' command above. A generic config
+            // push carrying the pair default (status='test' in shared
+            // presets) silently flipped live sites into Test Mode — visitors
+            // got the raw origin while the dashboard kept saying "optimized".
+            unset($incoming['deployment']);
+
             $config = new Config();
             $current = $config->get_all();
             if (!is_array($current)) {

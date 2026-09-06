@@ -9,6 +9,22 @@ class ScriptDelayer {
     /** Inline scripts larger than this stay synchronous (base64 inflation cap). */
     private const MAX_INLINE_DEFER_BYTES = 12288;
 
+    /**
+     * Scripts that must NEVER join the interaction-delay chain: they drive
+     * their own lazy-loading of images/backgrounds, so withholding them
+     * until first interaction (or the 3500ms timer) leaves visible media
+     * blank far longer than the unoptimized page. Matched as substrings of
+     * tag attributes OR inline content, in addition to the user's list.
+     */
+    private const ALWAYS_SYNC_MARKERS = [
+        'lazyloadBackground',   // Elementor background lazy-load observer
+        'data-wpins-bg',        // our own background lazy loader
+        'RocketLazyLoad',       // WP Rocket
+        'a3_lazyload',          // a3 Lazy Load
+        'jetpack-lazy-images',  // Jetpack
+        'data-src',             // generic JS lazy loaders (lazysizes et al.)
+    ];
+
     private Config $config;
 
     public function __construct(Config $config) {
@@ -22,6 +38,7 @@ class ScriptDelayer {
         }
 
         $exclusions = (array) $this->config->get('javascript.exclusions', []);
+        $always_sync = self::ALWAYS_SYNC_MARKERS;
         $delay_timeout = (int) $this->config->get('javascript.delay_timeout_ms', 3500);
         $remove_migrate = (bool) $this->config->get('javascript.remove_jquery_migrate', false)
             && $mode === 'defer';
@@ -55,7 +72,7 @@ class ScriptDelayer {
         // globals.
         $result = preg_replace_callback(
             '/<script(\s+[^>]*)?>([\s\S]*?)<\/script>/i',
-            function ($matches) use (&$script_order, &$external_deferred, $mode, $exclusions, $remove_migrate, $inline_defer_allowed) {
+            function ($matches) use (&$script_order, &$external_deferred, $mode, $exclusions, $always_sync, $remove_migrate, $inline_defer_allowed) {
                 $full_tag = $matches[0];
                 $attributes = $matches[1] ?? '';
                 $content = $matches[2] ?? '';
@@ -116,6 +133,15 @@ class ScriptDelayer {
                                 return $full_tag;
                             }
                         }
+                        // Known image lazy-loader scripts stay synchronous:
+                        // delaying them blanks backgrounds/images until first
+                        // interaction — the exact "lazyload feels slower than
+                        // no plugin" report.
+                        foreach ($always_sync as $marker) {
+                            if (!empty($content) && stripos($content, $marker) !== false) {
+                                return $full_tag;
+                            }
+                        }
                     } elseif (!$external_deferred) {
                         // Nothing deferred before this point: the original
                         // sync position is already correct. Leave untouched.
@@ -142,6 +168,14 @@ class ScriptDelayer {
                             if (
                                 (!empty($attributes) && stripos($attributes, $exclusion) !== false) ||
                                 (!empty($content) && stripos($content, $exclusion) !== false)
+                            ) {
+                                return $full_tag;
+                            }
+                        }
+                        foreach ($always_sync as $marker) {
+                            if (
+                                (!empty($attributes) && stripos($attributes, $marker) !== false) ||
+                                (!empty($content) && stripos($content, $marker) !== false)
                             ) {
                                 return $full_tag;
                             }

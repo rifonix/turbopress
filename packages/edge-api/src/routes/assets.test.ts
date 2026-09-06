@@ -120,7 +120,8 @@ describe('media asset route — raw delivery without first-request redirects', (
     const res = await app.fetch(new Request(mediaUrl('https://a.com/wp-content/themes/x/style.css')));
     expect(res.status).toBe(200);
     expect(res.headers.get('location')).toBeNull();
-    expect(res.headers.get('x-wp-instant-media')).toBe('MISS');
+    // CSS fills get url()-rewritten and carry the MISS-CSS marker.
+    expect(res.headers.get('x-wp-instant-media')).toBe('MISS-CSS');
     expect(res.headers.get('content-type')).toContain('text/css');
     expect(await res.text()).toBe(css);
 
@@ -210,5 +211,179 @@ describe('media asset route — raw delivery without first-request redirects', (
     expect(res.status).toBe(404);
     expect(res.headers.get('location')).toBeNull();
     expect(r2.store.size).toBe(0);
+  });
+
+  it('CSS fill rewrites absolute asset url()s to signed CDN media URLs and persists the rewritten body', async () => {
+    const r2 = createMemoryR2();
+    const env = createTestEnv({ ASSETS_BUCKET: r2 });
+    await seedSite(env);
+    const fontSrc = 'https://a.com/wp-content/cache/wp-instant/fonts/abc/font-1.woff2';
+    const css = `@font-face{font-family:X;src:url(${fontSrc}) format("woff2")}.hero{background:url("https://a.com/wp-content/uploads/2026/01/hero.jpg")}`;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(css, {
+            status: 200,
+            headers: { 'content-type': 'text/css; charset=utf-8', 'content-length': String(css.length) },
+          })
+      )
+    );
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const res = await app.fetch(new Request(mediaUrl('https://a.com/wp-content/cache/wp-instant/fonts/abc/fonts.css')));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-wp-instant-media')).toBe('MISS-CSS');
+    const body = await res.text();
+    expect(body).toContain(`/api/v1/assets/media/${SITE_ID}/${urlHashFor(fontSrc)}`);
+
+    await Promise.all(pending);
+    // The persisted object must be the REWRITTEN css, and both referenced
+    // assets must carry valid signatures (u|w|f|siteId HMAC).
+    const storedKey = `sites/${SITE_ID}/media/${urlHashFor('https://a.com/wp-content/cache/wp-instant/fonts/abc/fonts.css')}_0_82.raw`;
+    const stored = Buffer.from(r2.store.get(storedKey)!.bytes).toString();
+    expect(stored).toBe(body);
+
+    const fontUrlMatch = body.match(/https:\/\/[^)"' ]+\/api\/v1\/assets\/media\/[^)"' ]+\/[0-9a-f]{24}\?[^)"' ]+/);
+    expect(fontUrlMatch).toBeTruthy();
+    const rewritten = new URL(fontUrlMatch![0]);
+    // Minted URLs are same-origin (the cdn host in production).
+    expect(rewritten.origin).toBe('https://api.test');
+    expect(rewritten.searchParams.get('f')).toBe('orig');
+    expect(rewritten.searchParams.get('w')).toBe('0');
+    const uFont = Buffer.from(fontSrc).toString('base64url');
+    const expectedSig = createHmac('sha256', SECRET)
+      .update(`${uFont}|0|orig|${SITE_ID}`)
+      .digest('hex')
+      .slice(0, 32);
+    expect(rewritten.searchParams.get('s')).toBe(expectedSig);
+  });
+
+  it('chunked origin (no Content-Length) still persists to R2 — no perpetual MISS', async () => {
+    const r2 = createMemoryR2();
+    const env = createTestEnv({ ASSETS_BUCKET: r2 });
+    await seedSite(env);
+    const css = 'body{color:red}';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(css, {
+            status: 200,
+            headers: { 'content-type': 'text/css' }, // no content-length
+          })
+      )
+    );
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const res = await app.fetch(new Request(mediaUrl('https://a.com/chunked.css')));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(css);
+
+    await Promise.all(pending);
+    const keys = [...r2.store.keys()];
+    expect(keys.length).toBe(1);
+    expect(Buffer.from(r2.store.get(keys[0])!.bytes).toString()).toBe(css);
+  });
+
+  it('webp derivative of a png source serves image/webp from stored metadata — not image/png', async () => {
+    const r2 = createMemoryR2();
+    const env = createTestEnv({ ASSETS_BUCKET: r2 });
+    await seedSite(env);
+    const src = 'https://a.com/uploads/photo.png';
+    const key = `sites/${SITE_ID}/media/${urlHashFor(src)}_800_82.webp`;
+    r2.store.set(key, { bytes: new Uint8Array([1, 2, 3]), httpMetadata: { contentType: 'image/webp' } });
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const res = await app.fetch(new Request(mediaUrl(src, 'webp', '800')));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-wp-instant-media')).toBe('HIT');
+    expect(res.headers.get('content-type')).toBe('image/webp');
+  });
+
+  it('AVIF-capable requests reuse the persisted .avif R2 object', async () => {
+    const r2 = createMemoryR2();
+    const env = createTestEnv({ ASSETS_BUCKET: r2 });
+    await seedSite(env);
+    const src = 'https://a.com/uploads/photo.jpg';
+    const avifKey = `sites/${SITE_ID}/media/${urlHashFor(src)}_800_82.webp.avif`;
+    r2.store.set(avifKey, { bytes: new Uint8Array([9, 9]), httpMetadata: { contentType: 'image/avif' } });
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const res = await app.fetch(
+      new Request(mediaUrl(src, 'webp', '800'), { headers: { accept: 'image/avif,image/webp,*/*' } })
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/avif');
+    expect(res.headers.get('x-wp-instant-media')).toBe('HIT-AVIF');
+  });
+});
+
+describe('plugin update channel', () => {
+  const mount = (bucket: any) => {
+    const env = createTestEnv({ ASSETS_BUCKET: bucket });
+    const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+    app.route('/api/v1/assets', assetRoutes);
+    return {
+      fetch: (req: Request) =>
+        app.fetch(req, env, { waitUntil: () => {}, passThroughOnException: () => {} } as any),
+    };
+  };
+
+  it('version endpoint reports custom metadata and 404s when unpublished', async () => {
+    const app = mount({
+      async head(key: string) {
+        if (key !== 'plugin/wp-instant.zip') return null;
+        return { customMetadata: { version: '1.16.1' }, uploaded: new Date('2026-09-06T00:00:00Z') };
+      },
+    } as any);
+
+    const res = await app.fetch(new Request('https://api.test/api/v1/assets/plugin/version'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.version).toBe('1.16.1');
+    expect(body.data.download).toBe('/api/v1/assets/plugin/download');
+
+    const unpublished = mount({ async head() { return null; } } as any);
+    const res404 = await unpublished.fetch(new Request('https://api.test/api/v1/assets/plugin/version'));
+    expect(res404.status).toBe(404);
+  });
+
+  it('version endpoint degrades to null version without metadata (no bogus prompts)', async () => {
+    const app = mount({
+      async head() {
+        return { customMetadata: {}, uploaded: new Date() };
+      },
+      async get() {
+        return null;
+      },
+    } as any);
+
+    const res = await app.fetch(new Request('https://api.test/api/v1/assets/plugin/version'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.version).toBeNull();
+  });
+
+  it('version endpoint falls back to the latest.json sidecar when metadata is absent', async () => {
+    const app = mount({
+      async head() {
+        return { customMetadata: {}, uploaded: new Date('2026-09-06T05:00:00Z') };
+      },
+      async get(key: string) {
+        if (key !== 'plugin/latest.json') return null;
+        return { json: async () => ({ version: '1.17.0' }) };
+      },
+    } as any);
+
+    const res = await app.fetch(new Request('https://api.test/api/v1/assets/plugin/version'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.version).toBe('1.17.0');
+    expect(body.data.uploaded).toBe('2026-09-06T05:00:00.000Z');
   });
 });

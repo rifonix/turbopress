@@ -295,9 +295,14 @@ class CssOptimizer {
     /**
      * Add font-display:swap to @font-face blocks lacking it. Catches
      * theme-uploaded custom fonts (e.g. Sirivenne inside Elementor
-     * post-*.css) that Google-Fonts localization never touches.
+     * post-*.css) that Google-Fonts localization never touches. Respects
+     * critical_css.font_display_swap (the dashboard toggle actually controls
+     * something now — previously it was a dead setting).
      */
     public function inject_font_display(string $css): string {
+        if (!(bool) $this->config->get('critical_css.font_display_swap', true)) {
+            return $css;
+        }
         return preg_replace_callback(
             '/@font-face\s*\{([^{}]*)\}/i',
             static function ($m) {
@@ -308,6 +313,52 @@ class CssOptimizer {
             },
             $css
         ) ?? $css;
+    }
+
+    /**
+     * Slim the inlined critical CSS: Elementor-style sites ship the same
+     * @font-face once per breakpoint/stylesheet — a live page carried 92
+     * faces (~140KB) where ~30 were unique. Keep the FIRST face per
+     * family+weight+style+unicode-range key, drop the rest, and rewrite any
+     * remaining font-display:auto/block to swap (a blocking face delays
+     * first text paint by the full font download).
+     */
+    public static function slim_font_faces(string $css, bool $force_swap = true): string {
+        if (stripos($css, '@font-face') === false) {
+            return $css;
+        }
+
+        $seen = [];
+        $removed = 0;
+        $out = preg_replace_callback(
+            '/@font-face\s*\{[^{}]*\}/i',
+            static function ($m) use (&$seen, &$removed, $force_swap): string {
+                $block = $m[0];
+                $pick = static fn(string $prop): string => preg_match('/' . $prop . '\s*:\s*([^;}]+)/i', $block, $pm)
+                    ? strtolower(trim($pm[1]))
+                    : '';
+                $key = md5($pick('font-family') . '|' . $pick('font-weight') . '|' . $pick('font-style') . '|' . $pick('unicode-range'));
+                if (isset($seen[$key])) {
+                    $removed++;
+                    return '';
+                }
+                $seen[$key] = true;
+                if ($force_swap) {
+                    // Force swap: auto/block in the origin's own faces override
+                    // the swap the injector would otherwise add.
+                    $block = preg_replace('/font-display\s*:\s*(?:auto|block)\s*;?/i', 'font-display:swap;', $block);
+                }
+                return (string) $block;
+            },
+            $css
+        );
+
+        $out = is_string($out) ? $out : $css;
+        // Collapse the whitespace the removals left behind.
+        if ($removed > 0) {
+            $out = preg_replace('/\n{3,}/', "\n\n", $out) ?? $out;
+        }
+        return $out;
     }
 
     /**

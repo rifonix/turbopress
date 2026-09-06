@@ -69,27 +69,30 @@ class FontOptimizer {
             $html
         );
 
-        // font-display:swap for inline @font-face rules.
-        $html = preg_replace_callback(
-            '/<style([^>]*)>([\s\S]*?)<\/style>/i',
-            function ($m) {
-                if (stripos($m[2], '@font-face') === false) {
-                    return $m[0];
-                }
-                $css = preg_replace_callback(
-                    '/@font-face\s*\{[^}]*\}/i',
-                    function ($fm) {
-                        if (stripos($fm[0], 'font-display') !== false) {
-                            return $fm[0];
-                        }
-                        return rtrim($fm[0], '}') . 'font-display:swap;}';
-                    },
-                    $m[2]
-                );
-                return '<style' . $m[1] . '>' . $css . '</style>';
-            },
-            $html
-        );
+        // font-display:swap for inline @font-face rules (respects the
+        // critical_css.font_display_swap dashboard toggle).
+        if ((bool) $this->config->get('critical_css.font_display_swap', true)) {
+            $html = preg_replace_callback(
+                '/<style([^>]*)>([\s\S]*?)<\/style>/i',
+                function ($m) {
+                    if (stripos($m[2], '@font-face') === false) {
+                        return $m[0];
+                    }
+                    $css = preg_replace_callback(
+                        '/@font-face\s*\{[^}]*\}/i',
+                        function ($fm) {
+                            if (stripos($fm[0], 'font-display') !== false) {
+                                return $fm[0];
+                            }
+                            return rtrim($fm[0], '}') . 'font-display:swap;}';
+                        },
+                        $m[2]
+                    );
+                    return '<style' . $m[1] . '>' . $css . '</style>';
+                },
+                $html
+            );
+        }
 
         // Preload the primary localized font (LCP text usually uses it).
         if ($preload_font && (bool) $this->config->get('fonts.preload_lcp_font', true)) {
@@ -138,16 +141,67 @@ class FontOptimizer {
                             && file_exists($dir . '/' . $file);
                     }
                     if ($preload_ok) {
+                        // Visitor-facing URLs go through the CDN when the
+                        // site is connected: the worker persists the sheet
+                        // (with its font url()s rewritten to signed CDN URLs)
+                        // and every woff2 as immutable R2 objects, so font
+                        // packages survive origin purges of wp-content/cache
+                        // — pages cached for 7 days keep dead origin links
+                        // otherwise (the "text/html is not a supported
+                        // stylesheet MIME type" console error).
+                        $css_url = $this->fonts_public_url($pkg, 'fonts.css');
+                        $preload_url = $preload;
+                        if ($this->config->get_site_id() !== '' && $this->config->get_api_key() !== '') {
+                            $offloader = new MediaOffloader($this->config);
+                            $cdn_css = $offloader->media_url($css_url, 0, 'raw');
+                            if ($cdn_css !== null) {
+                                $css_url = $cdn_css;
+                            }
+                            if ($preload_url !== null) {
+                                $cdn_font = $offloader->media_url($preload_url, 0, 'orig');
+                                if ($cdn_font !== null) {
+                                    $preload_url = $cdn_font;
+                                }
+                            }
+                        }
                         return [
-                            'css_url' => $this->fonts_public_url($pkg, 'fonts.css'),
-                            'preload_url' => $preload,
+                            'css_url' => $css_url,
+                            'preload_url' => $preload_url,
                         ];
                     }
                 }
             }
+
+            // The package dir existing while fonts.css is gone means the
+            // package was built once and then selectively deleted — cached
+            // pages reference the dead link. Purge page caches ONCE so they
+            // regenerate with working links. A never-generated package (no
+            // dir at all) is a cold first render: nothing to purge.
+            if (is_dir($dir)) {
+                $this->purge_pages_for_dead_package($pkg);
+            }
             return null;
         } catch (\Throwable $e) {
             return null;
+        }
+    }
+
+    /**
+     * One-shot (transient-gated) purge when a font package turns out dead at
+     * render time. Without this, the 7-day page cache keeps serving <link>s
+     * to a deleted fonts.css — the exact MIME-type console error observed on
+     * live sites.
+     */
+    private function purge_pages_for_dead_package(string $pkg): void {
+        if (get_transient('wpins_font_dead_purge_' . $pkg)) {
+            return;
+        }
+        set_transient('wpins_font_dead_purge_' . $pkg, 1, 30 * MINUTE_IN_SECONDS);
+        try {
+            CacheManager::purge_all_static();
+            CacheIntegration::purge_foreign_caches('all');
+        } catch (\Throwable $e) {
+            // Purging is best-effort; regeneration scheduling still runs.
         }
     }
 

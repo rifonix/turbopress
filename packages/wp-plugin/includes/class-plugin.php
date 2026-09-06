@@ -17,6 +17,7 @@ class Plugin {
     public PresetEngine $preset_engine;
     public CacheIntegration $cache_integration;
     public HealthCheck $health_check;
+    public Updater $updater;
     public BloatRemover $bloat_remover;
     public AutoPurge $auto_purge;
 
@@ -38,6 +39,7 @@ class Plugin {
         $this->preset_engine = new PresetEngine($this->config);
         $this->cache_integration = new CacheIntegration();
         $this->health_check = new HealthCheck($this->config, $this->api_client);
+        $this->updater = new Updater($this->config);
         $this->bloat_remover = new BloatRemover($this->config);
         $this->auto_purge = new AutoPurge($this->config);
     }
@@ -107,6 +109,14 @@ class Plugin {
         // cloud dashboard (verify_connection) instead of waiting a day for
         // the heartbeat.
         add_action('wp_instant_config_sync', [$this, 'run_config_sync']);
+
+        // Self-update channel: probe the control plane for a newer published
+        // zip and surface the one-click update row in WP-Admin.
+        $this->updater->register();
+        add_action('wp_instant_updater_check', [$this->updater, 'refresh_version_cache']);
+        if (!wp_next_scheduled('wp_instant_updater_check')) {
+            wp_schedule_event(time() + 10 * MINUTE_IN_SECONDS, 'daily', 'wp_instant_updater_check');
+        }
 
         // Daily health heartbeat to the SaaS control plane
         add_action('wp_instant_health_heartbeat', [$this, 'run_health_heartbeat']);
@@ -284,6 +294,10 @@ class Plugin {
                 // headers the advanced-cache drop-in sends on HITs, so any
                 // CDN/proxy in front of the origin can cache uniformly.
                 header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
+                // Cache-state marker: the drop-in emits HIT/STALE; without a
+                // MISS marker here, fresh renders were indistinguishable from
+                // "plugin not serving at all" in response dumps.
+                header('X-WP-Instant-Cache: MISS');
                 // Transformation changed the bytes: a pre-set Content-Length
                 // is now stale and would truncate or pad the response.
                 header_remove('Content-Length');
@@ -361,7 +375,7 @@ class Plugin {
 
         // Phase 1: dispatch the extraction job(s).
         if (empty($jobs)) {
-            $dispatch = $this->api_client->dispatch_optimization($url);
+            $dispatch = $this->api_client->dispatch_optimization($url, ['mobile', 'desktop'], $this->compute_template_hash($url));
             $created = $dispatch['data']['jobs'] ?? null;
 
             if (empty($created)) {
@@ -420,11 +434,62 @@ class Plugin {
     public function run_health_heartbeat(): void {
         $this->health_check->run();
         $this->health_check->push_to_edge();
+        $this->self_heal_purge();
 
         // DISABLE_WP_CRON fallback: the daily heartbeat also services the
         // RUM pipeline (hourly cron may never fire on some hosts).
         Telemetry::push_to_edge($this->api_client);
         AutoDegrade::evaluate($this->config);
+    }
+
+    /**
+     * Template fingerprint for the edge's structure-hash dedup: hash the RAW
+     * origin HTML (?wp_instant_extract=1 bypasses both the drop-in and the
+     * DOM engine, matching what the extractor sees). Pages sharing a template
+     * then complete from the edge's KV cache instead of paying a Chromium
+     * job. Best-effort: null just means the dispatch runs uncached.
+     */
+    private function compute_template_hash(string $url): ?string {
+        $loopback = wp_remote_get(add_query_arg('wp_instant_extract', '1', $url), [
+            'timeout' => 8,
+            'redirection' => 2,
+        ]);
+        if (is_wp_error($loopback) || wp_remote_retrieve_response_code($loopback) !== 200) {
+            return null;
+        }
+        $html = (string) wp_remote_retrieve_body($loopback);
+        if (strlen($html) < 512 || stripos($html, '</head>') === false) {
+            return null;
+        }
+        return DomEngine::compute_structure_hash($html);
+    }
+
+    /**
+     * Self-healing purge: when the daily health check finds the served
+     * homepage missing/stale (a host cache like LiteSpeed pinned
+     * pre-optimization HTML — PHP never runs, so nothing else can fix it),
+     * flush our page cache AND the host's. Throttled so a persistent
+     * mismatch can't purge-loop all day.
+     */
+    private function self_heal_purge(): void {
+        if ($this->config->get('deployment.status', 'live') !== 'live') {
+            return;
+        }
+        $health = get_option('wp_instant_health');
+        if (!is_array($health) || empty($health['checks'])) {
+            return;
+        }
+        foreach ((array) $health['checks'] as $check) {
+            if (($check['key'] ?? '') === 'served_html_current' && ($check['status'] ?? '') !== 'ok') {
+                if (get_transient('wpins_selfheal_purge')) {
+                    return; // already tried within the throttle window
+                }
+                set_transient('wpins_selfheal_purge', 1, 6 * HOUR_IN_SECONDS);
+                CacheManager::purge_all_static();
+                CacheIntegration::purge_foreign_caches('all');
+                return;
+            }
+        }
     }
 
     /**
@@ -487,7 +552,7 @@ class Plugin {
         CacheIntegration::purge_foreign_caches('all');
 
         // Unschedule heartbeats and background optimization tasks
-        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize', 'wp_instant_config_sync', 'wp_instant_localize_font'] as $hook) {
+        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize', 'wp_instant_config_sync', 'wp_instant_localize_font', 'wp_instant_updater_check'] as $hook) {
             $timestamp = wp_next_scheduled($hook);
             while ($timestamp) {
                 wp_unschedule_event($timestamp, $hook);
