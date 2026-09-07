@@ -59,6 +59,8 @@ class MediaOffloader {
                     $tag = $m[0];
                     $has_srcset = (bool) preg_match('/\ssrcset=["\']/i', $tag);
                     $has_sizes = (bool) preg_match('/\ssizes=["\']/i', $tag);
+                    $synth = '';
+                    $synthesized = false;
 
                     // src
                     if (preg_match('/\ssrc=["\']([^"\']+)["\']/i', $tag, $sm)) {
@@ -72,8 +74,6 @@ class MediaOffloader {
                         // wider than the intrinsic size, so derivatives never
                         // upscale) plus a sizes hint, and let the browser
                         // choose by layout width × DPR.
-                        $synth = '';
-                        $synthesized = false;
                         if (!$has_srcset) {
                             $intrinsic = $this->intrinsic_width($src);
                             $cap = min($intrinsic ?? $max_w, $max_w);

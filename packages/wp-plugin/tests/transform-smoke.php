@@ -13,6 +13,16 @@
 
 error_reporting(E_ALL & ~E_DEPRECATED);
 
+// Production hardening guard: some hosts/plugins escalate warnings to
+// exceptions. Run the whole suite that way — an undefined variable must
+// fail the build here, not the output buffer on a live site (1.16.2 500s).
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+    throw new ErrorException($message, 0, $severity, $file, $line);
+}, E_WARNING | E_NOTICE);
+
 define('ABSPATH', '/tmp/wp/');
 define('WP_CONTENT_DIR', '/tmp/wp-content');
 define('WP_CONTENT_URL', 'https://example.test/wp-content');
@@ -97,6 +107,18 @@ check('width attr drives sizes + src derivative', strpos($out, 'sizes="(max-widt
 $out = $offloader->transform('<img src="https://example.test/a.jpg" srcset="https://example.test/a-400.jpg 400w, https://example.test/a-800.jpg 800w" sizes="(max-width: 800px) 100vw, 800px">');
 check('existing srcset candidates rewritten, no duplicate srcset', substr_count($out, 'srcset=') === 1 && strpos($out, 'example.test/a-400.jpg') === false);
 check('existing sizes untouched', substr_count($out, 'sizes=') === 1);
+
+/* -------- <img> without src (srcset-only / lazy data-src) -------- */
+/* Regression: 1.16.2 read $synthesized before initialization for src-less
+ * tags — a warning that 500s the whole response on strict hosts. Under the
+ * strict error handler above, a repeat would throw right here. */
+
+$out = $offloader->transform('<img srcset="https://example.test/a-400.jpg 400w, https://example.test/a-800.jpg 800w" alt="lazy">');
+check('srcset-only <img> survives without warning', strpos($out, 'alt="lazy"') !== false);
+check('srcset-only candidates rewritten', strpos($out, 'a-400.jpg') === false);
+
+$out = $offloader->transform('<img data-src="https://example.test/lazy.jpg" class="lazyload" alt="deferred">');
+check('data-src lazy <img> untouched without warning', strpos($out, 'data-src="https://example.test/lazy.jpg"') !== false);
 
 /* ---------------- <picture> <source srcset> ---------------- */
 
