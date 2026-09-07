@@ -1,6 +1,8 @@
 <?php
 namespace WPInstant;
 
+use WPInstant\Admin\Icon;
+
 if (!defined('ABSPATH')) {
     exit;
 }

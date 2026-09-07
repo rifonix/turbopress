@@ -67,6 +67,7 @@ $required = [
     'WPInstant\Admin\Page_Html_Css',
     'WPInstant\Admin\Page_Javascript',
     'WPInstant\Admin\Page_Advanced',
+    'WPInstant\Admin\Icon',
 ];
 
 $failures = 0;
@@ -80,6 +81,24 @@ foreach ($required as $class) {
 if (!defined('WP_INSTANT_VERSION')) {
     fwrite(STDERR, "FAIL: WP_INSTANT_VERSION not defined\n");
     $failures++;
+}
+
+// Namespace guard: bare `Icon::` resolves against the file's namespace. Any
+// admin file outside WPInstant\Admin must import WPInstant\Admin\Icon —
+// php -l cannot catch a missing import (fatal only when the code runs, as
+// happened with the admin bar in 1.16.1).
+foreach (glob(dirname(__DIR__) . '/admin/*.php') as $admin_file) {
+    $src = file_get_contents($admin_file);
+    if (!is_string($src) || strpos($src, 'Icon::') === false) {
+        continue;
+    }
+    if (strpos($src, 'namespace WPInstant\Admin;') !== false) {
+        continue;
+    }
+    if (strpos($src, 'use WPInstant\Admin\Icon;') === false) {
+        fwrite(STDERR, "FAIL: {$admin_file} uses Icon:: without importing WPInstant\\Admin\\Icon\n");
+        $failures++;
+    }
 }
 
 if ($failures > 0) {
