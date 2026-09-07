@@ -64,6 +64,7 @@ require_once WP_INSTANT_PATH . 'includes/class-health-check.php';
 require_once WP_INSTANT_PATH . 'includes/class-optimize-callback.php';
 require_once WP_INSTANT_PATH . 'includes/class-telemetry.php';
 require_once WP_INSTANT_PATH . 'includes/class-auto-degrade.php';
+require_once WP_INSTANT_PATH . 'admin/class-admin-icons.php';
 require_once WP_INSTANT_PATH . 'admin/class-admin-settings-base.php';
 require_once WP_INSTANT_PATH . 'admin/class-admin-page-dashboard.php';
 require_once WP_INSTANT_PATH . 'admin/class-admin-page-assets.php';

@@ -34,7 +34,7 @@ class Page_Advanced extends Settings_Page {
         $last_sync = get_option('wp_instant_config_synced_at', 0);
         ?>
         <div class="wpins-grid-2">
-            <?php $this->card_open('Page Cache', 'dashicons-database', 'Full-page static caching with edge-cacheable headers — visitors bypass WordPress entirely.'); ?>
+            <?php $this->card_open('Page Cache', 'database', 'Full-page static caching with edge-cacheable headers — visitors bypass WordPress entirely.'); ?>
                 <?php
                 $this->toggle('caching', 'enabled', 'Page caching');
                 $this->toggle('caching', 'mobile_cache', 'Separate mobile cache', 'Store a mobile and a desktop variant per page');
@@ -45,7 +45,7 @@ class Page_Advanced extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Dynamic Optimizations', 'dashicons-randomize', 'Instant-feeling navigation and cached-page hydration.'); ?>
+            <?php $this->card_open('Dynamic Optimizations', 'refresh', 'Instant-feeling navigation and cached-page hydration.'); ?>
                 <?php
                 $this->toggle('dynamic', 'speculation_rules_prerender', 'Prefetch on hover', 'Native prerendering of links for near-instant navigation');
                 $this->toggle('dynamic', 'nonce_ajax_refresh', 'Refresh form nonces', 'Keeps cached forms and login flows working');
@@ -53,21 +53,21 @@ class Page_Advanced extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Safety Nets', 'dashicons-shield-alt', 'Automatic protection against optimization side effects.'); ?>
+            <?php $this->card_open('Safety Nets', 'shield', 'Automatic protection against optimization side effects.'); ?>
                 <?php
                 $this->toggle('deployment', 'auto_degrade', 'Auto-Protect', 'Steps JavaScript aggressiveness down automatically when real-visitor errors spike');
                 $this->toggle('htaccess', 'enabled', 'Manage server cache rules', 'Precompressed assets and immutable cache lifetimes (Apache/LiteSpeed)');
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Edge Sync', 'dashicons-cloud-upload', 'Your settings are mirrored to the WP Instant cloud dashboard automatically. Last synced: ' . ($last_sync ? esc_html(human_time_diff($last_sync) . ' ago') : 'never')); ?>
+            <?php $this->card_open('Edge Sync', 'globe', 'Your settings are mirrored to the WP Instant cloud dashboard automatically. Last synced: ' . ($last_sync ? esc_html(human_time_diff($last_sync) . ' ago') : 'never')); ?>
                 <div class="wpins-field">
                     <span class="wpins-field-label">
                         Sync now
                         <small>Pushes the current configuration to the cloud dashboard and refreshes the connection health check.</small>
                     </span>
                     <button type="button" id="wpins-sync-btn" class="button button-secondary">
-                        <span class="dashicons dashicons-update"></span> Sync configuration
+                        <?php echo Icon::render('refresh', 15); ?> Sync configuration
                     </button>
                 </div>
             <?php $this->card_close(); ?>

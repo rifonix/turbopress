@@ -34,7 +34,7 @@ class Page_Html_Css extends Settings_Page {
     public function render(): void {
         ?>
         <div class="wpins-grid-2">
-            <?php $this->card_open('Critical CSS', 'dashicons-editor-code', 'A real browser loads every page, extracts the CSS actually needed for first paint, and inlines it — zero render-blocking stylesheet requests.'); ?>
+            <?php $this->card_open('Critical CSS', 'bolt', 'A real browser loads every page, extracts the CSS actually needed for first paint, and inlines it — zero render-blocking stylesheet requests.'); ?>
                 <?php
                 $this->toggle('critical_css', 'enabled', 'Edge Critical CSS', 'Per-page extraction for mobile and desktop');
                 $this->toggle('critical_css', 'inline', 'Inline critical CSS');
@@ -44,7 +44,7 @@ class Page_Html_Css extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Stylesheet Delivery', 'dashicons-media-default', 'Merge and shrink render-blocking stylesheets.'); ?>
+            <?php $this->card_open('Stylesheet Delivery', 'layers', 'Merge and shrink render-blocking stylesheets.'); ?>
                 <?php
                 $this->toggle('css', 'combine', 'Combine stylesheets', 'Merge blocking sheets into one cached bundle');
                 $this->toggle('css', 'minify', 'Minify CSS');
@@ -52,7 +52,7 @@ class Page_Html_Css extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('HTML Output', 'dashicons-editor-justify', 'Shrink the document itself.'); ?>
+            <?php $this->card_open('HTML Output', 'code', 'Shrink the document itself.'); ?>
                 <?php
                 $this->toggle('html', 'minify', 'Minify HTML', 'Scripts, styles and pre-formatted blocks are never touched');
                 $this->toggle('html', 'minify_jsonld', 'Minify structured data', 'Compact schema.org JSON-LD blocks');
@@ -60,7 +60,7 @@ class Page_Html_Css extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Custom CSS', 'dashicons-editor-css', 'Your own rules, injected last in the head so they win the cascade.'); ?>
+            <?php $this->card_open('Custom CSS', 'braces', 'Your own rules, injected last in the head so they win the cascade.'); ?>
                 <?php
                 $this->text_field('custom_css', '', 'CSS', '', true, '.hero-title { text-wrap: balance; }');
                 ?>

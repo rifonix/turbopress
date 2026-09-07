@@ -26,7 +26,7 @@ class Page_Javascript extends Settings_Page {
     public function render(): void {
         ?>
         <div class="wpins-grid-2">
-            <?php $this->card_open('Execution Strategy', 'dashicons-media-code', 'Defer keeps execution order while removing render-blocking. Delay holds scripts until a visitor interacts (or the safety timer fires) — the biggest score win, with the most risk.'); ?>
+            <?php $this->card_open('Execution Strategy', 'play', 'Defer keeps execution order while removing render-blocking. Delay holds scripts until a visitor interacts (or the safety timer fires) — the biggest score win, with the most risk.'); ?>
                 <?php
                 $this->segmented('javascript', 'execution_mode', 'Mode', [
                     'none' => 'Off (synchronous)',
@@ -38,7 +38,7 @@ class Page_Javascript extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Script Exemptions', 'dashicons-shield', 'Scripts that must run before first interaction — consent banners, payment SDKs, captchas. Only applies in Delay mode.'); ?>
+            <?php $this->card_open('Script Exemptions', 'shield', 'Scripts that must run before first interaction — consent banners, payment SDKs, captchas. Only applies in Delay mode.'); ?>
                 <?php
                 $this->list_field('javascript', 'exclusions', 'Always-load scripts', 'One per line', "cookiebot\nstripe.js");
                 ?>

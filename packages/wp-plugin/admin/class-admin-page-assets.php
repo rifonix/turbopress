@@ -39,7 +39,7 @@ class Page_Assets extends Settings_Page {
     public function render(): void {
         ?>
         <div class="wpins-grid-2">
-            <?php $this->card_open('CDN Offload', 'dashicons-cloud', 'Serve images and video from the global CDN — resized, converted to modern formats and cached at the edge. A rewrite can never break an asset: worst case it falls back to the original file.'); ?>
+            <?php $this->card_open('CDN Offload', 'cloud', 'Serve images and video from the global CDN — resized, converted to modern formats and cached at the edge. A rewrite can never break an asset: worst case it falls back to the original file.'); ?>
                 <?php
                 $this->toggle('media', 'offload_images', 'Offload images to the CDN', 'Responsive variants in modern formats, sized to each visitor\'s screen');
                 $this->toggle('media', 'offload_video', 'Offload video to the CDN', 'Self-hosted video streamed from the edge with seek support');
@@ -49,7 +49,7 @@ class Page_Assets extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Lazy Loading', 'dashicons-format-image', 'Load below-the-fold media only as it approaches the viewport.'); ?>
+            <?php $this->card_open('Lazy Loading', 'image', 'Load below-the-fold media only as it approaches the viewport.'); ?>
                 <?php
                 $this->toggle('media', 'lazyload_images', 'Lazy-load images');
                 $this->toggle('media', 'lazyload_iframes', 'Lazy-load embeds & iframes', 'Maps, social embeds and other third-party frames');
@@ -59,21 +59,21 @@ class Page_Assets extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('LCP Priority', 'dashicons-editor-break', 'Make the largest element on each page paint as fast as possible.'); ?>
+            <?php $this->card_open('LCP Priority', 'gauge', 'Make the largest element on each page paint as fast as possible.'); ?>
                 <?php
                 $this->toggle('media', 'preload_lcp_image', 'Preload the LCP image');
                 $this->toggle('media', 'auto_fetchpriority_lcp', 'High-priority fetch for the LCP image');
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('CSS & JS Delivery', 'dashicons-admin-links', 'Serve stylesheets and scripts from the CDN edge cache instead of your origin.'); ?>
+            <?php $this->card_open('CSS & JS Delivery', 'layers', 'Serve stylesheets and scripts from the CDN edge cache instead of your origin.'); ?>
                 <?php
                 $this->toggle('assets', 'proxy_enabled', 'Proxy third-party css & js', 'Foreign CDN assets served through the signed edge route');
                 $this->toggle('assets', 'serve_own_from_cdn', 'Serve own css & js from the CDN', 'Theme bundles, combined CSS and scripts via the edge CDN');
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('Fonts', 'dashicons-editor-textcolor', 'Eliminate third-party font handshakes.'); ?>
+            <?php $this->card_open('Fonts', 'type', 'Eliminate third-party font handshakes.'); ?>
                 <?php
                 $this->toggle('fonts', 'localize_google', 'Localize Google Fonts', 'Self-host the font files with font-display:swap');
                 $this->toggle('fonts', 'preload_lcp_font', 'Preload the primary font');
@@ -128,10 +128,10 @@ class Page_Assets extends Settings_Page {
         ?>
         <div class="wpins-card">
             <div class="wpins-card-head">
-                <span class="dashicons dashicons-menu-alt3"></span>
-                <div>
-                    <h2>Plugin Asset Control</h2>
-                    <p>Strip the css &amp; js of plugins a page doesn't use — big wins when many plugins are active.</p>
+                <span class="wpins-card-icon"><?php echo Icon::render('sliders', 17); ?></span>
+                <div class="wpins-card-titles">
+                    <h3>Plugin Asset Control</h3>
+                    <p class="wpins-card-desc">Strip the css &amp; js of plugins a page doesn't use — big wins when many plugins are active.</p>
                 </div>
             </div>
             <div class="wpins-card-body wpins-unload">

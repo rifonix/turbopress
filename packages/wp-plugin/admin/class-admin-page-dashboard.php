@@ -17,91 +17,100 @@ if (!defined('ABSPATH')) {
 class Page_Dashboard extends Settings_Page {
     protected string $slug = 'wp-instant';
     protected string $title = 'Dashboard';
-    protected string $description = '';
+    protected string $description = 'Optimization template, deployment and real-user performance at a glance.';
 
     /** The dashboard owns no granular settings — presets only. */
     public static function field_definitions(): array {
         return [];
     }
 
+    /** Status chips in the shell header: deployment mode, edge reachability, auto-protect. */
+    protected function render_header_chips(): void {
+        $is_test = $this->config->get('deployment.status', 'live') === 'test';
+        $edge_ok = get_transient('wp_instant_health_edge');
+        $edge_state = is_array($edge_ok) ? (bool) ($edge_ok['ok'] ?? false) : null;
+        ?>
+        <span class="wpins-pill <?php echo $is_test ? 'wpins-pill--test' : 'wpins-pill--live'; ?>">
+            <?php echo $is_test ? 'Test Mode' : 'Live'; ?>
+        </span>
+        <?php if ($edge_state === true): ?>
+            <span class="wpins-pill wpins-pill--live">Edge connected</span>
+        <?php elseif ($edge_state === false): ?>
+            <span class="wpins-pill wpins-pill--test">Edge unreachable</span>
+        <?php endif; ?>
+        <?php
+        $degrade_state = get_option(\WPInstant\AutoDegrade::OPTION, []);
+        if (is_array($degrade_state) && !empty($degrade_state['to'])) :
+            ?>
+            <span class="wpins-pill wpins-pill--neutral">Auto-Protect: JS stepped down to <?php echo esc_html((string) $degrade_state['to']); ?></span>
+        <?php endif;
+    }
+
     public function render_form(): void {
         $config = $this->config;
         $preset = (string) $config->get('preset', 'ludicrous');
         $is_test = $config->get('deployment.status', 'live') === 'test';
-        $connected = $config->is_connected();
-        $edge_ok = get_transient('wp_instant_health_edge');
-        $edge_state = is_array($edge_ok) ? (bool) ($edge_ok['ok'] ?? false) : null;
         $rum = $this->rum_summary();
         $counts = $this->pipeline_counts();
 
         $presets = [
-            'safe' => ['Safe', 'dashicons-shield-alt', 'Caching and minification only. No JavaScript changes — guaranteed compatibility.', '100% compat'],
-            'aggressive' => ['Aggressive', 'dashicons-performance', 'Critical CSS, deferred scripts, combined CSS and CDN asset delivery.', 'Balanced'],
-            'ludicrous' => ['Ludicrous', 'dashicons-superhero', 'Everything, plus interaction-delayed JavaScript and dynamic nonces.', 'Recommended'],
+            'safe' => ['Safe', 'shield', 'Caching and minification only. No JavaScript changes — guaranteed compatibility.', '100% compatible'],
+            'aggressive' => ['Aggressive', 'bolt', 'Critical CSS, deferred scripts, combined CSS and CDN asset delivery.', 'Balanced'],
+            'ludicrous' => ['Ludicrous', 'rocket', 'Everything, plus interaction-delayed JavaScript and dynamic nonces.', 'Recommended'],
         ];
         ?>
         <div class="wrap wp-instant-admin-wrap wpins-settings-wrap">
+            <?php $this->render_shell_open(); ?>
+
             <?php if (isset($_GET['connected'])): ?>
-                <div class="notice notice-success is-dismissible" style="margin:0 0 14px;">
-                    <p><strong>Connected.</strong> Optimization started in the background — your first critical CSS lands within a couple of minutes.</p>
+                <div class="wpins-banner wpins-banner--ok">
+                    <?php echo Icon::render('check'); ?>
+                    <span><strong>Connected.</strong> Optimization started in the background — your first critical CSS lands within a couple of minutes.</span>
                 </div>
             <?php elseif (isset($_GET['wpins_saved'])): ?>
-                <div class="notice notice-success is-dismissible" style="margin:0 0 14px;">
-                    <p><strong>Saved.</strong> Changes were applied to your site and its caches were refreshed.</p>
+                <div class="wpins-banner wpins-banner--ok">
+                    <?php echo Icon::render('check'); ?>
+                    <span><strong>Saved.</strong> Changes were applied to your site and its caches were refreshed.</span>
                 </div>
             <?php endif; ?>
 
-            <!-- Status strip -->
-            <div class="wpins-stat-strip">
-                <span class="wpins-pill <?php echo $is_test ? 'wpins-pill--test' : 'wpins-pill--live'; ?>">
-                    <?php echo $is_test ? 'Test Mode — visitors see the unoptimized site' : 'Live — visitors get the optimized site'; ?>
-                </span>
-                <?php if ($edge_state === true): ?>
-                    <span class="wpins-pill wpins-pill--live">Edge reachable</span>
-                <?php elseif ($edge_state === false): ?>
-                    <span class="wpins-pill wpins-pill--warn">Edge unreachable</span>
-                <?php endif; ?>
-                <?php
-                $degrade_state = get_option(\WPInstant\AutoDegrade::OPTION, []);
-                if (is_array($degrade_state) && !empty($degrade_state['to'])) :
-                    ?>
-                    <span class="wpins-pill wpins-pill--neutral">Auto-Protect: JS stepped down to <?php echo esc_html((string) $degrade_state['to']); ?></span>
-                <?php endif; ?>
-            </div>
-
             <?php if ($is_test): ?>
             <div class="wpins-banner wpins-banner--warn">
-                <span class="dashicons dashicons-warning"></span>
-                <div>
-                    <strong>Not deployed to real visitors yet.</strong>
-                    <a href="<?php echo esc_url(home_url('/?wpins_preview=1')); ?>" target="_blank" rel="noreferrer">Test the optimized version</a>,
-                    then click <em>Deploy to Visitors</em> when everything looks right.
-                </div>
+                <?php echo Icon::render('alert'); ?>
+                <span><strong>Not deployed to real visitors yet.</strong>
+                    <a href="<?php echo esc_url(home_url('/?wpins_preview=1')); ?>" target="_blank" rel="noreferrer">Preview the optimized version</a>,
+                    then click <em>Deploy to Visitors</em> when everything looks right.</span>
             </div>
             <?php endif; ?>
 
             <div class="wpins-page-head">
-                <h1>Optimization Template</h1>
-                <p>Pick how aggressive the optimization should be. Fine-grained controls live on the sub-pages — templates are the fast path.</p>
+                <h2>Optimization Template</h2>
+                <p>Pick how aggressive the optimization should be. Fine-grained controls live on the other tabs — templates are the fast path.</p>
             </div>
 
             <!-- Template cards -->
             <div class="wpins-preset-grid">
                 <?php foreach ($presets as $id => [$name, $icon, $desc, $tag]): ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="wpins-preset-card <?php echo $preset === $id ? 'is-active' : ''; ?>">
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="wpins-preset-card <?php echo $preset === $id ? 'wpins-preset-active' : ''; ?>">
                     <?php wp_nonce_field('wp_instant_save_settings', 'wp_instant_nonce'); ?>
                     <input type="hidden" name="action" value="wp_instant_save_settings">
                     <input type="hidden" name="wpins_page" value="<?php echo esc_attr($this->slug); ?>">
                     <input type="hidden" name="wpins_preset" value="<?php echo esc_attr($id); ?>">
+                    <?php if ($preset === $id): ?>
+                        <span class="wpins-preset-active-chip wpins-pill wpins-pill--live">Active</span>
+                    <?php endif; ?>
                     <div class="wpins-preset-head">
-                        <span class="dashicons <?php echo esc_attr($icon); ?>"></span>
-                        <strong><?php echo esc_html($name); ?></strong>
-                        <?php if ($preset === $id): ?><span class="wpins-preset-active">Active</span><?php endif; ?>
+                        <span class="wpins-card-icon"><?php echo Icon::render($icon, 17); ?></span>
+                        <h4><?php echo esc_html($name); ?></h4>
+                        <span class="wpins-preset-tag wpins-pill wpins-pill--neutral"><?php echo esc_html($tag); ?></span>
                     </div>
                     <p><?php echo esc_html($desc); ?></p>
-                    <span class="wpins-preset-tag"><?php echo esc_html($tag); ?></span>
-                    <button type="submit" class="button <?php echo $preset === $id ? 'button-secondary' : 'button-primary'; ?>">
-                        <?php echo $preset === $id ? 'Re-apply template' : 'Use this template'; ?>
+                    <button type="submit" class="wpins-btn <?php echo $preset === $id ? 'wpins-btn--ghost' : 'wpins-btn--primary'; ?>">
+                        <?php if ($preset === $id): ?>
+                            <?php echo Icon::render('refresh', 14); ?> Re-apply template
+                        <?php else: ?>
+                            <?php echo Icon::render('arrow', 14); ?> Use this template
+                        <?php endif; ?>
                     </button>
                 </form>
                 <?php endforeach; ?>
@@ -111,32 +120,34 @@ class Page_Dashboard extends Settings_Page {
             <div class="wpins-grid-2">
                 <div class="wpins-card">
                     <div class="wpins-card-head">
-                        <span class="dashicons dashicons-cloud"></span>
-                        <div><h2>Deployment</h2><p>Serve the optimized site to visitors, or hold it back while you test.</p></div>
+                        <span class="wpins-card-icon"><?php echo Icon::render('cloud', 17); ?></span>
+                        <div class="wpins-card-titles"><h3>Deployment</h3><p class="wpins-card-desc">Serve the optimized site to visitors, or hold it back while you test.</p></div>
                     </div>
                     <div class="wpins-card-body wpins-deploy-row">
-                        <button type="button" id="wpins-deploy-btn" class="button <?php echo $is_test ? 'button-primary' : 'button-secondary'; ?>" data-target="<?php echo $is_test ? 'live' : 'test'; ?>">
-                            <?php echo $is_test
-                                ? '<span class="dashicons dashicons-yes-alt"></span> Deploy to Visitors'
-                                : '<span class="dashicons dashicons-lab"></span> Enter Test Mode'; ?>
+                        <button type="button" id="wpins-deploy-btn" class="wpins-btn <?php echo $is_test ? 'wpins-btn--primary' : 'wpins-btn--ghost'; ?>" data-target="<?php echo $is_test ? 'live' : 'test'; ?>">
+                            <?php if ($is_test): ?>
+                                <?php echo Icon::render('rocket', 14); ?> Deploy to Visitors
+                            <?php else: ?>
+                                <?php echo Icon::render('eye', 14); ?> Enter Test Mode
+                            <?php endif; ?>
                         </button>
-                        <a class="button button-secondary" href="<?php echo esc_url(home_url('/?wpins_preview=1')); ?>" target="_blank" rel="noreferrer">
-                            <span class="dashicons dashicons-visibility"></span> Preview optimized site
+                        <a class="wpins-btn wpins-btn--ghost" href="<?php echo esc_url(home_url('/?wpins_preview=1')); ?>" target="_blank" rel="noreferrer">
+                            <?php echo Icon::render('external', 14); ?> Preview optimized site
                         </a>
                     </div>
                 </div>
 
                 <div class="wpins-card">
                     <div class="wpins-card-head">
-                        <span class="dashicons dashicons-controls-play"></span>
-                        <div><h2>Quick Actions</h2><p>Re-optimize now or clear the caches.</p></div>
+                        <span class="wpins-card-icon"><?php echo Icon::render('bolt', 17); ?></span>
+                        <div class="wpins-card-titles"><h3>Quick Actions</h3><p class="wpins-card-desc">Re-optimize now or clear the caches.</p></div>
                     </div>
                     <div class="wpins-card-body wpins-deploy-row">
-                        <button type="button" id="wpins-warm-btn" class="button button-secondary">
-                            <span class="dashicons dashicons-update"></span> Optimize &amp; Warm Cache
+                        <button type="button" id="wpins-warm-btn" class="wpins-btn wpins-btn--ghost">
+                            <?php echo Icon::render('refresh', 14); ?> Optimize &amp; Warm Cache
                         </button>
-                        <button type="button" id="wpins-purge-btn" class="button button-secondary">
-                            <span class="dashicons dashicons-trash"></span> Purge All Caches
+                        <button type="button" id="wpins-purge-btn" class="wpins-btn wpins-btn--danger">
+                            <?php echo Icon::render('trash', 14); ?> Purge All Caches
                         </button>
                     </div>
                 </div>
@@ -146,18 +157,26 @@ class Page_Dashboard extends Settings_Page {
             <div class="wpins-grid-2">
                 <div class="wpins-card">
                     <div class="wpins-card-head">
-                        <span class="dashicons dashicons-chart-line"></span>
-                        <div><h2>Real Visitors (last 7 days)</h2><p>Measured in your visitors' browsers by the monitoring beacon.</p></div>
+                        <span class="wpins-card-icon"><?php echo Icon::render('activity', 17); ?></span>
+                        <div class="wpins-card-titles"><h3>Real Visitors — last 7 days</h3><p class="wpins-card-desc">Measured in your visitors' browsers by the monitoring beacon.</p></div>
                     </div>
                     <div class="wpins-card-body">
                         <?php if ($rum === null): ?>
-                            <p class="wpins-muted">No visitor data yet — data appears as soon as the optimized site serves traffic.</p>
+                            <p class="wpins-card-desc">No visitor data yet — data appears as soon as the optimized site serves traffic.</p>
                         <?php else: ?>
+                            <div class="wpins-grid-2" style="margin-bottom:14px;">
+                                <?php $this->render_ring($rum['lcp_p75'], 4000, 'LCP p75', 's', 2500, 4000, 1000); ?>
+                                <?php $this->render_ring($rum['cls_p75'], 0.25, 'CLS p75', '', 0.1, 0.25, 1); ?>
+                            </div>
                             <div class="wpins-stat-grid">
-                                <div class="wpins-stat"><span>Pageviews</span><strong><?php echo esc_html(number_format_i18n($rum['views'])); ?></strong></div>
-                                <div class="wpins-stat"><span>JS errors</span><strong class="<?php echo $rum['error_rate'] > 1 ? 'wpins-bad' : 'wpins-good'; ?>"><?php echo esc_html(number_format_i18n($rum['errors'])); ?></strong><small><?php echo esc_html(number_format_i18n($rum['error_rate'], 2)); ?>% rate</small></div>
-                                <div class="wpins-stat"><span>LCP p75</span><strong><?php echo $rum['lcp_p75'] !== null ? esc_html(number_format_i18n($rum['lcp_p75'] / 1000, 2)) . 's' : '—'; ?></strong></div>
-                                <div class="wpins-stat"><span>CLS p75</span><strong><?php echo $rum['cls_p75'] !== null ? esc_html(number_format_i18n($rum['cls_p75'], 3)) : '—'; ?></strong></div>
+                                <div class="wpins-stat">
+                                    <div class="wpins-stat-value"><?php echo esc_html(number_format_i18n($rum['views'])); ?></div>
+                                    <div class="wpins-stat-label">Pageviews</div>
+                                </div>
+                                <div class="wpins-stat <?php echo $rum['error_rate'] > 1 ? 'wpins-bad' : 'wpins-good'; ?>">
+                                    <div class="wpins-stat-value"><?php echo esc_html(number_format_i18n($rum['errors'])); ?></div>
+                                    <div class="wpins-stat-label">JS errors · <?php echo esc_html(number_format_i18n($rum['error_rate'], 2)); ?>% rate</div>
+                                </div>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -165,15 +184,27 @@ class Page_Dashboard extends Settings_Page {
 
                 <div class="wpins-card">
                     <div class="wpins-card-head">
-                        <span class="dashicons dashicons-database"></span>
-                        <div><h2>Optimization Pipeline</h2><p>What the engine has generated for this site.</p></div>
+                        <span class="wpins-card-icon"><?php echo Icon::render('cpu', 17); ?></span>
+                        <div class="wpins-card-titles"><h3>Optimization Pipeline</h3><p class="wpins-card-desc">What the engine has generated for this site.</p></div>
                     </div>
                     <div class="wpins-card-body">
                         <div class="wpins-stat-grid">
-                            <div class="wpins-stat"><span>Pages with critical CSS</span><strong><?php echo esc_html(number_format_i18n($counts['css_pages'])); ?></strong></div>
-                            <div class="wpins-stat"><span>Cached pages</span><strong><?php echo esc_html(number_format_i18n($counts['cached_pages'])); ?></strong></div>
-                            <div class="wpins-stat"><span>CDN images queued</span><strong><?php echo esc_html(number_format_i18n($counts['media_queue'])); ?></strong></div>
-                            <div class="wpins-stat"><span>Combined CSS bundles</span><strong><?php echo esc_html(number_format_i18n($counts['bundles'])); ?></strong></div>
+                            <div class="wpins-stat">
+                                <div class="wpins-stat-value"><?php echo esc_html(number_format_i18n($counts['css_pages'])); ?></div>
+                                <div class="wpins-stat-label">Pages with critical CSS</div>
+                            </div>
+                            <div class="wpins-stat">
+                                <div class="wpins-stat-value"><?php echo esc_html(number_format_i18n($counts['cached_pages'])); ?></div>
+                                <div class="wpins-stat-label">Cached pages</div>
+                            </div>
+                            <div class="wpins-stat">
+                                <div class="wpins-stat-value"><?php echo esc_html(number_format_i18n($counts['media_queue'])); ?></div>
+                                <div class="wpins-stat-label">CDN images queued</div>
+                            </div>
+                            <div class="wpins-stat">
+                                <div class="wpins-stat-value"><?php echo esc_html(number_format_i18n($counts['bundles'])); ?></div>
+                                <div class="wpins-stat-label">Combined CSS bundles</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -185,13 +216,14 @@ class Page_Dashboard extends Settings_Page {
             var nonce = '<?php echo wp_create_nonce('wp_instant_admin'); ?>';
             var post = function(action, btn, extra) {
                 btn.disabled = true;
+                btn.classList.add('is-busy');
                 var d = new FormData();
                 d.append('action', action);
                 d.append('nonce', nonce);
                 if (extra) { for (var k in extra) { d.append(k, extra[k]); } }
                 return fetch(ajaxurl, { method: 'POST', body: d })
                     .then(function(r) { return r.json(); })
-                    .finally(function() { btn.disabled = false; });
+                    .finally(function() { btn.disabled = false; btn.classList.remove('is-busy'); });
             };
 
             var deploy = document.getElementById('wpins-deploy-btn');
@@ -235,6 +267,46 @@ class Page_Dashboard extends Settings_Page {
 
     public function render(): void {
         // Unused — render_form() is fully custom for this page.
+    }
+
+    /**
+     * Ring gauge for a p75 metric against its Core Web Vitals thresholds.
+     * Fraction fills toward $max; color flips good → warn → poor.
+     */
+    private function render_ring(?float $value, float $max, string $label, string $suffix, float $good, float $poor, float $divisor): void {
+        $radius = 24;
+        $circumference = 2 * M_PI * $radius;
+        if ($value === null) {
+            $fraction = 0.0;
+            $display = '—';
+            $color = '#d4d4d8';
+        } else {
+            $scaled = $value / $divisor;
+            $fraction = max(0.0, min(1.0, $value / $max));
+            $display = $divisor === 1000.0
+                ? number_format($scaled, 1) . $suffix
+                : number_format($scaled, 2) . $suffix;
+            $color = $value <= $good ? '#16a34a' : ($value <= $poor ? '#f59e0b' : '#dc2626');
+        }
+        $offset = $circumference * (1 - $fraction);
+        ?>
+        <div class="wpins-ring-wrap">
+            <div class="wpins-ring">
+                <svg width="56" height="56" viewBox="0 0 56 56">
+                    <circle class="wpins-ring-track" cx="28" cy="28" r="<?php echo (int) $radius; ?>" fill="none" stroke-width="5"/>
+                    <circle class="wpins-ring-value" cx="28" cy="28" r="<?php echo (int) $radius; ?>" fill="none"
+                        stroke="<?php echo esc_attr($color); ?>" stroke-width="5" stroke-linecap="round"
+                        stroke-dasharray="<?php echo esc_attr(number_format($circumference, 2)); ?>"
+                        stroke-dashoffset="<?php echo esc_attr(number_format($offset, 2)); ?>"/>
+                </svg>
+                <span class="wpins-ring-num"><?php echo esc_html($display); ?></span>
+            </div>
+            <div>
+                <div class="wpins-field-label"><?php echo esc_html($label); ?></div>
+                <div class="wpins-field-note"><?php echo esc_html($label === 'LCP p75' ? 'Good ≤ 2.5s' : 'Good ≤ 0.10'); ?></div>
+            </div>
+        </div>
+        <?php
     }
 
     /**

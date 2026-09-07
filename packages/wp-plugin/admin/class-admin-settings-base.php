@@ -67,22 +67,19 @@ abstract class Settings_Page {
         $connected = isset($_GET['connected']);
         ?>
         <div class="wrap wp-instant-admin-wrap wpins-settings-wrap">
+            <?php $this->render_shell_open(); ?>
+
             <?php if ($connected): ?>
-                <div class="notice notice-success is-dismissible" style="margin:0 0 14px;">
-                    <p><strong>Connected.</strong> Optimization started in the background — your first critical CSS lands within a couple of minutes.</p>
+                <div class="wpins-banner wpins-banner--ok">
+                    <?php echo Icon::render('check'); ?>
+                    <span><strong>Connected.</strong> Optimization started in the background — your first critical CSS lands within a couple of minutes.</span>
                 </div>
             <?php elseif ($saved): ?>
-                <div class="notice notice-success is-dismissible" style="margin:0 0 14px;">
-                    <p><strong>Saved.</strong> Changes were applied to your site and its caches were refreshed.</p>
+                <div class="wpins-banner wpins-banner--ok">
+                    <?php echo Icon::render('check'); ?>
+                    <span><strong>Saved.</strong> Changes were applied to your site and its caches were refreshed.</span>
                 </div>
             <?php endif; ?>
-
-            <div class="wpins-page-head">
-                <h1><?php echo esc_html($this->title); ?></h1>
-                <?php if ($this->description !== ''): ?>
-                    <p><?php echo esc_html($this->description); ?></p>
-                <?php endif; ?>
-            </div>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <?php
@@ -94,9 +91,9 @@ abstract class Settings_Page {
                 <?php $this->render(); ?>
 
                 <div class="wpins-save-bar">
-                    <span class="description">Changes apply to your site instantly — caches refresh automatically.</span>
-                    <button type="submit" class="button button-primary button-hero">
-                        <span class="dashicons dashicons-yes-alt"></span> Save Changes
+                    <span class="wpins-field-note">Changes apply to your site instantly — caches refresh automatically.</span>
+                    <button type="submit" class="wpins-btn wpins-btn--primary">
+                        <?php echo Icon::render('check', 15); ?> Save Changes
                     </button>
                 </div>
             </form>
@@ -104,19 +101,58 @@ abstract class Settings_Page {
         <?php
     }
 
+    /** Shared brand header + tab navigation (used by every settings page). */
+    protected function render_shell_open(): void {
+        $current = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : $this->slug;
+        $tab_icons = [
+            'wp-instant' => 'gauge',
+            'wp-instant-assets' => 'image',
+            'wp-instant-html-css' => 'code',
+            'wp-instant-js' => 'braces',
+            'wp-instant-advanced' => 'database',
+        ];
+        ?>
+        <div class="wpins-shell-head">
+            <span class="wpins-brand"><?php echo Icon::render('bolt', 22); ?></span>
+            <div>
+                <h1 class="wpins-shell-title"><?php echo esc_html($this->title); ?></h1>
+                <?php if ($this->description !== ''): ?>
+                    <p class="wpins-shell-desc"><?php echo esc_html($this->description); ?></p>
+                <?php endif; ?>
+            </div>
+            <div class="wpins-shell-chips"><?php $this->render_header_chips(); ?></div>
+        </div>
+        <nav class="wpins-tabs" aria-label="WP Instant sections">
+            <?php foreach (self::registered_pages() as $slug => $class): ?>
+                <?php $label = (new $class($this->config))->get_title(); ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=' . $slug)); ?>"
+                    class="<?php echo $slug === $current ? 'wpins-tab-active' : ''; ?>">
+                    <?php echo Icon::render($tab_icons[$slug] ?? 'gauge', 14); ?>
+                    <?php echo esc_html($label); ?>
+                </a>
+            <?php endforeach; ?>
+        </nav>
+        <?php
+    }
+
+    /** Status chips in the shell header — subclasses may override. */
+    protected function render_header_chips(): void {
+        // No chips on plain settings pages.
+    }
+
     /** Config value at a dot path (defaults applied by Config). */
     protected function get(string $path, mixed $default = null): mixed {
         return $this->config->get($path, $default);
     }
 
-    protected function card_open(string $title, string $dashicon, string $desc = ''): void {
+    protected function card_open(string $title, string $icon, string $desc = ''): void {
         ?>
         <div class="wpins-card">
             <div class="wpins-card-head">
-                <span class="dashicons <?php echo esc_attr($dashicon); ?>"></span>
-                <div>
-                    <h2><?php echo esc_html($title); ?></h2>
-                    <?php if ($desc !== ''): ?><p><?php echo esc_html($desc); ?></p><?php endif; ?>
+                <span class="wpins-card-icon"><?php echo Icon::render($icon, 17); ?></span>
+                <div class="wpins-card-titles">
+                    <h3><?php echo esc_html($title); ?></h3>
+                    <?php if ($desc !== ''): ?><p class="wpins-card-desc"><?php echo esc_html($desc); ?></p><?php endif; ?>
                 </div>
             </div>
             <div class="wpins-card-body">
@@ -192,7 +228,7 @@ abstract class Settings_Page {
                     <label class="wpins-segment">
                         <input type="radio" name="wpins[<?php echo esc_attr($section); ?>][<?php echo esc_attr($key); ?>]"
                             value="<?php echo esc_attr((string) $opt_value); ?>" <?php checked($value, (string) $opt_value); ?>>
-                        <span><?php echo esc_html($opt_label); ?></span>
+                        <span class="wpins-segment-label"><?php echo esc_html($opt_label); ?></span>
                     </label>
                 <?php endforeach; ?>
             </div>

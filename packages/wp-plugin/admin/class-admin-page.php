@@ -40,11 +40,6 @@ class AdminPage {
     public function register_frontend_bar_hooks(): void {
         add_action('admin_bar_menu', [$this, 'register_admin_bar'], 100);
         add_action('init', [$this, 'handle_admin_bar_action']);
-        add_action('wp_enqueue_scripts', static function (): void {
-            if (current_user_can('manage_options')) {
-                wp_enqueue_style('dashicons');
-            }
-        });
     }
 
     public static function get_instance(): AdminPage {
@@ -68,13 +63,6 @@ class AdminPage {
         add_action('save_post', [$this, 'save_plugin_assets_metabox'], 10, 2);
         add_action('admin_bar_menu', [$this, 'register_admin_bar'], 100);
         add_action('init', [$this, 'handle_admin_bar_action']);
-        // Dashicons are not loaded on the front end by default, but the
-        // admin-bar actions rely on them.
-        add_action('wp_enqueue_scripts', static function (): void {
-            if (current_user_can('manage_options')) {
-                wp_enqueue_style('dashicons');
-            }
-        });
         // Central save handler shared by every native settings page.
         add_action('admin_post_wp_instant_save_settings', [Admin\Settings_Page::class, 'handle_save']);
         add_action('wp_ajax_wp_instant_purge_cache', [$this, 'ajax_purge_cache']);
@@ -103,7 +91,7 @@ class AdminPage {
             'manage_options',
             self::PAGE_DASHBOARD,
             [$this, 'render_settings_page'],
-            'dashicons-performance',
+            Admin\Icon::menu_icon_uri(),
             58
         );
 
@@ -191,15 +179,20 @@ class AdminPage {
             return;
         }
 
+        // Web-app typefaces (Inter + Roboto Mono) to keep the admin UI on-brand.
+        wp_enqueue_style(
+            'wp-instant-admin-fonts',
+            'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap',
+            [],
+            null
+        );
+
         wp_enqueue_style(
             'wp-instant-admin-css',
             WP_INSTANT_URL . 'assets/css/admin-dashboard.css',
-            [],
+            ['wp-instant-admin-fonts'],
             WP_INSTANT_VERSION
         );
-
-        // Dashicons for the icon-based UI (usually already loaded in admin).
-        wp_enqueue_style('dashicons');
     }
 
     /* ------------------------------------------------------------------ */
@@ -300,13 +293,13 @@ class AdminPage {
         $status = $this->get_page_optimization_status($post, $url);
         $rules = $this->get_post_asset_rules($post->ID);
         $status_colors = [
-            'optimized' => '#027a48',
-            'optimizing' => '#b54708',
-            'test' => '#b54708',
-            'not_connected' => '#b42318',
-            'pending' => '#52525b',
+            'optimized' => '#16a34a',
+            'optimizing' => '#f59e0b',
+            'test' => '#f59e0b',
+            'not_connected' => '#dc2626',
+            'pending' => '#71717a',
         ];
-        $color = $status_colors[$status['key']] ?? '#52525b';
+        $color = $status_colors[$status['key']] ?? '#71717a';
         ?>
         <div style="font-size:12px;line-height:1.45;">
             <div style="display:flex;align-items:center;gap:7px;margin:0 0 10px;">
@@ -356,7 +349,7 @@ class AdminPage {
         <?php if ($plugins === []): ?>
             <p class="description">No other active plugins detected.</p>
         <?php else: ?>
-            <div style="max-height:190px;overflow:auto;border:1px solid #dcdcde;border-radius:4px;padding:7px;background:#fff;">
+            <div style="max-height:190px;overflow:auto;border:1px solid #e4e4e7;border-radius:10px;padding:7px;background:#fff;">
                 <?php foreach ($plugins as $slug => $name): ?>
                     <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:0 0 7px;">
                         <input type="checkbox"
@@ -371,7 +364,7 @@ class AdminPage {
 
         <?php if ($themes !== []): ?>
             <label style="display:block;font-size:12px;font-weight:600;margin:12px 0 4px;">Themes</label>
-            <div style="border:1px solid #dcdcde;border-radius:4px;padding:7px;background:#fff;">
+            <div style="border:1px solid #e4e4e7;border-radius:10px;padding:7px;background:#fff;">
                 <?php foreach ($themes as $slug => $name): ?>
                     <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:0 0 7px;">
                         <input type="checkbox"
@@ -570,7 +563,7 @@ class AdminPage {
         <div class="wrap wp-instant-admin-wrap wpins-connect-wrap">
             <div class="wpins-connect-card">
                 <div class="wpins-connect-head">
-                    <span class="dashicons dashicons-performance wpins-connect-logo"></span>
+                    <span class="wpins-connect-brand"><?php echo Icon::render('bolt', 26); ?></span>
                     <h1>Connect to WP Instant</h1>
                     <p>
                         Link this site to the WP Instant edge to unlock automated critical CSS, JavaScript
@@ -580,26 +573,26 @@ class AdminPage {
 
                 <ul class="wpins-connect-benefits">
                     <li>
-                        <span class="dashicons dashicons-dashboard"></span>
+                        <?php echo Icon::render('sliders', 20); ?>
                         <div><strong>Cloud control panel</strong><span>Every optimization setting, job status and deploy control — embedded right in your dashboard.</span></div>
                     </li>
                     <li>
-                        <span class="dashicons dashicons-media-code"></span>
+                        <?php echo Icon::render('bolt', 20); ?>
                         <div><strong>Edge Critical CSS</strong><span>Real-browser extraction per page, inlined for zero render-blocking CSS.</span></div>
                     </li>
                     <li>
-                        <span class="dashicons dashicons-images-alt2"></span>
+                        <?php echo Icon::render('image', 20); ?>
                         <div><strong>CDN media offload</strong><span>Images and video served from the edge with modern-format derivatives and immutable caching.</span></div>
                     </li>
                     <li>
-                        <span class="dashicons dashicons-shield-alt"></span>
+                        <?php echo Icon::render('shield', 20); ?>
                         <div><strong>Auto-Protect safety net</strong><span>Real-user error monitoring steps aggressiveness down automatically — never a broken page.</span></div>
                     </li>
                 </ul>
 
                 <div class="wpins-connect-cta">
                     <a href="<?php echo esc_url($connect_url); ?>" class="wpins-btn wpins-btn--primary wpins-btn--hero">
-                        <span class="dashicons dashicons-admin-links"></span> Connect this site
+                        <?php echo Icon::render('plug', 17); ?> Connect this site
                     </a>
                     <p class="wpins-connect-note">
                         One click — you will be returned here automatically once the handshake completes.
@@ -608,7 +601,7 @@ class AdminPage {
                 </div>
 
                 <div class="wpins-connect-secure">
-                    <span class="dashicons dashicons-lock"></span>
+                    <?php echo Icon::render('lock', 15); ?>
                     The connection uses a scoped site key and signed callbacks only — no credentials are
                     stored in the browser.
                 </div>
@@ -630,7 +623,7 @@ class AdminPage {
         <div class="wrap wp-instant-admin-wrap wpins-connect-wrap">
             <div class="wpins-connect-card wpins-connect-card--wide">
                 <div class="wpins-connect-head">
-                    <span class="dashicons dashicons-yes-alt wpins-connected-logo"></span>
+                    <span class="wpins-connect-brand"><?php echo Icon::render('check', 24); ?></span>
                     <h1>Site Connected</h1>
                     <p>This WordPress site is linked to the WP Instant edge. All controls live in the dashboard.</p>
                 </div>
@@ -672,15 +665,15 @@ class AdminPage {
                 <div class="wpins-connect-cta wpins-connect-cta--row">
                     <a href="<?php echo esc_url(add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php'))); ?>"
                        class="wpins-btn wpins-btn--primary">
-                        <span class="dashicons dashicons-dashboard"></span> Go to Dashboard
+                        <?php echo Icon::render('gauge', 15); ?> Go to Dashboard
                     </a>
                     <button type="button" id="wpins-disconnect-btn" class="wpins-btn wpins-btn--danger">
-                        <span class="dashicons dashicons-editor-unlink"></span> Disconnect
+                        <?php echo Icon::render('unlink', 15); ?> Disconnect
                     </button>
                 </div>
 
                 <div class="wpins-connect-secure">
-                    <span class="dashicons dashicons-lock"></span>
+                    <?php echo Icon::render('lock', 15); ?>
                     Disconnecting keeps the site working — optimization simply stops until you reconnect.
                     Deleting the plugin removes all connection keys automatically.
                 </div>
@@ -724,7 +717,7 @@ class AdminPage {
 
         $wp_admin_bar->add_node([
             'id' => 'wp-instant',
-            'title' => '<span class="ab-icon dashicons dashicons-performance"></span> WP Instant',
+            'title' => '<span class="ab-icon wpins-ab-icon" style="position:relative;top:3px;margin-right:2px;display:inline-block;line-height:0;">' . Icon::render('bolt', 15) . '</span> WP Instant',
             'href' => add_query_arg(['page' => self::PAGE_DASHBOARD], admin_url('admin.php')),
         ]);
 
@@ -735,7 +728,7 @@ class AdminPage {
             $wp_admin_bar->add_node([
                 'id' => 'wp-instant-purge-page',
                 'parent' => 'wp-instant',
-                'title' => '<span class="dashicons dashicons-trash"></span> Purge this page',
+                'title' => '<span class="wpins-ab-icon" style="display:inline-block;line-height:0;vertical-align:-2px;margin-right:5px;">' . Icon::render('trash', 14) . '</span> Purge this page',
                 'href' => wp_nonce_url(
                     add_query_arg(['wp_instant_action' => 'purge_page', 'wpins_url' => $current], $current),
                     'wp_instant_bar'
@@ -746,7 +739,7 @@ class AdminPage {
         $wp_admin_bar->add_node([
             'id' => 'wp-instant-purge-all',
             'parent' => 'wp-instant',
-            'title' => '<span class="dashicons dashicons-editor-removeformatting"></span> Purge all caches',
+            'title' => '<span class="wpins-ab-icon" style="display:inline-block;line-height:0;vertical-align:-2px;margin-right:5px;">' . Icon::render('trash', 14) . '</span> Purge all caches',
             'href' => wp_nonce_url(
                 add_query_arg(['wp_instant_action' => 'purge_all', 'wpins_url' => home_url('/')], home_url('/')),
                 'wp_instant_bar'
@@ -756,7 +749,7 @@ class AdminPage {
         $wp_admin_bar->add_node([
             'id' => 'wp-instant-warm-cache',
             'parent' => 'wp-instant',
-            'title' => '<span class="dashicons dashicons-update"></span> Warm cache',
+            'title' => '<span class="wpins-ab-icon" style="display:inline-block;line-height:0;vertical-align:-2px;margin-right:5px;">' . Icon::render('refresh', 14) . '</span> Warm cache',
             'href' => wp_nonce_url(
                 add_query_arg(['wp_instant_action' => 'warm_cache', 'wpins_url' => home_url('/')], home_url('/')),
                 'wp_instant_bar'
