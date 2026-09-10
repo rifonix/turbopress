@@ -51,7 +51,7 @@ export const CssConfigSchema = z.object({
   minify: z.boolean().default(true),
   max_files: z.number().int().min(2).max(100).default(40),
   inline_all: z.boolean().default(true),
-  inline_all_threshold: z.number().int().min(10240).max(524288).default(153600)
+  inline_all_threshold: z.number().int().min(10240).max(786432).default(153600)
 });
 
 export const AssetsConfigSchema = z.object({

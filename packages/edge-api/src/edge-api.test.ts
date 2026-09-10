@@ -89,6 +89,24 @@ describe('WP Instant Architecture & Core Engine Tests', () => {
     expect(SiteConfigSchema.parse(PRESET_SAFE).preset).toBe('safe');
   });
 
+  it('accepts the plugin-authoritative 768KB inline threshold', () => {
+    const pluginConfig = {
+      ...PRESET_LUDICROUS,
+      css: { ...PRESET_LUDICROUS.css, inline_all_threshold: 786432 },
+    };
+
+    expect(SiteConfigSchema.parse(pluginConfig).css?.inline_all_threshold).toBe(786432);
+  });
+
+  it('rejects inline thresholds above the plugin maximum', () => {
+    const oversized = {
+      ...PRESET_LUDICROUS,
+      css: { ...PRESET_LUDICROUS.css, inline_all_threshold: 786433 },
+    };
+
+    expect(() => SiteConfigSchema.parse(oversized)).toThrowError(/less than or equal to 786432/);
+  });
+
   it('validates OptimizationDispatchSchema', () => {
     const valid = {
       url: 'https://grandemarehotel.com/products',
