@@ -271,6 +271,23 @@ $same_preload = '<html><head><link rel="preload" as="image" href="https://exampl
 $same_out = $media_optimizer->transform($same_preload);
 check('LCP preload: identical theme preload suppresses ours', substr_count($same_out, 'rel="preload" as="image"') === 1);
 
+/* ---------------- Heartbeat config reconciliation ---------------- */
+
+$heartbeat_config = new WPInstant\Config();
+WPInstant\ApiClient::apply_remote_config($heartbeat_config, [
+    'preset' => 'safe',
+    'caching' => ['mobile_cache' => false],
+    'deployment' => ['status' => 'live', 'source' => 'dashboard'],
+]);
+check('heartbeat config: authoritative sections apply', $heartbeat_config->get('preset') === 'safe' && $heartbeat_config->get('caching.mobile_cache') === false);
+check('heartbeat config: dashboard deployment applies', $heartbeat_config->get('deployment.status') === 'live');
+
+WPInstant\ApiClient::apply_remote_config($heartbeat_config, [
+    'preset' => 'ludicrous',
+    'deployment' => ['status' => 'test'],
+]);
+check('heartbeat config: unowned deployment preserved', $heartbeat_config->get('preset') === 'ludicrous' && $heartbeat_config->get('deployment.status') === 'live');
+
 if ($failures > 0) {
     fwrite(STDERR, "TRANSFORM SMOKE FAILED ({$failures} failures)\n");
     exit(1);

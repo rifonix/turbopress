@@ -118,6 +118,31 @@ class ApiClient {
         CacheIntegration::purge_foreign_caches('all');
     }
 
+    public static function apply_remote_config(Config $config, array $remote_config): bool {
+        if (!isset($remote_config['preset']) || !is_string($remote_config['preset'])) {
+            return false;
+        }
+
+        $current = $config->get_all();
+        $defaults = $config->get_default_config($remote_config['preset']);
+        $merged = Config::merge_config($defaults, $remote_config);
+
+        $edge_deployment = $remote_config['deployment'] ?? null;
+        $merged['deployment'] = is_array($edge_deployment)
+            && ($edge_deployment['source'] ?? null) === 'dashboard'
+            ? $edge_deployment
+            : ($current['deployment'] ?? $config->get_default_config($remote_config['preset'])['deployment']);
+
+        if ($merged === $current) {
+            return false;
+        }
+
+        $config->save($merged);
+        CacheManager::purge_all_static();
+        CacheIntegration::purge_foreign_caches('all');
+        return true;
+    }
+
     public function dispatch_optimization(string $url, array $viewports = ['mobile', 'desktop'], ?string $structure_hash = null): array {
         $api_key = $this->config->get_api_key();
         if (empty($api_key)) {

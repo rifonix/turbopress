@@ -277,43 +277,50 @@ class Plugin {
             return $buffer;
         }
 
-        // Transform DOM (Inject Critical CSS, Delay Scripts, Preload LCP, Inject Nonce Markers)
-        $transformed = $this->dom_engine->transform($buffer);
+        try {
+            // Transform DOM (Inject Critical CSS, Delay Scripts, Preload LCP, Inject Nonce Markers)
+            $transformed = $this->dom_engine->transform($buffer);
 
-        // Preview requests are never written to the static page cache.
-        $is_preview = $this->is_preview_request();
+            // Preview requests are never written to the static page cache.
+            $is_preview = $this->is_preview_request();
 
-        if (
-            !$is_preview &&
-            $this->config->get('caching.enabled', true) &&
-            $this->response_allows_cache($transformed)
-        ) {
-            $this->cache_manager->write_cache($transformed);
-            if (!headers_sent()) {
-                // Edge-cacheable HTML: fresh renders carry the SAME cache
-                // headers the advanced-cache drop-in sends on HITs, so any
-                // CDN/proxy in front of the origin can cache uniformly.
-                header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
-                // Cache-state marker: the drop-in emits HIT/STALE; without a
-                // MISS marker here, fresh renders were indistinguishable from
-                // "plugin not serving at all" in response dumps.
-                header('X-WP-Instant-Cache: MISS');
-                // Transformation changed the bytes: a pre-set Content-Length
-                // is now stale and would truncate or pad the response.
-                header_remove('Content-Length');
+            if (
+                !$is_preview &&
+                $this->config->get('caching.enabled', true) &&
+                $this->response_allows_cache($transformed)
+            ) {
+                $this->cache_manager->write_cache($transformed);
+                if (!headers_sent()) {
+                    // Edge-cacheable HTML: fresh renders carry the SAME cache
+                    // headers the advanced-cache drop-in sends on HITs, so any
+                    // CDN/proxy in front of the origin can cache uniformly.
+                    header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
+                    // Cache-state marker: the drop-in emits HIT/STALE; without a
+                    // MISS marker here, fresh renders were indistinguishable from
+                    // "plugin not serving at all" in response dumps.
+                    header('X-WP-Instant-Cache: MISS');
+                    // Transformation changed the bytes: a pre-set Content-Length
+                    // is now stale and would truncate or pad the response.
+                    header_remove('Content-Length');
+                }
             }
-        }
 
-        if ($is_preview) {
-            $badge = '<div style="position:fixed;bottom:16px;right:16px;z-index:99999;background:#111;color:#fff;'
-                . 'padding:8px 14px;border-radius:8px;font:600 12px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)">'
-                . '&#9889; WP Instant Test Preview v' . WP_INSTANT_VERSION . '</div>';
-            if (stripos($transformed, '</body>') !== false) {
-                $transformed = str_ireplace('</body>', $badge . '</body>', $transformed);
+            if ($is_preview) {
+                $badge = '<div style="position:fixed;bottom:16px;right:16px;z-index:99999;background:#111;color:#fff;'
+                    . 'padding:8px 14px;border-radius:8px;font:600 12px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)">'
+                    . '&#9889; WP Instant Test Preview v' . WP_INSTANT_VERSION . '</div>';
+                if (stripos($transformed, '</body>') !== false) {
+                    $transformed = str_ireplace('</body>', $badge . '</body>', $transformed);
+                }
             }
-        }
 
-        return $transformed;
+            return $transformed;
+        } catch (\Throwable) {
+            // A host or another plugin can promote PHP warnings to exceptions.
+            // Optimization is best-effort: fail open to the untouched origin
+            // page instead of turning a cache race into a visitor-facing 500.
+            return $buffer;
+        }
     }
 
     private function is_preview_request(): bool {

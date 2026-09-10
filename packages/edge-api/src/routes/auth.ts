@@ -495,7 +495,14 @@ authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
     }
   }
 
-  return c.json({ success: true, ...(Object.keys(apply).length ? { data: { apply } } : {}) });
+  const data: Record<string, unknown> = {
+    config: c.get('siteConfig'),
+  };
+  if (Object.keys(apply).length > 0) {
+    data.apply = apply;
+  }
+
+  return c.json({ success: true, data });
 });
 
 /**
@@ -629,4 +636,3 @@ authRoutes.get('/me', saasUserAuthMiddleware, async (c) => {
     },
   });
 });
-

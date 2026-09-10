@@ -275,14 +275,14 @@ class HealthCheck {
      * Also carries the current deployment status so the dashboard can push
      * Deploy/Test commands back through the heartbeat response.
      */
-    public function push_to_edge(): void {
+    public function push_to_edge(): array {
         if (!$this->config->is_connected()) {
-            return;
+            return ['success' => false, 'error' => 'API Key is missing'];
         }
 
         $report = get_option(self::OPTION_KEY, []);
         if (!is_array($report) || empty($report['checked_at'])) {
-            return;
+            return ['success' => false, 'error' => 'No health report available'];
         }
 
         $report['deployment'] = ['status' => $this->config->get('deployment.status', 'live')];
@@ -293,7 +293,14 @@ class HealthCheck {
             if (is_array($apply['deployment'] ?? null)) {
                 ApiClient::apply_remote_deployment($this->config, $apply);
             }
+
+            $remote_config = $result['data']['config'] ?? null;
+            if (is_array($remote_config)) {
+                ApiClient::apply_remote_config($this->config, $remote_config);
+            }
         }
+
+        return $result;
     }
 
     public static function get_latest(): array {

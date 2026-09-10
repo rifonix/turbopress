@@ -180,7 +180,7 @@ class Telemetry {
 
             ftruncate($fp, 0);
             rewind($fp);
-            fwrite($fp, wp_json_encode($data));
+            @fwrite($fp, (string) wp_json_encode($data));
         } finally {
             @flock($fp, LOCK_UN);
             @fclose($fp);

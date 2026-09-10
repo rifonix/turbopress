@@ -175,7 +175,7 @@ $cache_file = $cache_dir . '/' . substr($url_hash, 0, 2) . '/' . $url_hash . '.h
 
 // 6. Check if Cache File Exists and is Fresh (TTL from rules.json, default 7d)
 if (file_exists($cache_file)) {
-    $file_mtime = filemtime($cache_file);
+    $file_mtime = @filemtime($cache_file);
     if ((time() - $file_mtime) < $wpins_ttl) {
         $accept_encoding = isset($_SERVER['HTTP_ACCEPT_ENCODING']) ? $_SERVER['HTTP_ACCEPT_ENCODING'] : '';
 
@@ -188,17 +188,20 @@ if (file_exists($cache_file)) {
         if (strpos($accept_encoding, 'br') !== false && file_exists($cache_file . '.br')) {
             header('Content-Encoding: br');
             header('Vary: Accept-Encoding');
-            readfile($cache_file . '.br');
-            exit;
+            if (@readfile($cache_file . '.br') !== false) {
+                exit;
+            }
         } elseif (strpos($accept_encoding, 'gzip') !== false && file_exists($cache_file . '.gz')) {
             header('Content-Encoding: gzip');
             header('Vary: Accept-Encoding');
-            readfile($cache_file . '.gz');
-            exit;
+            if (@readfile($cache_file . '.gz') !== false) {
+                exit;
+            }
         }
 
-        readfile($cache_file);
-        exit;
+        if (@readfile($cache_file) !== false) {
+            exit;
+        }
     }
 }
 
@@ -207,7 +210,8 @@ if (file_exists($cache_file)) {
 // async revalidation — visitors never pay the purge -> miss -> slow-render
 // cost.
 $stale_file = $cache_file . '.stale';
-if (file_exists($stale_file) && (time() - filemtime($stale_file)) < 86400) {
+$stale_mtime = file_exists($stale_file) ? @filemtime($stale_file) : false;
+if ($stale_mtime !== false && (time() - $stale_mtime) < 86400) {
     $stale_html = @file_get_contents($stale_file);
     if ($stale_html !== false && strlen($stale_html) > 255) {
         header('Content-Type: text/html; charset=UTF-8');
