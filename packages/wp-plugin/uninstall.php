@@ -24,6 +24,8 @@ $wp_instant_options = [
     'wp_instant_callback_secret',
     'wp_instant_api_url',
     'wp_instant_cdn_url',
+    'wp_instant_object_url',
+    'wp_instant_public_media_manifest',
     'wp_instant_version',
     'wp_instant_health',
     'wp_instant_auto_degrade',

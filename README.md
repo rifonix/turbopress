@@ -54,6 +54,7 @@ The edge API worker runs on Cloudflare Workers with native bindings provisioned 
 | **D1 SQL Database** | `DB` | `wpinstant-db` (`a6ffe36b-3e1a-46a2-895b-91693b1538e1`) | Users, Subscriptions, Sites, and Jobs relational store |
 | **KV Namespace** | `KV` | `wpinstant-kv` (`5883ffa03f40476faf654faa8e531e48`) | Sub-3ms edge authorization & job status fast-path |
 | **R2 Object Storage** | `ASSETS_BUCKET` | `wpinstant-assets` | Zero-egress storage for generated Critical CSS & media assets |
+| **R2 Public Media CDN** | `PUBLIC_MEDIA_BUCKET` | `wpinstant-public-media` (`objects.wpinstant.dev`) | Content-addressed, immutable public media derivatives |
 | **Queue Producer/Consumer**| `OPTIMIZATION_QUEUE` | `wpinstant-optimization-queue` | Background batch dispatch for Chromium Puppeteer tasks |
 | **Dead-Letter Queue** | (consumer: `wpinstant-api`) | `wpinstant-dlq` | Terminal failure handling for exhausted optimization jobs |
 | **Browser Rendering** | `BROWSER` | Cloudflare Browser Rendering | Headless Chromium instance pool for DOM & CSS analysis |

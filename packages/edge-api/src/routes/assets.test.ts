@@ -3,7 +3,14 @@ import { Hono } from 'hono';
 import { createHmac, createHash } from 'node:crypto';
 import { createTestEnv } from '../test-helpers/mock-env.js';
 import { assetRoutes } from './assets.js';
+import { optimizeImage } from 'wasm-image-optimization';
 import type { Env, AppVariables } from '../types/env.js';
+
+vi.mock('wasm-image-optimization', () => ({
+  optimizeImage: vi.fn(async () => {
+    throw new Error('WASM image optimization is not allowed in these tests');
+  }),
+}));
 
 // In-memory R2 with retention, head() and range reads. The shared mock's
 // ASSETS_BUCKET is a recording stub without retention, so these tests bring
@@ -60,9 +67,9 @@ async function seedSite(env: any) {
     "INSERT INTO subscriptions (id, user_id, plan_id, status, max_sites, current_period_end, created_at, updated_at) VALUES ('sub_a', 'user_a', 'starter', 'active', 5, unixepoch() + 2592000, unixepoch(), unixepoch())"
   ).run();
   await env.DB.prepare(
-    "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, callback_secret, config_json, is_active, created_at, updated_at) VALUES (?, 'user_a', 'sub_a', 'a.com', 'hash', ?, '{}', 1, unixepoch(), unixepoch())"
+    "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, callback_secret, config_json, is_active, created_at, updated_at) VALUES (?, 'user_a', 'sub_a', 'a.com', ?, ?, '{}', 1, unixepoch(), unixepoch())"
   )
-    .bind(SITE_ID, SECRET)
+    .bind(SITE_ID, createHash('sha256').update('plugin-key').digest('hex'), SECRET)
     .run();
 }
 
@@ -76,11 +83,58 @@ function urlHashFor(src: string) {
   return createHash('sha256').update(src).digest('hex').slice(0, 24);
 }
 
+function publicMediaSignature(sourceHash: string, w: string, q: string, f: string) {
+  return createHmac('sha256', SECRET)
+    .update(`v1|${SITE_ID}|${sourceHash}|${w}|${q}|${f}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
 function mediaUrl(src: string, f = 'raw', w = '0', hash?: string) {
   // The plugin base64url-encodes the original URL directly (no percent-decoding).
   const u = Buffer.from(src).toString('base64url');
   const s = signParams(u, w, f);
   return `https://api.test/api/v1/assets/media/${SITE_ID}/${hash ?? urlHashFor(src)}?u=${u}&w=${w}&f=${f}&s=${s}`;
+}
+
+function createRecordingCache() {
+  const entries = new Map<string, Response>();
+  const putKeys: string[] = [];
+  const cache = {
+    match: async (request: Request) => entries.get(request.url),
+    put: async (request: Request, response: Response) => {
+      putKeys.push(request.url);
+      entries.set(request.url, response.clone());
+    },
+    delete: async () => false,
+  };
+  vi.stubGlobal('caches', { open: async () => cache });
+  return { entries, putKeys };
+}
+
+function createImagesBinding(output: Response) {
+  const calls: { transforms: unknown[]; output: unknown }[] = [];
+  return {
+    calls,
+    binding: {
+      input(stream: ReadableStream) {
+        const state = { transforms: [] as unknown[], output: null as unknown };
+        calls.push(state);
+        return {
+          transform(options: unknown) {
+            state.transforms.push(options);
+            return this;
+          },
+          async output(options: unknown) {
+            state.output = options;
+            return {
+              response: async () => output,
+            };
+          },
+        };
+      },
+    } as any,
+  };
 }
 
 describe('media asset route — raw delivery without first-request redirects', () => {
@@ -320,6 +374,228 @@ describe('media asset route — raw delivery without first-request redirects', (
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/avif');
     expect(res.headers.get('x-wp-instant-media')).toBe('HIT-AVIF');
+  });
+
+  it('cold raster MISS uses the Images binding, persists WebP, and skips WASM', async () => {
+    const r2 = createMemoryR2();
+    const output = new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'content-type': 'image/webp' },
+    });
+    const images = createImagesBinding(output);
+    const env = createTestEnv({ ASSETS_BUCKET: r2, IMAGES: images.binding });
+    await seedSite(env);
+    const src = 'https://a.com/uploads/huge.png';
+    const cache = createRecordingCache();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([9, 9, 9]), {
+            headers: { 'content-type': 'image/png' },
+          })
+      )
+    );
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const res = await app.fetch(new Request(mediaUrl(src, 'webp', '1920')));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/webp');
+    expect(res.headers.get('x-wp-instant-media')).toBe('EDGE-IMAGES');
+    expect(res.headers.get('x-wp-instant-engine')).toBe('images-binding');
+    expect(await res.arrayBuffer()).toEqual(new Uint8Array([1, 2, 3]).buffer);
+
+    await Promise.all(pending);
+    expect(vi.mocked(optimizeImage)).not.toHaveBeenCalled();
+    expect(images.calls[0].transforms).toEqual([{ width: 1920, fit: 'scale-down' }]);
+    expect(images.calls[0].output).toEqual({ format: 'image/webp', quality: 82, anim: false });
+    const key = `sites/${SITE_ID}/media/${urlHashFor(src)}_1920_82.webp`;
+    expect([...r2.store.keys()]).toEqual([key]);
+    expect(Buffer.from(r2.store.get(key)!.bytes)).toEqual(Buffer.from([1, 2, 3]));
+    expect(r2.store.get(key)?.httpMetadata).toEqual({ contentType: 'image/webp' });
+    expect(cache.putKeys).toEqual([mediaUrl(src, 'webp', '1920')]);
+  });
+
+  it('cold AVIF-capable raster MISS persists the suffixed AVIF object and cache variant', async () => {
+    const r2 = createMemoryR2();
+    const output = new Response(new Uint8Array([4, 5]), {
+      headers: { 'content-type': 'image/avif' },
+    });
+    const images = createImagesBinding(output);
+    const env = createTestEnv({ ASSETS_BUCKET: r2, IMAGES: images.binding });
+    await seedSite(env);
+    const src = 'https://a.com/uploads/huge.jpg';
+    const cache = createRecordingCache();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([9, 9, 9]), {
+            headers: { 'content-type': 'image/jpeg' },
+          })
+      )
+    );
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+    const requestedUrl = mediaUrl(src, 'webp', '1920');
+
+    const res = await app.fetch(
+      new Request(requestedUrl, { headers: { accept: 'image/avif,image/webp,*/*' } })
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/avif');
+    expect(res.headers.get('x-wpins-avif')).toBe('1');
+    expect(await res.arrayBuffer()).toEqual(new Uint8Array([4, 5]).buffer);
+
+    await Promise.all(pending);
+    const key = `sites/${SITE_ID}/media/${urlHashFor(src)}_1920_82.webp.avif`;
+    expect([...r2.store.keys()]).toEqual([key]);
+    expect(Buffer.from(r2.store.get(key)!.bytes)).toEqual(Buffer.from([4, 5]));
+    expect(r2.store.get(key)?.httpMetadata).toEqual({ contentType: 'image/avif' });
+    expect(cache.putKeys).toEqual([`${requestedUrl}&fmt=avif`]);
+  });
+
+  it('Images binding failure redirects briefly and does not retry with WASM', async () => {
+    const r2 = createMemoryR2();
+    const images = {
+      input() {
+        return {
+          transform() {
+            return this;
+          },
+          async output() {
+            throw new Error('transformation rejected');
+          },
+        };
+      },
+    };
+    const env = createTestEnv({ ASSETS_BUCKET: r2, IMAGES: images as any });
+    await seedSite(env);
+    const src = 'https://a.com/uploads/huge.webp';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([9, 9, 9]), {
+            headers: { 'content-type': 'image/webp' },
+          })
+      )
+    );
+    const app = buildApp(env, []);
+
+    const res = await app.fetch(new Request(mediaUrl(src, 'webp', '1920')));
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(src);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(res.headers.get('x-wp-instant-media')).toBe('IMAGE-BINDING-FAILED');
+    expect(res.headers.get('x-wp-instant-engine')).toBe('images-binding-failed');
+    expect(r2.store.size).toBe(0);
+    expect(vi.mocked(optimizeImage)).not.toHaveBeenCalled();
+  });
+});
+
+describe('direct public media uploads', () => {
+  it('stores a versioned immutable derivative in the public bucket and returns its exact public path', async () => {
+    const publicR2 = createMemoryR2();
+    const env = createTestEnv({
+      PUBLIC_MEDIA_BUCKET: publicR2,
+      PUBLIC_MEDIA_CDN_BASE_URL: 'https://objects.test',
+    });
+    await seedSite(env);
+    const src = 'https://a.com/wp-content/uploads/photo.jpg';
+    const sourceHash = createHash('sha256').update(`${src}|1770000000:12345`).digest('hex').slice(0, 32);
+    const signature = publicMediaSignature(sourceHash, '800', '82', 'webp');
+    const key = `v1/${signature}/${SITE_ID}/${sourceHash}/800/82.webp`;
+    const pending: Promise<unknown>[] = [];
+    const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+    app.route('/api/v1/assets', assetRoutes);
+
+    const res = await app.fetch(
+      new Request(`https://api.test/api/v1/assets/public-media/${SITE_ID}/${signature}/${sourceHash}/800/82/webp`, {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer plugin-key',
+          'X-Site-Domain': 'a.com',
+          'Content-Type': 'image/jpeg',
+        },
+        body: new Uint8Array([1, 2, 3, 4]),
+      }),
+      env,
+      {
+        waitUntil: (p: Promise<unknown>) => pending.push(p),
+        passThroughOnException: () => {},
+      } as any
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.key).toBe(key);
+    expect(body.data.publicUrl).toBe(`https://objects.test/${key}`);
+    expect(publicR2.store.get(key)?.httpMetadata).toEqual({
+      contentType: 'image/webp',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+  });
+
+  it('rejects a public upload signed for another site', async () => {
+    const publicR2 = createMemoryR2();
+    const env = createTestEnv({ PUBLIC_MEDIA_BUCKET: publicR2 });
+    await seedSite(env);
+    const sourceHash = 'a'.repeat(32);
+    const signature = publicMediaSignature(sourceHash, '800', '82', 'webp');
+    const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+    app.route('/api/v1/assets', assetRoutes);
+
+    const res = await app.fetch(
+      new Request(`https://api.test/api/v1/assets/public-media/site_other/${signature}/${sourceHash}/800/82/webp`, {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer plugin-key',
+          'X-Site-Domain': 'a.com',
+          'Content-Type': 'image/jpeg',
+        },
+        body: new Uint8Array([1]),
+      }),
+      env,
+      { waitUntil: () => {}, passThroughOnException: () => {} } as any
+    );
+
+    expect(res.status).toBe(403);
+    expect(publicR2.store.size).toBe(0);
+  });
+
+  it('keeps real original extensions so R2 responses remain cache-eligible', async () => {
+    const publicR2 = createMemoryR2();
+    const env = createTestEnv({
+      PUBLIC_MEDIA_BUCKET: publicR2,
+      PUBLIC_MEDIA_CDN_BASE_URL: 'https://objects.test',
+    });
+    await seedSite(env);
+    const src = 'https://a.com/wp-content/uploads/icon.svg';
+    const sourceHash = createHash('sha256').update(`${src}|1770000000:12345`).digest('hex').slice(0, 32);
+    const signature = publicMediaSignature(sourceHash, '0', '82', 'orig');
+    const key = `v1/${signature}/${SITE_ID}/${sourceHash}/0/82.svg`;
+    const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+    app.route('/api/v1/assets', assetRoutes);
+
+    const res = await app.fetch(
+      new Request(`https://api.test/api/v1/assets/public-media/${SITE_ID}/${signature}/${sourceHash}/0/82/svg`, {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer plugin-key',
+          'X-Site-Domain': 'a.com',
+          'Content-Type': 'image/svg+xml',
+        },
+        body: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      }),
+      env,
+      { waitUntil: () => {}, passThroughOnException: () => {} } as any
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.data.key).toBe(key);
+    expect(publicR2.store.get(key)?.httpMetadata.cacheControl).toContain('immutable');
   });
 });
 

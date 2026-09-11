@@ -242,7 +242,12 @@ class AssetProxy {
         }
         $api_base = rtrim($this->config->get_api_url(), '/');
         $cdn_base = rtrim($this->config->get_cdn_url(), '/');
-        if (($api_base !== '' && stripos($abs, $api_base) === 0) || ($cdn_base !== '' && stripos($abs, $cdn_base) === 0)) {
+        $object_base = rtrim($this->config->get_object_url(), '/');
+        if (
+            ($api_base !== '' && stripos($abs, $api_base) === 0)
+            || ($cdn_base !== '' && stripos($abs, $cdn_base) === 0)
+            || ($object_base !== '' && stripos($abs, $object_base) === 0)
+        ) {
             return null; // already a worker/CDN URL
         }
         return (new MediaOffloader($this->config))->media_url($abs, 0, 'raw');
@@ -291,7 +296,12 @@ class AssetProxy {
         // Never re-proxy our own worker/CDN URLs.
         $api_base = rtrim($this->config->get_api_url(), '/');
         $cdn_base = rtrim($this->config->get_cdn_url(), '/');
-        if (($api_base !== '' && stripos($url, $api_base) === 0) || ($cdn_base !== '' && stripos($url, $cdn_base) === 0)) {
+        $object_base = rtrim($this->config->get_object_url(), '/');
+        if (
+            ($api_base !== '' && stripos($url, $api_base) === 0)
+            || ($cdn_base !== '' && stripos($url, $cdn_base) === 0)
+            || ($object_base !== '' && stripos($url, $object_base) === 0)
+        ) {
             return false;
         }
         return true;

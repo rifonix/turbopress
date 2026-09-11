@@ -149,6 +149,106 @@ assetRoutes.get('/css/:site_id/:css_file', async (c) => {
   return resp;
 });
 
+/**
+ * Store a small, public, content-addressed media derivative in the bucket
+ * exposed at objects.wpinstant.dev. The plugin uploads only derivatives whose
+ * exact source version and dimensions it knows, then records the returned
+ * public URL in a local manifest. Until that manifest entry exists, generated
+ * HTML continues using the legacy Worker URL and its origin fallback.
+ *
+ * PUT /api/v1/assets/public-media/:site_id/:signature/:source_hash/:width/:quality/:format
+ */
+assetRoutes.put(
+  '/public-media/:site_id/:signature/:source_hash/:width/:quality/:format',
+  siteAuthMiddleware,
+  async (c) => {
+    const siteId = c.req.param('site_id');
+    if (c.get('site')?.id !== siteId) {
+      return c.json({ success: false, error: 'Site identity mismatch' }, 403);
+    }
+
+    const bucket = c.env.PUBLIC_MEDIA_BUCKET;
+    if (!bucket) {
+      return c.json({ success: false, error: 'Public media bucket is not configured' }, 503);
+    }
+
+    const signature = c.req.param('signature');
+    const sourceHash = c.req.param('source_hash');
+    const extension = c.req.param('format').toLowerCase();
+    const allowedExtensions = [
+      'gif', 'jpg', 'jpeg', 'png', 'webp', 'avif', 'svg', 'mp4', 'm4v',
+      'webm', 'mov', 'woff', 'woff2', 'ttf', 'otf',
+    ];
+    const format = extension === 'webp' ? 'webp' : 'orig';
+    const width = Number.parseInt(c.req.param('width'), 10);
+    const quality = Number.parseInt(c.req.param('quality'), 10);
+
+    if (!/^[0-9a-f]{32}$/i.test(signature) || !/^[0-9a-f]{32}$/i.test(sourceHash)) {
+      return c.json({ success: false, error: 'Invalid artifact identity' }, 400);
+    }
+    if (!Number.isInteger(width) || width < 0 || width > 4000) {
+      return c.json({ success: false, error: 'Invalid width' }, 400);
+    }
+    if (!Number.isInteger(quality) || quality < 40 || quality > 100) {
+      return c.json({ success: false, error: 'Invalid quality' }, 400);
+    }
+    if (!allowedExtensions.includes(extension)) {
+      return c.json({ success: false, error: 'Invalid public media extension' }, 400);
+    }
+
+    const sec = await siteSecret(c, siteId);
+    if (!sec.ok) {
+      return c.json({ success: false, error: 'Secret lookup temporarily unavailable' }, 502);
+    }
+    if (!sec.secret) {
+      return c.json({ success: false, error: 'Site not found' }, 404);
+    }
+
+    const signedParts = `v1|${siteId}|${sourceHash}|${width}|${quality}|${format}`;
+    const expectedSignature = (await hmacHex(sec.secret, signedParts)).slice(0, 32);
+    if (!timingSafeEq(expectedSignature, signature)) {
+      return c.json({ success: false, error: 'Invalid artifact signature' }, 403);
+    }
+
+    const body = await c.req.arrayBuffer().catch(() => null);
+    if (!body || body.byteLength === 0 || body.byteLength > 3 * 1024 * 1024) {
+      return c.json({ success: false, error: 'Body out of bounds (max 3MB)' }, 400);
+    }
+
+    const declaredType = (c.req.header('Content-Type') || '').split(';')[0].trim().toLowerCase();
+    const contentType = format === 'webp' ? 'image/webp' : declaredType;
+    const allowedOriginalType =
+      /^image\//i.test(contentType) ||
+      /^video\//i.test(contentType) ||
+      /^font\//i.test(contentType) ||
+      ['application/octet-stream', 'image/svg+xml'].includes(contentType);
+    if (!contentType || !allowedOriginalType) {
+      return c.json({ success: false, error: 'Only public media content types are accepted' }, 400);
+    }
+
+    const r2Key = publicMediaR2Key({
+      signature,
+      siteId,
+      sourceHash,
+      width,
+      quality,
+      format: extension,
+    });
+    await bucket.put(r2Key, body, {
+      httpMetadata: {
+        contentType,
+        cacheControl: PUBLIC_MEDIA_PUBLIC_CACHE_CONTROL,
+      },
+    });
+
+    const baseUrl = c.env.PUBLIC_MEDIA_CDN_BASE_URL || 'https://objects.wpinstant.dev';
+    const publicUrl = publicMediaPublicUrl(baseUrl, r2Key);
+    return c.json({ success: true, data: { key: r2Key, publicUrl } }, 200, {
+      'Cache-Control': 'no-store',
+    });
+  }
+);
+
 /* ------------------------------------------------------------------ */
 /* Zero-DNS media CDN (R2-backed, signed, 302-to-origin on miss)       */
 /* ------------------------------------------------------------------ */
@@ -280,6 +380,31 @@ function timingSafeEq(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+const PUBLIC_MEDIA_SIGNATURE_PARTS = /^v1\|(.+)\|([0-9a-f]{32})\|([0-9]{1,4})\|([0-9]{2,3})\|(webp|orig)$/i;
+const PUBLIC_MEDIA_PUBLIC_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+/**
+ * Public media objects are addressed by the exact browser path. The signature
+ * is therefore part of the R2 key: a direct R2 custom domain cannot execute
+ * code to validate query parameters, but it will only expose an object when
+ * the caller already knows this unguessable path.
+ */
+function publicMediaR2Key(input: {
+  signature: string;
+  siteId: string;
+  sourceHash: string;
+  width: number;
+  quality: number;
+  format: string;
+}): string {
+  const { signature, siteId, sourceHash, width, quality, format } = input;
+  return `v1/${signature}/${siteId}/${sourceHash}/${width}/${quality}.${format}`;
+}
+
+function publicMediaPublicUrl(baseUrl: string, r2Key: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${r2Key}`;
 }
 
 /** Site callback secret (for URL signing), cached in KV for 1h. Only returned if active. */
@@ -753,6 +878,96 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   }
 
   const srcType = srcRes.headers.get('content-type') || '';
+
+  // Raster cold fills use Cloudflare Images. The binding accepts the origin
+  // stream (up to its documented 20MB input limit) and performs decode,
+  // resize, and transcode outside the Worker JS heap. This prevents the
+  // compressed-but-huge-pixel-dimension OOM case that WASM cannot solve.
+  if (c.env.IMAGES && f !== 'orig') {
+    const imagesBinding = c.env.IMAGES;
+    const sourcePath = verified.src.split('?')[0].split('#')[0].toLowerCase();
+    const isVectorOrGif =
+      /image\/(svg\+xml|gif)/i.test(srcType) ||
+      /\.(?:svg|gif)(?:[?#]|$)/i.test(sourcePath);
+
+    if (!isVectorOrGif) {
+      // This guard is deliberately larger only because Images itself owns the
+      // input limit. Unknown/chunked lengths are delegated to Images; if its
+      // runtime rejects an oversized stream we use the short-lived redirect.
+      if (contentLength > 20 * 1024 * 1024) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: verified.src,
+            'Cache-Control': 'public, max-age=300',
+            'Access-Control-Allow-Origin': '*',
+            'X-WP-Instant-Media': 'PASS-OVERSIZE',
+          },
+        });
+      }
+
+      try {
+        if (!srcRes.body) throw new Error('Origin response has no body');
+        const image = imagesBinding.input(srcRes.body);
+        if (width > 0) {
+          image.transform({ width, fit: 'scale-down' });
+        }
+        const outputFormat = wantsAvif ? 'image/avif' : 'image/webp';
+        const { response: outputResponseFactory } = await image.output({
+          format: outputFormat,
+          quality,
+          anim: false,
+        });
+        const generated = await outputResponseFactory();
+        if (!generated.ok || !generated.body) {
+          throw new Error(`Images binding returned ${generated.status}`);
+        }
+
+        const optimizedResponse = new Response(generated.body, {
+          status: 200,
+          headers: {
+            'Content-Type': outputFormat,
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'Access-Control-Allow-Origin': '*',
+            ...(wantsAvif ? { Vary: 'Accept' } : {}),
+            ...(wantsAvif ? { 'X-WPins-Avif': '1' } : {}),
+            'X-WP-Instant-Media': 'EDGE-IMAGES',
+            'X-WP-Instant-Engine': 'images-binding',
+          },
+        });
+        const r2Copy = optimizedResponse.clone();
+        const cacheCopy = optimizedResponse.clone();
+        defer(
+          c,
+          Promise.all([
+            c.env.ASSETS_BUCKET.put(
+              wantsAvif ? `${r2Key}.avif` : r2Key,
+              r2Copy.body as any,
+              { httpMetadata: { contentType: outputFormat } }
+            ).catch(() => {}),
+            cache.put(cacheKey, cacheCopy).catch(() => {}),
+          ])
+        );
+        return optimizedResponse;
+      } catch (err) {
+        console.warn('[Media] Images binding failed, serving original redirect:', err);
+        // srcRes.body has already been consumed, so do not retry WASM (it
+        // would require buffering exactly the class of input that caused the
+        // OOM). A short-TTL redirect keeps a transient Images failure from
+        // being pinned at the edge or permanently breaking the page image.
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: verified.src,
+            'Cache-Control': 'public, max-age=60',
+            'Access-Control-Allow-Origin': '*',
+            'X-WP-Instant-Media': 'IMAGE-BINDING-FAILED',
+            'X-WP-Instant-Engine': 'images-binding-failed',
+          },
+        });
+      }
+    }
+  }
 
   // Vector/animated formats are already optimal: store + serve untouched.
   const isVectorOrGif = /image\/(svg\+xml|gif)/i.test(srcType) || /\.svg(?:[?#]|$)/i.test(verified.src);

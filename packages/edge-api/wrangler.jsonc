@@ -46,6 +46,13 @@
       "binding": "ASSETS_BUCKET",
       "bucket_name": "wpinstant-assets"
     }
+    ,
+    {
+      // Public, media-only bucket exposed by the objects.wpinstant.dev R2
+      // custom domain. Never store subscription-gated artifacts here.
+      "binding": "PUBLIC_MEDIA_BUCKET",
+      "bucket_name": "wpinstant-public-media"
+    }
   ],
   "queues": {
     "producers": [
@@ -76,10 +83,14 @@
   "browser": {
     "binding": "BROWSER"
   },
+  "images": {
+    "binding": "IMAGES"
+  },
   "vars": {
     "ENVIRONMENT": "production",
     "SAAS_APP_URL": "https://wpinstant.dev",
-    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev"
+    "NEXT_PUBLIC_API_BASE_URL": "https://api.wpinstant.dev",
+    "PUBLIC_MEDIA_CDN_BASE_URL": "https://objects.wpinstant.dev"
   }
   // TODO(billing): add POLAR_PRODUCT_{STARTER,GROWTH,AGENCY}_{MONTHLY,ANNUAL} plan IDs once Polar products exist.
   // Secrets (set via `wrangler secret put`):

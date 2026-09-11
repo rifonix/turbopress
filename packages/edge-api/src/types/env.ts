@@ -10,12 +10,34 @@ export interface OptimizationQueueMessage {
   structureHash?: string;
 }
 
+/**
+ * Cloudflare Images binding. The runtime accepts a stream and performs
+ * decode/resize/transcode outside the Worker's JavaScript heap, avoiding the
+ * memory spikes caused by buffering and decoding large raster images.
+ */
+export interface ImagesBindingInput {
+  transform(options: { width?: number; height?: number; fit?: 'scale-down' }): ImagesBindingInput;
+  output(options: {
+    format: 'image/webp' | 'image/avif';
+    quality?: number;
+    anim?: boolean;
+  }): Promise<{ response(): Promise<Response> }>;
+}
+
+export interface ImagesBinding {
+  input(stream: ReadableStream): ImagesBindingInput;
+}
+
 export interface Env {
   DB: D1Database;
   KV: KVNamespace;
   ASSETS_BUCKET: R2Bucket;
+  /** Public, media-only bucket exposed at objects.wpinstant.dev. */
+  PUBLIC_MEDIA_BUCKET?: R2Bucket;
+  PUBLIC_MEDIA_CDN_BASE_URL?: string;
   OPTIMIZATION_QUEUE: Queue<OptimizationQueueMessage>;
   BROWSER: Fetcher;
+  IMAGES?: ImagesBinding;
   ENVIRONMENT: string;
   SAAS_APP_URL: string;
   POLAR_ACCESS_TOKEN?: string;

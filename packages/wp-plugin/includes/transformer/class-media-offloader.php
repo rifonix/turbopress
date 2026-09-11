@@ -6,8 +6,8 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Zero-DNS media CDN: rewrites <img>/<video> URLs to signed edge-worker
- * URLs backed by R2.
+ * Zero-DNS media CDN: rewrites <img>/<video> URLs to signed edge-worker URLs
+ * backed by R2, then promotes proven public derivatives to the direct R2 CDN.
  *
  * Flow:
  *  1. transform(): rewrite src/srcset/video sources to
@@ -15,8 +15,11 @@ if (!defined('ABSPATH')) {
  *     serves the R2 derivative on HIT and 302s to the origin URL on MISS,
  *     so a rewrite can NEVER break an image (worst case = a redirect).
  *  2. Rewritten assets are queued; the hourly wp_instant_media_offload
- *     cron generates webp derivatives (GD) and PUTs them to the edge,
- *     which stores them in R2 (immutable).
+ *     cron generates webp derivatives (GD) and PUTs them to the edge.
+ *  3. Versioned image derivatives are copied to a separate public media
+ *     bucket. The plugin records its returned URL in a local manifest and
+ *     only future renders use the direct R2 hostname, so a first-ever
+ *     derivative never gets a 404 before the cron upload completes.
  */
 class MediaOffloader {
     private const QUEUE_OPTION = 'wp_instant_media_queue';
@@ -29,6 +32,10 @@ class MediaOffloader {
 
     /** Per-request cache of local image width lookups (srcset caps). */
     private array $width_cache = [];
+
+    /** Local allowlist of public objects that the edge has actually stored. */
+    private ?array $public_manifest = null;
+    private bool $public_manifest_loaded = false;
 
     public function __construct(Config $config) {
         $this->config = $config;
@@ -422,8 +429,8 @@ class MediaOffloader {
     }
 
     /**
-     * Build the signed worker URL for a media source, or null when the
-     * source must not be rewritten.
+     * Build the worker URL (or known direct public URL) for a media source,
+     * or null when the source must not be rewritten.
      */
     private function rewrite_source(string $src, int $w, string $f, array $excluded, array &$queued): ?string {
         if (!preg_match('#^https?://#i', $src)) {
@@ -431,7 +438,12 @@ class MediaOffloader {
         }
         $api_base = rtrim($this->config->get_api_url(), '/');
         $cdn_base = rtrim($this->config->get_cdn_url(), '/');
-        if (($api_base !== '' && stripos($src, $api_base) === 0) || ($cdn_base !== '' && stripos($src, $cdn_base) === 0)) {
+        $object_base = rtrim($this->config->get_object_url(), '/');
+        if (
+            ($api_base !== '' && stripos($src, $api_base) === 0)
+            || ($cdn_base !== '' && stripos($src, $cdn_base) === 0)
+            || ($object_base !== '' && stripos($src, $object_base) === 0)
+        ) {
             return null; // already a worker/CDN URL
         }
         // Own host (and its subdomains) only: proxied media consumes this
@@ -468,6 +480,18 @@ class MediaOffloader {
     }
 
     public function media_url(string $src, int $w, string $f): ?string {
+        $direct = $this->known_public_media_url($src, $w, $f);
+        if ($direct !== null) {
+            return $direct;
+        }
+        return $this->worker_media_url($src, $w, $f);
+    }
+
+    /**
+     * Legacy signed Worker URL. It remains the safe cold-fill path and keeps
+     * old cached HTML working independently of the direct public bucket.
+     */
+    public function worker_media_url(string $src, int $w, string $f): ?string {
         // Visitor-facing URL: goes through the CDN hostname (R2-backed),
         // not the control-plane API host.
         $api_base = rtrim($this->config->get_cdn_url(), '/');
@@ -492,6 +516,119 @@ class MediaOffloader {
             $q,
             $sig
         );
+    }
+
+    /**
+     * Stable source version. Only local upload-library files are eligible for
+     * immutable public objects: mtime + size makes replacing a file at the
+     * same URL produce a new content address. Remote files have no cheap,
+     * trustworthy version and therefore remain on the Worker route.
+     */
+    private function source_version(string $src): ?string {
+        $file = $this->local_media_path($src);
+        if ($file === null) {
+            return null;
+        }
+        $mtime = @filemtime($file);
+        $size = @filesize($file);
+        if ($mtime === false || $size === false) {
+            return null;
+        }
+        return $mtime . ':' . $size;
+    }
+
+    private function public_media_identity(string $src, int $w, string $f): ?array {
+        // Raw assets are proxied by the Worker so CSS url() rewrites retain
+        // their origin fallback and pipeline behavior. Only bounded image
+        // derivatives enter the public bucket.
+        if ($f !== 'webp' && $f !== 'orig') {
+            return null;
+        }
+        $site_id = $this->config->get_site_id();
+        $version = $this->source_version($src);
+        if ($site_id === '' || $version === null) {
+            return null;
+        }
+
+        $quality = max(40, min(100, (int) $this->config->get('media.image_quality', 82)));
+        $width = max(0, min(4000, $w));
+        $source_hash = substr(hash('sha256', $src . '|' . $version), 0, 32);
+        $extension = $f === 'webp' ? 'webp' : $this->original_media_extension($src);
+        if ($extension === null) {
+            return null;
+        }
+        $signature = substr(hash_hmac(
+            'sha256',
+            'v1|' . $site_id . '|' . $source_hash . '|' . $width . '|' . $quality . '|' . $f,
+            Config::get_callback_secret_static()
+        ), 0, 32);
+
+        return [
+            'site_id' => $site_id,
+            'source_hash' => $source_hash,
+            'signature' => $signature,
+            'width' => $width,
+            'quality' => $quality,
+            'format' => $f,
+            'extension' => $extension,
+            'key' => 'v1/' . $signature . '/' . rawurlencode($site_id) . '/' . $source_hash
+                . '/' . $width . '/' . $quality . '.' . $extension,
+        ];
+    }
+
+    /**
+     * R2/Cloudflare cache eligibility depends on the object filename, so
+     * original derivatives keep their real extension rather than a generic
+     * `.orig` suffix that public caches may treat as dynamic.
+     */
+    private function original_media_extension(string $src): ?string {
+        $path = (string) parse_url($src, PHP_URL_PATH);
+        if (!preg_match('~\.([a-z0-9]{3,5})$~i', $path, $m)) {
+            return null;
+        }
+        $extension = strtolower($m[1]);
+        return in_array($extension, ['gif', 'jpg', 'jpeg', 'png', 'webp', 'avif', 'svg', 'mp4', 'm4v', 'webm', 'mov', 'woff', 'woff2', 'ttf', 'otf'], true)
+            ? $extension
+            : null;
+    }
+
+    private function known_public_media_url(string $src, int $w, string $f): ?string {
+        $identity = $this->public_media_identity($src, $w, $f);
+        if ($identity === null) {
+            return null;
+        }
+        $manifest = $this->public_manifest();
+        $url = (string) ($manifest[$identity['key']] ?? '');
+        if ($url === '') {
+            return null;
+        }
+        $base = rtrim($this->config->get_object_url(), '/');
+        return str_starts_with($url, $base . '/') ? $url : null;
+    }
+
+    private function public_manifest(): array {
+        if ($this->public_manifest_loaded) {
+            return $this->public_manifest ?? [];
+        }
+        $stored = get_option(Config::PUBLIC_MEDIA_MANIFEST_OPTION, []);
+        $this->public_manifest = is_array($stored) ? $stored : [];
+        $this->public_manifest_loaded = true;
+        return $this->public_manifest;
+    }
+
+    private function remember_public_media(array $identity, string $url): void {
+        $base = rtrim($this->config->get_object_url(), '/');
+        if ($base === '' || !str_starts_with($url, $base . '/')) {
+            return;
+        }
+        $manifest = $this->public_manifest();
+        $manifest[$identity['key']] = $url;
+        if (count($manifest) > 500) {
+            $manifest = array_slice($manifest, -500, null, true);
+        }
+        $this->public_manifest = $manifest;
+        $this->public_manifest_loaded = true;
+        update_option(Config::PUBLIC_MEDIA_MANIFEST_OPTION, $manifest, false);
     }
 
     /** Configured derivative widths (validated, sorted, defaults applied). */
@@ -779,9 +916,16 @@ class MediaOffloader {
         if (strlen($bytes) > 3145728) {
             return false; // edge body cap: 3MB
         }
-        $url = $this->media_url($src, $w, $f);
+        $url = $this->worker_media_url($src, $w, $f);
         if ($url === null) {
             return false;
+        }
+        $identity = $this->public_media_identity($src, $w, $f);
+        if ($identity !== null) {
+            $object_base = rtrim($this->config->get_api_url(), '/');
+            $url = $object_base . '/api/v1/assets/public-media/' . rawurlencode($identity['site_id'])
+                . '/' . $identity['signature'] . '/' . $identity['source_hash']
+                . '/' . $identity['width'] . '/' . $identity['quality'] . '/' . rawurlencode($identity['extension']);
         }
 
         $host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
@@ -796,6 +940,16 @@ class MediaOffloader {
             'body' => $bytes,
         ]);
 
-        return !is_wp_error($response) && in_array(wp_remote_retrieve_response_code($response), [200, 201], true);
+        if (is_wp_error($response) || !in_array(wp_remote_retrieve_response_code($response), [200, 201], true)) {
+            return false;
+        }
+        if ($identity !== null) {
+            $body = json_decode((string) wp_remote_retrieve_body($response), true);
+            $public_url = is_array($body) ? (string) ($body['data']['publicUrl'] ?? '') : '';
+            if ($public_url !== '') {
+                $this->remember_public_media($identity, $public_url);
+            }
+        }
+        return true;
     }
 }

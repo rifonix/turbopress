@@ -7,7 +7,8 @@ Production topology (two Workers on the `wpinstant.dev` zone):
 | `wpinstant-api` | `api.wpinstant.dev` | `packages/edge-api` | Hono Edge API, queue producer/consumer, DLQ consumer, cron sweeper, browser extraction |
 | `wpinstant-app` | `wpinstant.dev` | `packages/saas-app` | Next.js 15 dashboard (OpenNext) — marketing homepage at `/` + portal at `/dashboard` |
 
-Resources: D1 `wpinstant-db`, KV `wpinstant-kv`, R2 `wpinstant-assets`, Queues `wpinstant-optimization-queue` + `wpinstant-dlq`.
+Resources: D1 `wpinstant-db`, KV `wpinstant-kv`, R2 `wpinstant-assets`, public media R2
+`wpinstant-public-media` (`objects.wpinstant.dev`), Queues `wpinstant-optimization-queue` + `wpinstant-dlq`.
 
 ---
 
@@ -17,9 +18,15 @@ Resources: D1 `wpinstant-db`, KV `wpinstant-kv`, R2 `wpinstant-assets`, Queues `
 npx wrangler d1 create wp-instant-db            # → update database_id in packages/edge-api/wrangler.jsonc
 npx wrangler kv namespace create wp-instant-kv  # → update kv_namespaces id
 npx wrangler r2 bucket create wp-instant-assets
+npx wrangler r2 bucket create wpinstant-public-media
 npx wrangler queues create wp-instant-optimization-queue
 npx wrangler queues create wp-instant-dlq
 ```
+
+Connect `objects.wpinstant.dev` to `wpinstant-public-media` as an R2 custom
+domain. Keep `cdn.wpinstant.dev` attached to `wpinstant-api`; do not attach it
+to R2. Only media derivatives may be written to the public bucket—critical CSS,
+plugin artifacts, and other control-plane objects remain in `wpinstant-assets`.
 
 Apply D1 migrations:
 

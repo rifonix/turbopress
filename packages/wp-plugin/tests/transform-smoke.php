@@ -75,6 +75,9 @@ function plugin_dir_path($f) { return dirname($f) . '/'; }
 function plugin_dir_url($f) { return 'https://example.test/wp-content/plugins/wp-instant/'; }
 function register_activation_hook($f, $cb) {}
 function register_deactivation_hook($f, $cb) {}
+function wp_upload_dir() {
+    return ['basedir' => '/tmp/wp/wp-content/uploads'];
+}
 
 require dirname(__DIR__) . '/wp-instant.php';
 
@@ -250,6 +253,27 @@ $font_out_missing = $font_optimizer->transform($font_html);
 check('fonts: dead package falls back to the Google link', strpos($font_out_missing, 'fonts.googleapis.com/css2?family=Argestra') !== false && strpos($font_out_missing, 'wp-instant/fonts/' . md5($google_href)) === false);
 
 /* ---------------- Own-host gate: third-party media stays put ---------------- */
+
+$direct_src = 'https://example.test/wp-content/uploads/direct.jpg';
+@mkdir('/tmp/wp/wp-content/uploads', 0777, true);
+file_put_contents('/tmp/wp/wp-content/uploads/direct.jpg', str_repeat('J', 256));
+touch('/tmp/wp/wp-content/uploads/direct.jpg', 1770000000);
+$direct_version = '1770000000:' . filesize('/tmp/wp/wp-content/uploads/direct.jpg');
+$direct_hash = substr(hash('sha256', $direct_src . '|' . $direct_version), 0, 32);
+$direct_sig = substr(hash_hmac(
+    'sha256',
+    'v1|site_123|' . $direct_hash . '|480|82|webp',
+    str_repeat('s', 64)
+), 0, 32);
+$direct_key = 'v1/' . $direct_sig . '/site_123/' . $direct_hash . '/480/82.webp';
+$GLOBALS['__options']['wp_instant_object_url'] = 'https://objects.wpinstant.dev';
+$GLOBALS['__options']['wp_instant_public_media_manifest'] = [
+    $direct_key => 'https://objects.wpinstant.dev/' . $direct_key,
+];
+$direct_out = $offloader->transform('<img src="' . $direct_src . '" width="480" height="320" alt="direct">');
+check('direct R2: proven derivative uses the public object URL', strpos($direct_out, 'https://objects.wpinstant.dev/' . $direct_key) !== false);
+check('direct R2: unsigned widths keep the Worker fallback', strpos($direct_out, 'https://cdn.wpinstant.dev/api/v1/assets/media/site_123/') !== false);
+check('direct R2: public URL has no mutable query string', strpos($direct_out, $direct_key . ' ') !== false);
 
 $foreign_img = '<img src="https://images.example-cdn.net/photo.jpg" alt="third party">';
 $foreign_out = $offloader->transform($foreign_img);

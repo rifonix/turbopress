@@ -3,7 +3,7 @@
  * Plugin Name: WP Instant - Next-Gen Page Optimizer
  * Plugin URI: https://wpinstant.dev
  * Description: Ultra-high performance WordPress page speed optimization engine powered by global Edge Delivery & Real-Browser Engine.
- * Version: 1.16.4
+ * Version: 1.17.0
  * Author: WP Instant Team
  * Author URI: https://wpinstant.dev
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WP_INSTANT_VERSION', '1.16.4');
+define('WP_INSTANT_VERSION', '1.17.0');
 define('WP_INSTANT_PLUGIN_FILE', __FILE__);
 define('WP_INSTANT_PATH', plugin_dir_path(__FILE__));
 define('WP_INSTANT_URL', plugin_dir_url(__FILE__));
@@ -28,6 +28,10 @@ define('WP_INSTANT_DEFAULT_API_BASE', 'https://api.wpinstant.dev');
 // Visitor-facing asset delivery (media derivatives, proxied CSS/JS) goes
 // through the CDN hostname; the control plane stays on api.wpinstant.dev.
 define('WP_INSTANT_DEFAULT_CDN_BASE', 'https://cdn.wpinstant.dev');
+// Direct R2 custom domain for immutable public media derivatives. Critical
+// CSS and subscription-sensitive artifacts intentionally stay behind the
+// Worker-controlled cdn.wpinstant.dev hostname.
+define('WP_INSTANT_DEFAULT_OBJECT_BASE', 'https://objects.wpinstant.dev');
 
 // Autoload Includes
 require_once WP_INSTANT_PATH . 'includes/class-plugin.php';

@@ -11,6 +11,8 @@ class Config {
     public const SITE_ID_OPTION = 'wp_instant_site_id';
     public const API_URL_OPTION = 'wp_instant_api_url';
     public const CDN_URL_OPTION = 'wp_instant_cdn_url';
+    public const OBJECT_URL_OPTION = 'wp_instant_object_url';
+    public const PUBLIC_MEDIA_MANIFEST_OPTION = 'wp_instant_public_media_manifest';
     public const CALLBACK_SECRET_OPTION = 'wp_instant_callback_secret';
 
     /**
@@ -319,6 +321,19 @@ class Config {
             return $cdn;
         }
         return defined('WP_INSTANT_DEFAULT_CDN_BASE') ? WP_INSTANT_DEFAULT_CDN_BASE : $this->get_api_url();
+    }
+
+    /**
+     * Direct R2 custom domain for public media derivatives only. The plugin
+     * uses a local manifest to avoid emitting this URL before the object has
+     * been stored, so a first-ever derivative still uses the Worker fallback.
+     */
+    public function get_object_url(): string {
+        $object_url = (string) get_option(self::OBJECT_URL_OPTION, '');
+        if ($object_url !== '') {
+            return $object_url;
+        }
+        return defined('WP_INSTANT_DEFAULT_OBJECT_BASE') ? WP_INSTANT_DEFAULT_OBJECT_BASE : $this->get_cdn_url();
     }
 
     public function is_connected(): bool {

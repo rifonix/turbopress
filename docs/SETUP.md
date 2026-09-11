@@ -12,12 +12,16 @@ Audience: you, once you have your production Clerk and Polar credentials.
 | `wpinstant.dev` | `wpinstant-app` | Marketing homepage (`/`) + portal (`/dashboard/…`), sign-in, connect |
 | `api.wpinstant.dev` | `wpinstant-api` | Control plane: REST API, auth, pairing, billing webhooks, queue consumer |
 | `cdn.wpinstant.dev` | `wpinstant-api` (same worker) | Visitor-facing asset delivery: media derivatives, critical CSS, plugin zip — R2-backed |
+| `objects.wpinstant.dev` | none (R2 custom domain) | Direct public delivery of immutable media derivatives from `wpinstant-public-media` |
 
-All hostnames are Workers custom domains on the `wpinstant.dev` zone
-(id `731977825d1dde521498998580dd5e11`, **active**).
-The WordPress plugin builds all visitor-facing asset URLs from `cdn.wpinstant.dev`
-(`WP_INSTANT_DEFAULT_CDN_BASE` in `wp-instant.php`, overridable via the
-`wp_instant_cdn_url` option) and sends all control-plane calls to `api.wpinstant.dev`.
+All Worker hostnames are Workers custom domains on the `wpinstant.dev` zone
+(id `731977825d1dde521498998580dd5e11`, **active**); `objects.wpinstant.dev` is
+an R2 custom domain.
+The Worker CDN remains the cold-fill/fallback path for new derivatives. Once a
+versioned image derivative is uploaded successfully, newly rendered HTML can use
+the direct `objects.wpinstant.dev` URL. The plugin stores proven URLs in
+`wp_instant_public_media_manifest`, so it never emits a direct URL before the
+object exists. All control-plane calls still go to `api.wpinstant.dev`.
 
 The dashboard lives under the `/dashboard` path prefix (Next.js route segment);
 the marketing homepage is served at `/`. Clerk sign-in/up stay at `/sign-in`,
@@ -33,6 +37,7 @@ The old `app.wpinstant.dev` dashboard hostname is retired — the portal is
 | D1 database | `wpinstant-db` | `a6ffe36b-3e1a-46a2-895b-91693b1538e1` — migrations 0001–0006 applied |
 | KV namespace | `wpinstant-kv` | `5883ffa03f40476faf654faa8e531e48` |
 | R2 bucket | `wpinstant-assets` | critical CSS, media derivatives, `plugin/wp-instant.zip` |
+| R2 public bucket | `wpinstant-public-media` | media-only immutable derivatives; custom domain `objects.wpinstant.dev` |
 | Queue | `wpinstant-optimization-queue` | producer + consumer (batch 5 / 30s / 3 retries) |
 | Queue | `wpinstant-dlq` | consumer attached; failed jobs marked `failed` + surfaced in attention feed |
 | Cron | `*/15 * * * *` | zombie-job sweeper + subscription expiry sweep |
