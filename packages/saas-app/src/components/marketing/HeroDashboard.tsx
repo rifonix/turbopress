@@ -40,12 +40,12 @@ function ScoreRing({ score }: { score: number }) {
 
 export function HeroDashboard() {
   return (
-    <div className="overflow-hidden rounded-3xl border border-[#e4e4e7] bg-white shadow-[0_2px_6px_rgba(23,23,23,0.06),0_32px_80px_rgba(23,23,23,0.12)]">
+    <div className="overflow-hidden rounded-3xl bg-white shadow-[0_2px_6px_rgba(23,23,23,0.06),0_32px_80px_rgba(23,23,23,0.12)]">
       <div className="flex h-11 items-center gap-2 border-b border-[#e4e4e7] bg-[#fbfbfa] px-4">
         <span className="h-2.5 w-2.5 rounded-full bg-[#f03e2f]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
         <span className="h-2.5 w-2.5 rounded-full bg-[#16a34a]" />
-        <span className="ml-3 rounded-md border border-[#e4e4e7] bg-white px-3 py-1 font-mono text-[10px] text-[#71717a]">
+        <span className="ml-3 rounded-md bg-white px-3 py-1 font-mono text-[10px] text-[#71717a] shadow-sm">
           app.wpinstant.dev/dashboard
         </span>
       </div>
@@ -81,7 +81,7 @@ export function HeroDashboard() {
               <p className="text-base font-semibold tracking-[-0.02em]">Fleet Overview</p>
               <p className="meta mt-0.5">Product preview · example data</p>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-[#e4e4e7] bg-[#f8f8f7] px-3 py-2">
+            <div className="flex items-center gap-2 rounded-lg bg-[#f8f8f7] px-3 py-2 shadow-sm">
               <span className="font-mono text-[10px] text-[#71717a]">Ludicrous preset</span>
               <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" />
             </div>
@@ -89,7 +89,7 @@ export function HeroDashboard() {
 
           <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
             {metrics.map((metric) => (
-              <div key={metric.label} className="rounded-xl border border-[#e4e4e7] bg-white p-3.5 shadow-sm">
+              <div key={metric.label} className="rounded-xl bg-white p-3.5 shadow-sm">
                 <p className="text-[10px] font-medium uppercase tracking-wider text-[#71717a]">{metric.label}</p>
                 <p className="mt-1 flex items-baseline justify-between text-2xl font-semibold text-[#171717]">
                   <span className="num">
@@ -106,7 +106,7 @@ export function HeroDashboard() {
           </div>
 
           <div className="mt-4 grid gap-3 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="overflow-hidden rounded-xl border border-[#e4e4e7]">
+            <div className="overflow-hidden rounded-xl bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-[#e4e4e7] bg-[#fafafa] px-3 py-2">
                 <p className="text-xs font-semibold">All sites</p>
                 <p className="meta">3 managed</p>
@@ -151,7 +151,7 @@ export function HeroDashboard() {
               </table>
             </div>
 
-            <div className="rounded-xl border border-[#e4e4e7] bg-white p-3.5">
+            <div className="rounded-xl bg-white p-3.5 shadow-sm">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold">Optimization throughput</p>
                 <p className="meta">7 days</p>

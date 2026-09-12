@@ -18,7 +18,7 @@ import {
 import { MarketingShell } from '@/components/marketing/MarketingShell';
 import { SectionHeading } from '@/components/marketing/SectionHeading';
 import { FeatureCard } from '@/components/marketing/FeatureCard';
-import { FeaturesShowcase } from '@/components/marketing/FeaturesShowcase';
+import { FeaturesShowcase } from '@/components/marketing/FeaturesShowcaseLazy';
 import { CoralZone } from '@/components/marketing/CoralZone';
 import { CountUp } from '@/components/marketing/CountUp';
 import { HeroDashboard } from '@/components/marketing/HeroDashboard';
@@ -190,39 +190,39 @@ export default function HomePage() {
           style={{ background: 'radial-gradient(70rem 30rem at 50% -12rem, rgba(240,62,47,0.10), transparent 65%)' }}
         />
         <div className="mx-auto max-w-7xl px-6 text-center">
-          <div className="reveal mx-auto inline-flex items-center gap-2 rounded-full border border-[#e4e4e7] bg-white px-4 py-2 text-sm text-[#3f3f46]">
+          <div className="hero-in hero-d1 mx-auto inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm text-[#3f3f46] shadow-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-[#f03e2f]" aria-hidden="true" />
             Zero-DNS connection · works with your existing host
           </div>
           <h1
             id="homepage-hero-title"
-            className="reveal mx-auto mt-7 max-w-4xl text-balance text-[clamp(2.5rem,6vw,4.5rem)] font-semibold leading-[1.04] tracking-[-0.04em]"
+            className="hero-in hero-d2 mx-auto mt-7 max-w-4xl text-balance text-[clamp(2.5rem,6vw,4.5rem)] font-semibold leading-[1.04] tracking-[-0.04em]"
           >
             WordPress speed that <span className="text-[#f03e2f]">optimizes itself</span>
           </h1>
-          <p className="reveal mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-[#71717a]">
+          <p className="hero-in hero-d3 mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-[#71717a]">
             WP Instant caches pages, extracts Critical CSS, converts images, manages scripts, and monitors real-user
             Core Web Vitals automatically. Connect once and let the edge optimization engine do the repetitive work.
           </p>
-          <div className="reveal mt-9 flex flex-wrap items-center justify-center gap-3">
+          <div className="hero-in hero-d4 mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link href="/sign-up" className="btn btn-primary min-h-12 px-6 text-[15px]">
               Create account
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
-            <a href="#features" className="btn btn-ghost min-h-12 border border-[#e4e4e7] bg-white px-6 text-[15px] hover:border-[#171717]">
+            <a href="#features" className="btn btn-ghost min-h-12 bg-white px-6 text-[15px] shadow-sm hover:shadow">
               See how it works
             </a>
           </div>
         </div>
 
-        <div className="reveal mx-auto mt-16 max-w-6xl px-6">
+        <div className="hero-in hero-d5 mx-auto mt-16 max-w-6xl px-6">
           <HeroDashboard />
         </div>
 
         <div className="mx-auto mt-16 max-w-7xl px-6">
-          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-[#e4e4e7] bg-[#e4e4e7] lg:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {heroFacts.map((fact) => (
-              <div key={fact.label} className="bg-white px-6 py-8 text-center">
+              <div key={fact.label} className="rounded-2xl bg-white px-6 py-8 text-center shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
                 <dt className="order-2 mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{fact.label}</dt>
                 <dd className="order-1 text-2xl font-semibold tracking-[-0.03em]">
                   <CountUp value={fact.value} />
@@ -267,7 +267,7 @@ export default function HomePage() {
       </section>
 
       {/* Automation + trust */}
-      <section className="border-y border-[#e4e4e7] bg-white" aria-labelledby="automation-title">
+      <section className="bg-white" aria-labelledby="automation-title">
         <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <SectionHeading
             eyebrow="Safe automation"
@@ -276,7 +276,7 @@ export default function HomePage() {
           />
           <div className="mt-14 grid gap-5 lg:grid-cols-3">
             {automationFeatures.map((feature) => (
-              <article key={feature.title} className="rounded-2xl border border-[#e4e4e7] bg-[#fbfbfa] p-7">
+              <article key={feature.title} className="rounded-2xl bg-[#fbfbfa] p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
                 <span className="grid h-11 w-11 place-items-center rounded-xl bg-white text-[#f03e2f] shadow-sm">
                   <feature.icon className="h-5 w-5" aria-hidden="true" />
                 </span>
@@ -314,7 +314,7 @@ export default function HomePage() {
               body: 'Queue URL audits or crawls. Critical CSS, LCP rules, and media derivatives are generated automatically.',
             },
           ].map((step, index) => (
-            <article key={step.step} className="relative overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white p-7">
+            <article key={step.step} className="relative overflow-hidden rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
               <div className="flex items-center justify-between">
                 <span className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff1ef] text-[#f03e2f]">
                   <step.icon className="h-5 w-5" aria-hidden="true" />
@@ -329,7 +329,7 @@ export default function HomePage() {
       </section>
 
       {/* Presets */}
-      <section className="border-y border-[#e4e4e7] bg-[#fbfbfa]" aria-labelledby="presets-title">
+      <section className="bg-[#fbfbfa]" aria-labelledby="presets-title">
         <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <SectionHeading
             eyebrow="Performance presets"
@@ -338,7 +338,7 @@ export default function HomePage() {
           />
           <div className="mt-14 grid gap-5 lg:grid-cols-3">
             {presets.map((preset) => (
-              <article key={preset.name} className="flex min-h-[16rem] flex-col rounded-2xl border border-[#e4e4e7] bg-white p-7">
+              <article key={preset.name} className="flex min-h-[16rem] flex-col rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
                 <h3 className="text-xl font-semibold tracking-[-0.02em]">{preset.name}</h3>
                 <p className="meta mt-2 text-[#dc2e20]">{preset.range}</p>
                 <p className="mt-4 text-sm leading-relaxed text-[#71717a]">{preset.body}</p>
@@ -375,7 +375,7 @@ export default function HomePage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="border-t border-[#e4e4e7] bg-white px-6 py-24 md:py-32" aria-labelledby="faq-title">
+      <section id="faq" className="bg-white px-6 py-24 md:py-32" aria-labelledby="faq-title">
         <SectionHeading align="center" eyebrow="FAQ" title="Frequently asked questions" />
         <div className="mt-14">
           <FaqAccordion items={homepageFaqs} />
@@ -383,7 +383,7 @@ export default function HomePage() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[#e4e4e7] bg-[#fbfbfa] px-6 py-24 md:py-32" aria-labelledby="homepage-cta-title">
+      <section className="bg-[#fbfbfa] px-6 py-24 md:py-32" aria-labelledby="homepage-cta-title">
         <div className="mx-auto max-w-4xl text-center">
           <h2 id="homepage-cta-title" className="text-balance text-[clamp(2rem,5vw,3.25rem)] font-semibold leading-[1.05] tracking-[-0.04em]">
             Your next pageview can load the optimized way.

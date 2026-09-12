@@ -24,7 +24,7 @@ export function FeaturesShowcase() {
       />
 
       <div className="mt-14 grid gap-5 lg:grid-cols-2">
-        <article className="group overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
+        <article className="group overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(23,23,23,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
           <div className="p-7 pb-0">
             <span className="flex items-center gap-2 text-sm text-[#71717a]">
               <Globe className="h-4 w-4 text-[#f03e2f]" aria-hidden="true" />
@@ -39,7 +39,7 @@ export function FeaturesShowcase() {
           </div>
           <div aria-hidden="true" className="relative mt-6">
             <div className="absolute inset-x-0 top-4 z-10 mx-auto w-fit">
-              <div className="flex items-center gap-2 rounded-full border border-[#e4e4e7] bg-white px-3.5 py-1.5 text-xs font-semibold shadow-md">
+              <div className="flex items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-semibold shadow-md">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" />
                 HIT · 18ms · Frankfurt
               </div>
@@ -50,7 +50,7 @@ export function FeaturesShowcase() {
           </div>
         </article>
 
-        <article className="group flex flex-col rounded-2xl border border-[#e4e4e7] bg-white p-7 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
+        <article className="group flex flex-col rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
           <span className="flex items-center gap-2 text-sm text-[#71717a]">
             <MessageCircle className="h-4 w-4 text-[#f03e2f]" aria-hidden="true" />
             Safe automation
@@ -62,7 +62,7 @@ export function FeaturesShowcase() {
           <div aria-hidden="true" className="mt-6 flex flex-col gap-4 rounded-2xl bg-[#fbfbfa] p-5">
             <div>
               <p className="text-[11px] font-medium text-[#a1a1aa]">Store owner · Tue</p>
-              <div className="mt-1.5 w-4/5 rounded-2xl rounded-tl-md border border-[#e4e4e7] bg-white p-3 text-xs leading-relaxed">
+              <div className="mt-1.5 w-4/5 rounded-2xl rounded-tl-md bg-white p-3 text-xs leading-relaxed shadow-sm">
                 Will delaying my upsell scripts break checkout?
               </div>
             </div>
@@ -76,9 +76,9 @@ export function FeaturesShowcase() {
         </article>
       </div>
 
-      <dl className="mt-5 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-[#e4e4e7] bg-[#e4e4e7] sm:grid-cols-3">
+      <dl className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {fleetStats.map((stat) => (
-          <div key={stat.label} className="bg-white px-6 py-8 text-center">
+          <div key={stat.label} className="rounded-2xl bg-white px-6 py-8 text-center shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
             <dd className="text-3xl font-semibold tracking-[-0.03em]">
               <CountUp value={stat.value} />
             </dd>
@@ -87,7 +87,7 @@ export function FeaturesShowcase() {
         ))}
       </dl>
 
-      <article className="group mt-5 overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white transition-all duration-300 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
+      <article className="group mt-5 overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(23,23,23,0.06)] transition-all duration-300 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
         <div className="flex flex-col justify-between gap-4 p-7 pb-0 sm:flex-row sm:items-end">
           <div>
             <span className="flex items-center gap-2 text-sm text-[#71717a]">
@@ -115,14 +115,12 @@ export function FeaturesShowcase() {
   );
 }
 
-const map = new DottedMap({ height: 55, grid: 'diagonal' });
-const points = map.getPoints();
-
 function EdgeMap() {
+  const pts = React.useMemo(() => new DottedMap({ height: 55, grid: 'diagonal' }).getPoints(), []);
   const viewBox = '0 0 120 60';
   return (
     <svg viewBox={viewBox} className="h-auto w-full" role="img" aria-label="World map of edge points of presence">
-      {points.map((point, index) => (
+      {pts.map((point, index) => (
         <circle key={index} cx={point.x} cy={point.y} r={0.15} fill="currentColor" />
       ))}
     </svg>

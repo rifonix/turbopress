@@ -14,7 +14,7 @@ export function PricingCards() {
         <div
           role="group"
           aria-label="Billing period"
-          className="inline-flex rounded-full border border-[#e4e4e7] bg-white p-1 shadow-sm"
+          className="inline-flex rounded-full bg-white p-1 shadow-[0_1px_3px_rgba(23,23,23,0.08)]"
         >
           {(['Monthly', 'Annual'] as const).map((label) => {
             const active = annual === (label === 'Annual');
@@ -46,10 +46,10 @@ export function PricingCards() {
           return (
             <article
               key={plan.id}
-              className={`relative flex flex-col rounded-3xl border bg-white p-6 transition-all duration-300 hover:-translate-y-1 ${
+              className={`relative flex flex-col rounded-3xl bg-white p-6 transition-all duration-300 hover:-translate-y-1 ${
                 plan.featured
-                  ? 'border-[#f03e2f] shadow-[0_18px_42px_rgba(240,62,47,0.10)] hover:shadow-[0_24px_56px_rgba(240,62,47,0.16)]'
-                  : 'border-[#e4e4e7] shadow-sm hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]'
+                  ? 'shadow-[0_18px_56px_rgba(240,62,47,0.18)] hover:shadow-[0_24px_64px_rgba(240,62,47,0.22)]'
+                  : 'shadow-[0_1px_3px_rgba(23,23,23,0.06)] hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]'
               }`}
             >
               {plan.featured && (
@@ -90,7 +90,7 @@ export function PricingCards() {
                 className={`mt-7 inline-flex min-h-11 items-center justify-center rounded-xl px-4 text-sm font-semibold transition-all hover:-translate-y-px ${
                   plan.featured
                     ? 'bg-[#f03e2f] text-white hover:bg-[#dc2e20] hover:shadow-md'
-                    : 'border border-[#d4d4d8] bg-white text-[#171717] hover:border-[#171717]'
+                    : 'bg-white text-[#171717] shadow-sm hover:shadow'
                 }`}
               >
                 {plan.cta}

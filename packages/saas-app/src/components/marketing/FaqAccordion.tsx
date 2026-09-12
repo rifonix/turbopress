@@ -7,7 +7,7 @@ export function FaqAccordion({ items }: { items: { question: string; answer: str
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <div className="mx-auto max-w-3xl divide-y divide-[#e4e4e7] overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white">
+    <div className="mx-auto max-w-3xl divide-y divide-[#f1f1f2] overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
       {items.map((item, index) => {
         const expanded = open === index;
         return (

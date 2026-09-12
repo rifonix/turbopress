@@ -231,6 +231,22 @@ body {
   animation: fadeIn 200ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }
 
+/* Above-the-fold hero entrance: pure CSS so the hero never depends on
+   client JS hydration to become visible. */
+@keyframes heroIn {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+.hero-in {
+  opacity: 0;
+  animation: heroIn 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+.hero-d1 { animation-delay: 0.05s; }
+.hero-d2 { animation-delay: 0.15s; }
+.hero-d3 { animation-delay: 0.25s; }
+.hero-d4 { animation-delay: 0.35s; }
+.hero-d5 { animation-delay: 0.5s; }
+
 /* Marketing reveal */
 .reveal {
   opacity: 0;
@@ -244,6 +260,10 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hero-in {
+    opacity: 1;
+    animation: none;
+  }
   .reveal {
     opacity: 1;
     transform: none;

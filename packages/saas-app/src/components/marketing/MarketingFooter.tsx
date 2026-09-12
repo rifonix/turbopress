@@ -4,7 +4,7 @@ import { footerNav, site } from '@/lib/marketing';
 
 export function MarketingFooter() {
   return (
-    <footer className="relative overflow-hidden border-t border-[#e4e4e7] bg-white">
+    <footer className="relative overflow-hidden bg-white">
       <div className="mx-auto max-w-7xl px-6">
         <div className="grid gap-10 py-16 md:grid-cols-2 lg:grid-cols-[1.3fr_repeat(3,1fr)]">
           <div>
@@ -36,7 +36,7 @@ export function MarketingFooter() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#f1f1f2] py-5">
+        <div className="flex flex-wrap items-center justify-between gap-4 py-5">
           <p className="meta">© {new Date().getFullYear()} WP Instant. All rights reserved.</p>
           <p className="meta">Built for WordPress · Delivered from the edge</p>
         </div>

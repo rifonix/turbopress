@@ -116,10 +116,8 @@ export function MarketingHeader() {
 
   return (
     <header
-      className={`sticky top-0 z-50 border-b bg-white transition-all duration-300 ${
-        scrolled
-          ? 'border-[#e4e4e7] shadow-[0_1px_8px_rgba(23,23,23,0.06)]'
-          : 'border-[#e4e4e7]'
+      className={`sticky top-0 z-50 bg-white transition-shadow duration-300 ${
+        scrolled ? 'shadow-[0_1px_12px_rgba(23,23,23,0.08)]' : 'shadow-none'
       }`}
     >
       <div className="relative mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6">
@@ -150,7 +148,7 @@ export function MarketingHeader() {
                     : 'invisible translate-y-2 opacity-0 pointer-events-none'
                 }`}
               >
-                <div className="overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white shadow-[0_16px_48px_rgba(23,23,23,0.10)]">
+                <div className="overflow-hidden rounded-2xl bg-white shadow-[0_16px_48px_rgba(23,23,23,0.10)]">
                   <div className="grid grid-cols-4 gap-x-2 p-4">
                     {megaGroups.map((group) => (
                       <div key={group.heading} className="rounded-xl p-2">
@@ -164,7 +162,7 @@ export function MarketingHeader() {
                             onClick={() => setMegaOpen(false)}
                             className="group/item flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-[#f8f8f7]"
                           >
-                            <span className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-[#e4e4e7] bg-white text-[#52525b] transition-colors group-hover/item:border-[#f03e2f] group-hover/item:text-[#f03e2f]">
+                            <span className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-[#f8f8f7] text-[#52525b] transition-colors group-hover/item:bg-[#fff1ef] group-hover/item:text-[#f03e2f]">
                               <item.icon className="h-4 w-4" aria-hidden="true" />
                             </span>
                             <span>
@@ -220,7 +218,7 @@ export function MarketingHeader() {
 
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#e4e4e7] bg-white text-[#171717] md:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-white text-[#171717] shadow-sm md:hidden"
           onClick={() => setMenuOpen((open) => !open)}
           aria-expanded={menuOpen}
           aria-controls="mobile-navigation"
@@ -231,7 +229,7 @@ export function MarketingHeader() {
       </div>
 
       {menuOpen && (
-        <div id="mobile-navigation" className="border-t border-[#e4e4e7] bg-white px-6 py-6 md:hidden">
+        <div id="mobile-navigation" className="bg-white px-6 py-6 shadow-[0_16px_32px_rgba(23,23,23,0.08)] md:hidden">
           <nav aria-label="Mobile" className="grid gap-1">
             <button
               type="button"
@@ -262,7 +260,7 @@ export function MarketingHeader() {
                           onClick={() => setMenuOpen(false)}
                           className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-[#f4f4f5]"
                         >
-                          <span className="grid h-8 w-8 flex-none place-items-center rounded-lg border border-[#e4e4e7] text-[#52525b]">
+                          <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-[#f8f8f7] text-[#52525b]">
                             <item.icon className="h-4 w-4" aria-hidden="true" />
                           </span>
                           <span>
