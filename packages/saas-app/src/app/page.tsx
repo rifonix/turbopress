@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { LineArt } from '@/components/marketing/LineArt';
 import { MarketingShell } from '@/components/marketing/MarketingShell';
-import { SectionHeading } from '@/components/marketing/SectionHeading';
+import { SectionHeading, TitleAccent } from '@/components/marketing/SectionHeading';
 import { FeatureCard } from '@/components/marketing/FeatureCard';
 import { FeaturesShowcase } from '@/components/marketing/FeaturesShowcaseLazy';
 import { CoralZone } from '@/components/marketing/CoralZone';
@@ -238,14 +238,14 @@ export default function HomePage() {
       </section>
 
       {/* Features — line-art cards */}
-      <section id="features" className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="features-title">
-        <h2 id="features-title" className="max-w-3xl text-balance text-[clamp(2rem,4.6vw,3.25rem)] font-semibold leading-[1.06] tracking-[-0.035em]">
-          The complete stack, applied automatically
-        </h2>
-        <p className="mt-5 max-w-2xl leading-relaxed text-[#71717a]">
-          WP Instant works at the WordPress render layer and the edge delivery layer together, so optimization
-          follows the page instead of living in a pile of disconnected settings.
-        </p>
+      <section id="features" className="bg-white" aria-labelledby="features-title">
+        <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
+        <SectionHeading
+          id="features-title"
+          eyebrow="Performance engine"
+          title={<>The complete stack, <TitleAccent>applied automatically</TitleAccent></>}
+          description="WP Instant works at the WordPress render layer and the edge delivery layer together, so optimization follows the page instead of living in a pile of disconnected settings."
+        />
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <FeatureCard key={feature.title} {...feature} />
@@ -255,6 +255,7 @@ export default function HomePage() {
           Explore features
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Link>
+        </div>
       </section>
 
       <FeaturesShowcase />
@@ -264,7 +265,7 @@ export default function HomePage() {
         <SectionHeading
           align="center"
           eyebrow="How it works"
-          title="Built for WordPress, tuned for Core Web Vitals"
+          title={<>Built for WordPress, <TitleAccent>tuned for Core Web Vitals</TitleAccent></>}
           description="The optimization process is deterministic: audit the real page, generate the smallest useful payload, then deliver it as close to the visitor as possible."
         />
         <OptimizationPipeline />
@@ -273,14 +274,13 @@ export default function HomePage() {
       {/* Automation + trust — dark band */}
       <section className="bg-[#171717] text-white" aria-labelledby="automation-title">
         <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
-          <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Safe automation</p>
-          <h2 id="automation-title" className="mt-4 max-w-2xl text-balance text-[clamp(1.75rem,4vw,2.75rem)] font-semibold leading-[1.08] tracking-[-0.03em]">
-            Automatic where it helps. Accountable where it matters.
-          </h2>
-          <p className="mt-4 max-w-2xl leading-relaxed text-white/65">
-            Automation should not mean losing control. Pairing, cache invalidation, tenant isolation, and per-site
-            telemetry are built into the platform contract.
-          </p>
+          <SectionHeading
+            tone="light"
+            id="automation-title"
+            eyebrow="Safe automation"
+            title={<>Automatic where it helps. <TitleAccent light>Accountable where it matters.</TitleAccent></>}
+            description="Automation should not mean losing control. Pairing, cache invalidation, tenant isolation, and per-site telemetry are built into the platform contract."
+          />
           <div className="mt-14 grid gap-5 lg:grid-cols-3">
             {automationFeatures.map((feature) => (
               <article key={feature.title} className="rounded-2xl bg-white/[0.06] p-7 transition-colors duration-300 hover:bg-white/[0.09]">
@@ -300,7 +300,7 @@ export default function HomePage() {
         <SectionHeading
           align="center"
           eyebrow="Getting started"
-          title="From install to optimization in minutes"
+          title={<>From install to <TitleAccent>optimization in minutes</TitleAccent></>}
           description="The WordPress client and edge engine are already connected by design. There is no DNS switch, separate CDN account, or separate build pipeline to manage."
         />
         <ol className="relative mx-auto mt-16 grid max-w-5xl gap-10 md:grid-cols-3 md:gap-6">
@@ -341,7 +341,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <SectionHeading
             eyebrow="Performance presets"
-            title="Choose the risk level, not every switch"
+            title={<>Choose the risk level, <TitleAccent>not every switch</TitleAccent></>}
             description="Each preset is a named contract. Start safely, then move up when your theme, plugins, and transaction flows are ready."
           />
           <div className="mt-14 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -386,7 +386,7 @@ export default function HomePage() {
       <section id="pricing" className="mx-auto max-w-7xl px-6 pb-24 md:pb-32" aria-labelledby="pricing-title">
         <SectionHeading
           eyebrow="Pricing"
-          title="Plans matched to fleet size and throughput"
+          title={<>Plans matched to <TitleAccent>fleet size and throughput</TitleAccent></>}
           description="Every plan shares the core optimization engine. Higher tiers add sites, crawl automation, credits, capacity, telemetry retention, and support."
         />
         <PricingCards />
@@ -398,7 +398,7 @@ export default function HomePage() {
 
       {/* FAQ */}
       <section id="faq" className="bg-white px-6 py-24 md:py-32" aria-labelledby="faq-title">
-        <SectionHeading align="center" eyebrow="FAQ" title="Frequently asked questions" />
+        <SectionHeading align="center" eyebrow="FAQ" title={<>Frequently asked <TitleAccent>questions</TitleAccent></>} />
         <div className="mt-14">
           <FaqAccordion items={homepageFaqs} />
         </div>
@@ -408,7 +408,7 @@ export default function HomePage() {
       <section className="bg-[#fbfbfa] px-6 py-24 md:py-32" aria-labelledby="homepage-cta-title">
         <div className="mx-auto max-w-4xl text-center">
           <h2 id="homepage-cta-title" className="text-balance text-[clamp(2rem,5vw,3.25rem)] font-semibold leading-[1.05] tracking-[-0.04em]">
-            Your next pageview can load the optimized way.
+            Your next pageview can load <span className="text-[#f03e2f]">the optimized way.</span>
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-[#71717a]">
             Create a workspace, install the WordPress plugin, and complete the one-click connection. Then run your first

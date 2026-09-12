@@ -90,7 +90,7 @@ export function CoralZone() {
         More reasons teams choose WP Instant
       </p>
       <h2 className="mt-4 max-w-xl text-balance text-[clamp(1.75rem,4vw,2.5rem)] font-semibold leading-[1.1] tracking-[-0.03em]">
-        Built for stores, publishers, and site fleets
+        Built for stores, <span className="text-white/70">publishers, and site fleets</span>
       </h2>
       <div className="coral-cards">
         <article className="coral-card">

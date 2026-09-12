@@ -5,7 +5,7 @@ import { Activity, Globe, MessageCircle } from 'lucide-react';
 import DottedMap from 'dotted-map';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
-import { SectionHeading } from '@/components/marketing/SectionHeading';
+import { SectionHeading, TitleAccent } from '@/components/marketing/SectionHeading';
 import { CountUp } from '@/components/marketing/CountUp';
 
 const fleetStats = [
@@ -18,8 +18,9 @@ export function FeaturesShowcase() {
   return (
     <section className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="showcase-title">
       <SectionHeading
+        id="showcase-title"
         eyebrow="Live proof"
-        title="Optimization you can watch working"
+        title={<>Optimization you can <TitleAccent>watch working</TitleAccent></>}
         description="Every layer reports back: cache hits from the edge, bytes saved on images, and real-user LCP per template — not lab guesses."
       />
 
@@ -30,7 +31,7 @@ export function FeaturesShowcase() {
               <Globe className="h-4 w-4 text-[#f03e2f]" aria-hidden="true" />
               Edge delivery
             </span>
-            <h3 id="showcase-title" className="mt-4 text-xl font-semibold tracking-[-0.02em]">
+            <h3 className="mt-4 text-xl font-semibold tracking-[-0.02em]">
               Served from the PoP next door
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-[#71717a]">
