@@ -223,7 +223,12 @@ export default function HomePage() {
         </div>
 
         <div className="relative z-10 mx-auto -mt-10 max-w-7xl px-6 md:-mt-14">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-8 lg:grid-cols-4">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'radial-gradient(40rem 16rem at 50% 0%, rgba(240,62,47,0.10), transparent 65%)' }}
+          />
+          <dl className="relative grid grid-cols-2 gap-x-6 gap-y-8 lg:grid-cols-4">
             {heroFacts.map((fact) => (
               <div key={fact.label} className="text-center">
                 <dd className="text-2xl font-semibold tracking-[-0.03em] text-[#171717]">

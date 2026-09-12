@@ -10,6 +10,7 @@ export const wpInstantClerkAppearance = {
     socialButtonsPlacement: 'top' as const,
     showOptionalFields: false,
     logoPlacement: 'inside' as const,
+    logoImageUrl: '/wp-instant-logo.svg',
   },
   variables: {
     colorPrimary: '#f03e2f',
@@ -25,13 +26,9 @@ export const wpInstantClerkAppearance = {
     fontFamilyButtons: '"Inter", system-ui, -apple-system, sans-serif',
   },
   elements: {
-    rootBox: 'w-full',
-    cardBox: 'w-full max-w-full shadow-none',
-    card: 'shadow-none p-0 border-0 bg-transparent w-full max-w-full',
-    main: 'w-full max-w-full p-0',
-    headerTitle: 'hidden',
-    headerSubtitle: 'hidden',
-    header: 'hidden',
+    rootBox: 'w-full flex justify-center',
+    headerTitle: 'text-[#171717]',
+    headerSubtitle: 'text-[#71717a]',
     socialButtonsBlockButton:
       'border border-[#e4e4e7] hover:bg-[#f8f8f7] text-[#171717] text-xs font-medium py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 hover:border-[#d4d4d8]',
     socialButtonsBlockButtonText: 'text-xs font-semibold text-[#171717]',

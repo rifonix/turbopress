@@ -58,7 +58,7 @@ function SignUpContent() {
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 items-center gap-10 px-6 py-12 lg:grid-cols-2 lg:py-16">
+      <main className="mx-auto grid w-full max-w-6xl grid-cols-1 items-center gap-10 px-6 py-12 lg:grid-cols-2 lg:py-16">
         <div className="max-w-lg">
           <span className="inline-block rounded-full bg-[#fff1ef] px-3 py-1 font-mono text-xs font-semibold uppercase tracking-wider text-[#f03e2f]">
             Free 14-day production trial
@@ -89,31 +89,17 @@ function SignUpContent() {
         </div>
 
         <div className="flex justify-center lg:justify-end">
-          <div className="w-full max-w-[440px] rounded-3xl bg-white p-6 shadow-[0_18px_56px_rgba(23,23,23,0.10)] sm:p-8">
-            <div className="mb-6 flex flex-col items-center text-center">
-              <Image
-                src="/wp-instant-logo.svg"
-                alt="WP Instant"
-                width={44}
-                height={44}
-                className="h-11 w-11 rounded-[11px]"
-                priority
-              />
-              <h2 className="mt-4 text-xl font-semibold tracking-tight">Create your account</h2>
-              <p className="mt-1 text-sm text-[#71717a]">Get started in 30 seconds</p>
-            </div>
-            <SignUp
-              appearance={wpInstantClerkAppearance}
-              routing="path"
-              path="/sign-up"
-              signInUrl={
-                redirectUrl && redirectUrl !== '/dashboard/onboarding'
-                  ? `/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`
-                  : '/sign-in'
-              }
-              forceRedirectUrl={safeRedirect}
-            />
-          </div>
+          <SignUp
+            appearance={wpInstantClerkAppearance}
+            routing="path"
+            path="/sign-up"
+            signInUrl={
+              redirectUrl && redirectUrl !== '/dashboard/onboarding'
+                ? `/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`
+                : '/sign-in'
+            }
+            forceRedirectUrl={safeRedirect}
+          />
         </div>
       </main>
 
