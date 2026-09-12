@@ -1,13 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
-  Gauge,
-  Image as ImageIcon,
-  Layers,
-  Timer,
-  ShoppingCart,
   ShieldCheck,
-  Radar,
   Plug,
   Cloud,
   Zap,
@@ -15,6 +9,7 @@ import {
   RefreshCw,
   CircleCheck,
 } from 'lucide-react';
+import { LineArt } from '@/components/marketing/LineArt';
 import { MarketingShell } from '@/components/marketing/MarketingShell';
 import { SectionHeading } from '@/components/marketing/SectionHeading';
 import { FeatureCard } from '@/components/marketing/FeatureCard';
@@ -59,48 +54,48 @@ const heroFacts = [
 
 const features = [
   {
-    icon: Layers,
+    art: 'server',
     index: '01',
     title: 'Full-page caching',
     description:
       'A WordPress drop-in cache serves complete pages locally, while an edge CDN handles pre-compressed delivery, cache-key normalization, and instant purge when content changes.',
   },
   {
-    icon: Gauge,
+    art: 'document',
     index: '02',
     title: 'Critical CSS & LCP control',
     description:
       'A real-browser engine extracts the CSS each page needs, inlines it, defers full stylesheets with a fallback, and can add priority preload for the LCP candidate.',
   },
   {
-    icon: ImageIcon,
+    art: 'image',
     index: '03',
     title: 'Modern media delivery',
     description:
       'Images are converted and served as WebP or AVIF at responsive sizes through an edge CDN. Originals are fetched once and derivatives are reused for later visitors.',
   },
   {
-    icon: Timer,
+    art: 'clock',
     index: '04',
     title: 'Three-tier script delay',
     description:
       'Essential scripts load immediately, compatible scripts defer, and selected interactions can wait until the user scrolls, clicks, types, or until a safety timer runs.',
   },
   {
-    icon: ShoppingCart,
+    art: 'cart',
     index: '05',
     title: 'WooCommerce-safe dynamic handling',
     description:
       'Cart, checkout, and account routes stay cache-sensitive. Dynamic nonce refresh and cart micro-hydration are designed to keep session behavior correct on cached pages.',
   },
   {
-    icon: Radar,
+    art: 'pulse',
     index: '06',
     title: 'Real-user health monitoring',
     description:
       'A lightweight beacon records Core Web Vitals and page health from actual visits, giving you per-site and per-URL history instead of relying on a single lab result.',
   },
-];
+] as const;
 
 const automationFeatures = [
   {
@@ -146,62 +141,6 @@ const presets = [
     art: 'sliders',
   },
 ] as const;
-
-function PresetArt({ kind }: { kind: string }) {
-  const stroke = '#3f3f46';
-  const common = {
-    fill: 'none',
-    stroke,
-    strokeWidth: 1.5,
-    strokeLinecap: 'round',
-    strokeLinejoin: 'round',
-  } as const;
-  if (kind === 'shield') {
-    return (
-      <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
-        <ellipse cx="60" cy="60" rx="46" ry="46" fill="none" stroke={stroke} strokeWidth="1" strokeDasharray="3 4" opacity="0.55" />
-        <ellipse cx="60" cy="60" rx="46" ry="18" fill="none" stroke={stroke} strokeWidth="1" opacity="0.7" transform="rotate(-24 60 60)" />
-        <circle cx="106" cy="60" r="2" fill={stroke} />
-        <circle cx="14" cy="60" r="2" fill={stroke} />
-        <path d="M60 34l18 7v12c0 12-8 20-18 25-10-5-18-13-18-25V41l18-7z" {...common} />
-        <path d="M53 56l5 5 9-11" {...common} />
-      </svg>
-    );
-  }
-  if (kind === 'gauge') {
-    return (
-      <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
-        <path d="M22 84a38 38 0 0 1 76 0" {...common} />
-        {[22, 34, 60, 86, 98].map((x, i) => (
-          <line key={i} x1={x} y1={i === 2 ? 40 : 46} x2={x} y2={52} {...common} opacity={i === 2 ? 1 : 0.6} />
-        ))}
-        <line x1="60" y1="84" x2="82" y2="58" {...common} />
-        <circle cx="60" cy="84" r="3.5" fill={stroke} />
-        <path d="M96 30l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5z" {...common} />
-      </svg>
-    );
-  }
-  if (kind === 'bolt') {
-    return (
-      <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
-        <rect x="26" y="26" width="68" height="68" fill="none" stroke={stroke} strokeWidth="1" strokeDasharray="4 4" opacity="0.55" />
-        <path d="M66 30L44 64h13l-5 26 24-36H63l3-24z" {...common} />
-        <path d="M92 22l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8z" {...common} />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
-      <rect x="24" y="24" width="72" height="72" fill="none" stroke={stroke} strokeWidth="1" strokeDasharray="4 4" opacity="0.55" />
-      <line x1="34" y1="48" x2="86" y2="48" {...common} opacity="0.6" />
-      <circle cx="52" cy="48" r="6" {...common} fill="#f4f2ec" />
-      <line x1="34" y1="66" x2="86" y2="66" {...common} opacity="0.6" />
-      <circle cx="70" cy="66" r="6" {...common} fill="#f4f2ec" />
-      <line x1="34" y1="84" x2="86" y2="84" {...common} opacity="0.6" />
-      <circle cx="44" cy="84" r="6" {...common} fill="#f4f2ec" />
-    </svg>
-  );
-}
 
 export default function HomePage() {
   return (
@@ -298,26 +237,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features — editorial rows */}
+      {/* Features — line-art cards */}
       <section id="features" className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="features-title">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
-          <div className="lg:sticky lg:top-24 lg:self-start">
-            <SectionHeading
-              eyebrow="Performance engine"
-              title="The complete stack, applied automatically"
-              description="WP Instant works at the WordPress render layer and the edge delivery layer together, so optimization follows the page instead of living in a pile of disconnected settings."
-            />
-            <Link href="/features" className="btn btn-secondary mt-8 w-fit">
-              Explore features
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </div>
-          <div className="grid content-start gap-5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            {features.map((feature) => (
-              <FeatureCard key={feature.title} {...feature} horizontal />
-            ))}
-          </div>
+        <h2 id="features-title" className="max-w-3xl text-balance text-[clamp(2rem,4.6vw,3.25rem)] font-semibold leading-[1.06] tracking-[-0.035em]">
+          The complete stack, applied automatically
+        </h2>
+        <p className="mt-5 max-w-2xl leading-relaxed text-[#71717a]">
+          WP Instant works at the WordPress render layer and the edge delivery layer together, so optimization
+          follows the page instead of living in a pile of disconnected settings.
+        </p>
+        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((feature) => (
+            <FeatureCard key={feature.title} {...feature} />
+          ))}
         </div>
+        <Link href="/features" className="btn btn-secondary mt-10 w-fit">
+          Explore features
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
       </section>
 
       <FeaturesShowcase />
@@ -414,7 +351,7 @@ export default function HomePage() {
                 className="group flex flex-col rounded-[20px] bg-[#f1efe9] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.10)]"
               >
                 <div className="grid place-items-center py-4 text-[#3f3f46] transition-transform duration-500 group-hover:scale-[1.04]">
-                  <PresetArt kind={preset.art} />
+                  <LineArt kind={preset.art} />
                 </div>
                 <p className="meta mt-6 text-[#dc2e20]">0{index + 1}</p>
                 <h3 className="mt-2 text-lg font-semibold tracking-[-0.01em]">{preset.name}</h3>
