@@ -37,7 +37,7 @@ function SignUpContent() {
   const safeRedirect = redirectUrl.startsWith('/') ? redirectUrl : '/dashboard/onboarding';
 
   return (
-    <div className="min-h-screen bg-[#f8f8f7] text-[#171717]">
+    <div className="flex min-h-screen flex-col bg-[#f8f8f7] text-[#171717]">
       <header className="bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2.5" aria-label="WP Instant homepage">
@@ -58,7 +58,8 @@ function SignUpContent() {
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-6xl grid-cols-1 items-center gap-10 px-6 py-12 lg:grid-cols-2 lg:py-16">
+      <main className="flex flex-1 items-center justify-center px-6 py-12 lg:py-16">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-1 items-center gap-10 lg:grid-cols-2">
         <div className="max-w-lg">
           <span className="inline-block rounded-full bg-[#fff1ef] px-3 py-1 font-mono text-xs font-semibold uppercase tracking-wider text-[#f03e2f]">
             Free 14-day production trial
@@ -101,11 +102,8 @@ function SignUpContent() {
             forceRedirectUrl={safeRedirect}
           />
         </div>
+        </div>
       </main>
-
-      <footer className="bg-white px-6 py-4 text-center font-mono text-xs text-[#71717a]">
-        WP Instant · High-performance zero-DNS WordPress optimization
-      </footer>
     </div>
   );
 }
