@@ -15,6 +15,7 @@ export interface CachingConfig {
   mobile_cache: boolean; // separate mobile & desktop cache
   purge_on_post_update: boolean;
   purge_on_comment: boolean;
+  warm_after_purge?: boolean; // re-render purged URLs in the background (default on)
   relational_auto_purge?: boolean; // purge related categories, tags, author, shop on post update
   strip_query_params: string[];
   excluded_urls: string[];
@@ -28,6 +29,9 @@ export interface BloatConfig {
   disable_dashicons_guest: boolean;
   disable_xmlrpc: boolean;
   disable_oembeds: boolean;
+  disable_head_cruft?: boolean; // legacy head tags (rsd, generator, shortlink, …)
+  disable_block_bloat?: boolean; // block-library CSS + global styles on non-block pages
+  disable_comment_reply?: boolean; // comment-reply.js except threaded singular discussions
   heartbeat_control: boolean;
   post_revisions_limit: number;
 }
@@ -51,9 +55,7 @@ export interface CssConfig {
 }
 
 export interface AssetsConfig {
-  proxy_enabled: boolean; // serve 3rd-party css/js through the signed R2 worker route
-  keep_origins: string[]; // extra origins never proxied (substring match)
-  serve_own_from_cdn: boolean; // rewrite own-host css/js to the CDN worker too
+  serve_own_from_cdn: boolean; // rewrite own-host css/js to the CDN worker (third-party origins are never rewritten)
 }
 
 export interface HtaccessConfig {

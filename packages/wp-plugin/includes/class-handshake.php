@@ -92,17 +92,22 @@ class Handshake {
             // dispatch the first optimization pass inline (edge critical
             // CSS + LCP measurement for the homepage) so it starts even
             // when WP-Cron is slow or disabled, then keep the cron poller
-            // as the delivery fallback. Media offload starts immediately
-            // via a due-now single event + spawn_cron().
+            // as the delivery fallback. Skipped when fresh critical CSS is
+            // already cached (e.g. reconnecting an optimized site): the
+            // page must not be processed — and charged — twice. Media
+            // offload starts immediately via a due-now single event +
+            // spawn_cron().
             $home = home_url('/');
-            $dispatch = $api_client->dispatch_optimization($home);
-            if (!empty($dispatch['data']['jobs'])) {
-                $jobs = array_map(
-                    static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']],
-                    $dispatch['data']['jobs']
-                );
-                set_transient('wpins_jobs_' . md5($home), $jobs, 30 * MINUTE_IN_SECONDS);
-                wp_schedule_single_event(time() + 60, 'wp_instant_async_optimize', [$home, 1]);
+            if (!CriticalCssTransformer::has_fresh_cache_for_url($home)) {
+                $dispatch = $api_client->dispatch_optimization($home);
+                if (!empty($dispatch['data']['jobs'])) {
+                    $jobs = array_map(
+                        static fn(array $j): array => ['id' => $j['jobId'], 'viewport' => $j['viewport']],
+                        $dispatch['data']['jobs']
+                    );
+                    set_transient('wpins_jobs_' . md5($home), $jobs, 30 * MINUTE_IN_SECONDS);
+                    wp_schedule_single_event(time() + 60, 'wp_instant_async_optimize', [$home, 1]);
+                }
             }
             wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
             spawn_cron();

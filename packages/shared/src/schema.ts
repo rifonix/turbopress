@@ -11,6 +11,7 @@ export const CachingConfigSchema = z.object({
   mobile_cache: z.boolean().default(true),
   purge_on_post_update: z.boolean().default(true),
   purge_on_comment: z.boolean().default(false),
+  warm_after_purge: z.boolean().default(true),
   relational_auto_purge: z.boolean().default(true),
   strip_query_params: z.array(z.string()).default([]),
   excluded_urls: z.array(z.string()).default([]),
@@ -23,6 +24,9 @@ export const BloatConfigSchema = z.object({
   disable_dashicons_guest: z.boolean().default(true),
   disable_xmlrpc: z.boolean().default(true),
   disable_oembeds: z.boolean().default(false),
+  disable_head_cruft: z.boolean().default(true),
+  disable_block_bloat: z.boolean().default(true),
+  disable_comment_reply: z.boolean().default(true),
   heartbeat_control: z.boolean().default(true),
   post_revisions_limit: z.number().int().min(0).max(100).default(3)
 });
@@ -55,8 +59,6 @@ export const CssConfigSchema = z.object({
 });
 
 export const AssetsConfigSchema = z.object({
-  proxy_enabled: z.boolean().default(false),
-  keep_origins: z.array(z.string()).default([]),
   serve_own_from_cdn: z.boolean().default(false)
 });
 

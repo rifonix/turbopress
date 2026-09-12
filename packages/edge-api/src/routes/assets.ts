@@ -319,13 +319,21 @@ function servingContentType(src: string, stored: string | undefined, fallback: s
 /**
  * Rewrite absolute image/font url() references inside a CSS body to signed
  * CDN media URLs (same HMAC contract as the plugin: u|w|f|siteId). Lets
- * proxied stylesheets (localized font packages, own-host Elementor sheets)
+ * proxied own-host stylesheets (localized font packages, Elementor sheets)
  * survive origin purges: the CSS and every referenced asset become immutable
- * R2-backed edge objects. data:/blob:/fragment/already-CDN URLs are skipped;
- * signing is local HMAC computation — no subrequests.
+ * R2-backed edge objects. Only same-host URLs are rewritten — third-party
+ * origins stay on their origin (no third-party proxying). data:/blob:/
+ * fragment/already-CDN URLs are skipped; signing is local HMAC computation
+ * — no subrequests.
  */
 const CSS_ASSET_EXT = /\.(?:woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|m4v)(?:[?#]|$)/i;
-async function rewriteCssAssetUrls(css: string, siteId: string, secret: string, cdnBase: string): Promise<string> {
+async function rewriteCssAssetUrls(
+  css: string,
+  siteId: string,
+  secret: string,
+  cdnBase: string,
+  allowedHost: string | null
+): Promise<string> {
   if (!css || css.indexOf('url(') === -1) return css;
   const rewrite = async (m: string[]): Promise<string> => {
     const raw = m[2].trim().replace(/^['"]|['"]$/g, '');
@@ -339,6 +347,7 @@ async function rewriteCssAssetUrls(css: string, siteId: string, secret: string, 
     if (!/^https?:\/\//i.test(url)) return m[0]; // relative/data/fragment stay as-is
     if (url.includes('/api/v1/assets/')) return m[0]; // already ours
     if (!CSS_ASSET_EXT.test(url)) return m[0];
+    if (allowedHost && !isSameHost(url, allowedHost)) return m[0]; // third-party stays put
     const f = /\.(?:woff2?|ttf|otf|eot|svg)(?:[?#]|$)/i.test(url) ? 'orig' : 'webp';
     const w = 0;
     const u = b64urlEncode(url);
@@ -405,6 +414,43 @@ function publicMediaR2Key(input: {
 
 function publicMediaPublicUrl(baseUrl: string, r2Key: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/${r2Key}`;
+}
+
+/** Site's registered domain (for same-host asset guards), cached in KV for 1h. */
+async function siteDomain(c: any, siteId: string): Promise<string | null> {
+  const kvKey = `sitedomain:${siteId}`;
+  try {
+    const cached = await c.env.KV.get(kvKey);
+    if (cached) return cached;
+  } catch {
+    /* transient KV error — fall through to D1 */
+  }
+  try {
+    const row = (await c.env.DB.prepare('SELECT domain FROM sites WHERE id = ?')
+      .bind(siteId)
+      .first()) as { domain: string | null } | null;
+    if (!row?.domain) return null;
+    try {
+      await c.env.KV.put(kvKey, row.domain, { expirationTtl: 3600 });
+    } catch {
+      /* non-fatal */
+    }
+    return row.domain;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the URL belongs to the site itself (apex or subdomain). */
+function isSameHost(url: string, domain: string): boolean {
+  let host = '';
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  const apex = domain.toLowerCase();
+  return host === apex || host.endsWith(`.${apex}`);
 }
 
 /** Site callback secret (for URL signing), cached in KV for 1h. Only returned if active. */
@@ -734,6 +780,24 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   // are buffered (≤25MB) so they persist too — streaming-only persistence
   // left every request on those origins re-fetching forever.
   if (f === 'raw') {
+    // No third-party proxying at the API level: foreign sources are never
+    // fetched, persisted, or immutably cached — fail open with a
+    // short-lived redirect so legacy signed URLs keep rendering from their
+    // origin. An unresolvable domain fails open (serve as before) so a
+    // transient DB error can never break own-host assets.
+    const ownerDomain = await siteDomain(c, siteId);
+    if (ownerDomain && !isSameHost(verified.src, ownerDomain)) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: verified.src,
+          'Cache-Control': 'public, max-age=60',
+          'Access-Control-Allow-Origin': '*',
+          'X-WP-Instant-Media': 'FOREIGN-ORIGIN',
+        },
+      });
+    }
+
     const originFailure = async (upstreamStatus: number): Promise<Response> => {
       const body = c.json({ success: false, error: 'Origin asset unavailable' }, upstreamStatus as ContentfulStatusCode, {
         // Mandatory: the Cache API does not expire headerless entries — a
@@ -810,7 +874,8 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
             cssText,
             siteId,
             secret2.secret,
-            new URL(c.req.url).origin
+            new URL(c.req.url).origin,
+            ownerDomain
           );
           fillBody = new TextEncoder().encode(rewritten) as unknown as ArrayBuffer;
           fillLength = (fillBody as unknown as Uint8Array).byteLength;

@@ -28,7 +28,6 @@ class Page_Assets extends Settings_Page {
             'media.video_lazyload_selfhosted' => ['type' => 'bool'],
             'media.preload_lcp_image' => ['type' => 'bool'],
             'media.auto_fetchpriority_lcp' => ['type' => 'bool'],
-            'assets.proxy_enabled' => ['type' => 'bool'],
             'assets.serve_own_from_cdn' => ['type' => 'bool'],
             'fonts.localize_google' => ['type' => 'bool'],
             'fonts.preload_lcp_font' => ['type' => 'bool'],
@@ -66,9 +65,8 @@ class Page_Assets extends Settings_Page {
                 ?>
             <?php $this->card_close(); ?>
 
-            <?php $this->card_open('CSS & JS Delivery', 'layers', 'Serve stylesheets and scripts from the CDN edge cache instead of your origin.'); ?>
+            <?php $this->card_open('CSS & JS Delivery', 'layers', 'Serve your own stylesheets and scripts from the CDN edge cache instead of your origin. Third-party files always stay on their original CDN.'); ?>
                 <?php
-                $this->toggle('assets', 'proxy_enabled', 'Proxy third-party css & js', 'Foreign CDN assets served through the signed edge route');
                 $this->toggle('assets', 'serve_own_from_cdn', 'Serve own css & js from the CDN', 'Theme bundles, combined CSS and scripts via the edge CDN');
                 ?>
             <?php $this->card_close(); ?>

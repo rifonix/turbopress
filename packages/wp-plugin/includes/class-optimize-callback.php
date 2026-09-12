@@ -113,6 +113,7 @@ class OptimizeCallback {
 
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');
+            CacheWarmer::queue_homepage();
 
             if (($now_offloading && !$was_offloading) || $widths_changed) {
                 wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
@@ -126,6 +127,7 @@ class OptimizeCallback {
         if (($payload['command'] ?? '') === 'purge') {
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');
+            CacheWarmer::queue_homepage();
             return ['success' => true, 'command' => 'purge'];
         }
 

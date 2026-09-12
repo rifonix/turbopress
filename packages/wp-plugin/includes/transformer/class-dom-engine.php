@@ -118,15 +118,6 @@ class DomEngine {
                 $html = $this->stage($html, fn(string $h): string => $this->media_offloader->transform($h), 'offload');
             }
 
-            // 2b. Generic 3rd-party asset proxy: rewrite foreign css/js
-            //     (unpkg, code.jquery.com, …) through the signed R2 worker
-            //     route. Consent/payment CDNs are never touched. Runs after
-            //     media offload and before CSS combining so combined bundles
-            //     see final URLs.
-            if ($this->config->get('assets.proxy_enabled', false)) {
-                $html = $this->stage($html, fn(string $h): string => $this->asset_proxy->transform($h), 'proxy');
-            }
-
             // 3. Optimize Media (LCP Preload, fetchpriority="high", CLS dimensions)
             if ($this->config->get('media.auto_fetchpriority_lcp', true)) {
                 $html = $this->stage($html, fn(string $h): string => $this->media_optimizer->transform($h), 'media');

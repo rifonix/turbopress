@@ -36,6 +36,7 @@ class BgLazyLoader {
 
         $verified_lcp = MediaOptimizer::get_lcp_image($this->current_url(), wp_is_mobile() ? 'mobile' : 'desktop');
         $skipped_first = false;
+        $hero_preload = null;
         $changed = 0;
         $lqip_available = (bool) $this->config->get('media.offload_images', false)
             && (bool) $this->config->get('media.lazyload_lqip', true)
@@ -45,14 +46,20 @@ class BgLazyLoader {
 
         $html = preg_replace_callback(
             '/\sstyle=(["\'])([^"\']*background[^"\']*url\([^)]*\)[^"\']*)\1/i',
-            function (array $m) use (&$skipped_first, &$changed, &$offloader, $verified_lcp, $lqip_available): string {
+            function (array $m) use (&$skipped_first, &$hero_preload, &$changed, &$offloader, $verified_lcp, $lqip_available): string {
                 if (!preg_match_all('/url\((["\']?)(https?:\/\/[^"\')]+)\1\)/i', $m[2], $ums, PREG_SET_ORDER)) {
                     return $m[0]; // only remote image urls qualify
                 }
 
-                // Hero heuristic: first inline-bg element stays eager.
+                // Hero heuristic: first inline-bg element stays eager. On the
+                // cold path (no edge-verified LCP, which MediaOptimizer would
+                // already have preloaded) the hero background is the likely
+                // LCP — remember it for a high-priority preload below.
                 if (!$skipped_first) {
                     $skipped_first = true;
+                    if ($verified_lcp === null && $hero_preload === null) {
+                        $hero_preload = html_entity_decode($ums[0][2], ENT_QUOTES);
+                    }
                     return $m[0];
                 }
 
@@ -100,8 +107,7 @@ class BgLazyLoader {
         ) ?? $html;
 
         if ($changed > 0) {
-            $offset = max(0, min(2000, (int) $this->config->get('media.lazyload_offset_px', 300)));
-            $js = '<script wpins-exclude>(function(){'
+            $offset = max(0, min(2000, (int) $this->config->get('media.lazyload_offset_px', 300)));            $js = '<script wpins-exclude>(function(){'
                 . 'var io=new IntersectionObserver(function(es){es.forEach(function(en){'
                 . 'if(!en.isIntersecting)return;var el=en.target;io.unobserve(el);'
                 . 'var raw=el.getAttribute("data-wpins-bg");if(!raw)return;'
@@ -116,6 +122,35 @@ class BgLazyLoader {
                 . 'if(document.readyState!=="loading")boot();else document.addEventListener("DOMContentLoaded",boot);'
                 . '})();</script>';
             $html = str_ireplace('</body>', $js . '</body>', $html);
+        }
+
+        // Hero preload: the eager first background is the likely LCP on the
+        // cold path. Skip when a preload for the URL already exists (theme
+        // or media stage) so the browser never double-fetches. The URL also
+        // occurs verbatim in the inline style itself, so only <link
+        // rel=preload> tags count (entity-encoded hrefs included).
+        if ($hero_preload !== null && (bool) $this->config->get('media.preload_lcp_image', true)) {
+            $already = false;
+            if (preg_match_all('/<link\s+[^>]*rel=[\'"]preload[\'"][^>]*>/i', $html, $pm)) {
+                $variants = [$hero_preload, esc_attr($hero_preload)];
+                foreach ($pm[0] as $tag) {
+                    foreach ($variants as $v) {
+                        if ($v !== '' && stripos($tag, $v) !== false) {
+                            $already = true;
+                            break 2;
+                        }
+                    }
+                }
+            }
+            if (!$already && stripos($html, '<head') !== false) {
+                $tag = '<link rel="preload" as="image" href="' . esc_url($hero_preload) . '" fetchpriority="high">';
+                $html = preg_replace_callback(
+                    '/(<head[^>]*>)/i',
+                    static fn(array $m): string => $m[1] . "\n" . $tag,
+                    $html,
+                    1
+                ) ?? $html;
+            }
         }
 
         return $html;

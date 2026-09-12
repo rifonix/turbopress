@@ -19,7 +19,7 @@ class Config {
      * Structural config version. Bumped when defaults change in a way that
      * must override values persisted by older plugin releases.
      */
-    public const CONFIG_VERSION = '1.12.0';
+    public const CONFIG_VERSION = '1.13.0';
 
     private array $data = [];
 
@@ -211,6 +211,15 @@ class Config {
             }
         }
 
+        if (version_compare($stored_version, '1.13.0', '<')) {
+            // v1.13.0 retires the generic third-party asset proxy:
+            // foreign css/js is never rewritten to the signed edge route.
+            // Drop the retired keys so stored configs cannot re-enable it.
+            if (isset($this->data['assets']) && is_array($this->data['assets'])) {
+                unset($this->data['assets']['proxy_enabled'], $this->data['assets']['keep_origins']);
+            }
+        }
+
         update_option(self::OPTION_KEY, $this->data);
         $this->write_rules_manifest();
     }
@@ -391,7 +400,9 @@ class Config {
                 'mobile_cache' => true,
                 'purge_on_post_update' => true,
                 'purge_on_comment' => false,
-                // Keep in sync with advanced-cache.php $wp_instant_ignored_params
+                // Re-render purged URLs in the background (CacheWarmer) so
+                // visitors never pay the purge -> cold-PHP cost.
+                'warm_after_purge' => true,                // Keep in sync with advanced-cache.php $wp_instant_ignored_params
                 'strip_query_params' => ['utm_*', 'fbclid', 'gclid', '_ga', '_gl', 'mc_cid', 'mc_eid', 'msclkid', 'adgroupid', 'campaignid', 'vgo_ee'],
                 'excluded_urls' => ['/wp-admin/*', '/wp-login.php', '/cart/*', '/checkout/*', '/my-account/*'],
                 'excluded_cookies' => ['wordpress_logged_in_*', 'wp-postpass_*', 'comment_author_*', 'wp_woocommerce_session_*', 'woocommerce_items_in_cart', 'woocommerce_cart_hash', 'woocommerce_recently_viewed'],
@@ -421,17 +432,15 @@ class Config {
                 'inline_all_threshold' => 786432 // 768KB raw (~90-120KB brotli on the wire)
             ],
             'assets' => [
-                // Generic 3rd-party asset proxy: foreign css/js (unpkg,
-                // code.jquery.com, arbitrary CDNs) served through the signed
-                // R2 worker route — case-by-case, no vendored files in the
-                // plugin. Consent/payment origins are always kept original.
-                'proxy_enabled' => $preset !== 'safe',
-                'keep_origins' => [],
                 // Own-host css/js (theme bundles, the combined stylesheet,
                 // localized font CSS, wp-includes scripts) served from the
                 // CDN worker. OPT-IN: a warm CDN HIT changes the resource
                 // base URL, which breaks relative CSS url()/@import and
                 // module imports (no rebasing yet), so this ships disabled.
+                //
+                // Third-party origins are never rewritten. The former generic
+                // proxy (proxy_enabled / keep_origins, retired in v1.13.0)
+                // is stripped from stored configs below.
                 'serve_own_from_cdn' => false
             ],
             'htaccess' => [

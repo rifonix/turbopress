@@ -271,23 +271,11 @@ optimizeRoutes.post('/dispatch', async (c) => {
   for (const viewport of viewports) {
     const jobId = generateJobId();
 
-    // Reserve 1 credit = 1 URL + 1 viewport before any work happens.
-    const reservation = await reserveCredits(c.env, subscription, {
-      units: 1,
-      runKey: `job_${jobId}`,
-      jobId,
-      source: 'manual',
-    });
-    if (!reservation.ok) {
-      if (createdJobs.length === 0) {
-        return quotaError(c, reservation);
-      }
-      break;
-    }
-
-    // Cloudflare KV Template Structure Hash Deduplication:
-    // If structure_hash is supplied and already cached in KV for this site/template/viewport,
-    // fulfill the job instantly from edge KV without launching Chromium Puppeteer.
+    // Cloudflare KV Template Structure Hash Deduplication FIRST — before any
+    // credit reservation. A page sharing another page's DOM structure is
+    // fulfilled instantly from the edge KV cache and costs NO optimization
+    // credits: no Chromium job runs, so none is charged. Only genuinely new
+    // structures fall through to the reserving path below.
     if (payload.structure_hash) {
       try {
         const templateKey = `template:${siteId}:${payload.structure_hash}:${viewport}`;
@@ -305,6 +293,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
           // so a bare status flip would 404 the fetch and silently drop
           // the deduped page's critical CSS. Copy is cheap (KBs of CSS).
           const thisUrlKey = `sites/${siteId}/css/${(await sha256(payload.url)).slice(0, 32)}_${viewport}`;
+          let fulfilledKey = cachedTemplate.criticalCssR2Key;
           if (thisUrlKey !== cachedTemplate.criticalCssR2Key) {
             try {
               const src = await c.env.ASSETS_BUCKET.get(cachedTemplate.criticalCssR2Key);
@@ -312,64 +301,76 @@ optimizeRoutes.post('/dispatch', async (c) => {
                 await c.env.ASSETS_BUCKET.put(thisUrlKey, src.body, {
                   httpMetadata: src.httpMetadata,
                 });
+                fulfilledKey = thisUrlKey;
               } else {
                 // Template artifact is gone (site cleanup): fall through to
                 // a real extraction instead of completing into a dead key.
                 console.warn('[Template KV] artifact missing, falling back to extraction', cachedTemplate.criticalCssR2Key);
-                cachedTemplate.criticalCssR2Key = '';
+                fulfilledKey = '';
               }
             } catch (copyErr) {
               console.warn('[Template KV] artifact copy failed, falling back to extraction', copyErr);
-              cachedTemplate.criticalCssR2Key = '';
+              fulfilledKey = '';
             }
           }
 
-          if (!cachedTemplate.criticalCssR2Key) {
-            // fall through past the template branch (artifact unavailable)
-          } else {
-          // Instant completion from Cloudflare KV template cache
-          await c.env.DB.prepare(`
+          if (fulfilledKey) {
+            // Instant completion from Cloudflare KV template cache — free:
+            // no credit reservation was made, so none is consumed.
+            await c.env.DB.prepare(`
             INSERT INTO optimization_jobs (id, site_id, url, viewport, status, priority, credit_reservation_id, critical_css_r2_key, critical_css_bytes, lcp_selector, lcp_image_url, attempts, created_at, completed_at)
-            VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())
+            VALUES (?, ?, ?, ?, 'completed', ?, NULL, ?, ?, ?, ?, 1, unixepoch(), unixepoch())
           `)
-            .bind(
-              jobId,
-              siteId,
-              payload.url,
-              viewport,
-              jobPriority,
-              reservation.reservationId,
-              cachedTemplate.criticalCssR2Key,
-              cachedTemplate.criticalCssBytes,
-              cachedTemplate.lcpSelector || null,
-              cachedTemplate.lcpImageUrl || null
-            )
-            .run();
+              .bind(
+                jobId,
+                siteId,
+                payload.url,
+                viewport,
+                jobPriority,
+                fulfilledKey,
+                cachedTemplate.criticalCssBytes,
+                cachedTemplate.lcpSelector || null,
+                cachedTemplate.lcpImageUrl || null
+              )
+              .run();
 
-          await consumeReservationForJob(c.env, jobId);
+            await c.env.KV.put(
+              `job:${jobId}`,
+              JSON.stringify({
+                status: 'completed',
+                url: payload.url,
+                viewport,
+                siteId,
+                criticalCssR2Key: fulfilledKey,
+                criticalCssBytes: cachedTemplate.criticalCssBytes,
+                lcpImageUrl: cachedTemplate.lcpImageUrl,
+                fromTemplateCache: true,
+              }),
+              { expirationTtl: 86400 }
+            );
 
-          await c.env.KV.put(
-            `job:${jobId}`,
-            JSON.stringify({
-              status: 'completed',
-              url: payload.url,
-              viewport,
-              siteId,
-              criticalCssR2Key: cachedTemplate.criticalCssR2Key,
-              criticalCssBytes: cachedTemplate.criticalCssBytes,
-              lcpImageUrl: cachedTemplate.lcpImageUrl,
-              fromTemplateCache: true,
-            }),
-            { expirationTtl: 86400 }
-          );
-
-          createdJobs.push({ jobId, viewport, status: 'completed' });
-          continue;
+            createdJobs.push({ jobId, viewport, status: 'completed' });
+            continue;
           }
+          // Artifact unavailable — fall through to a real extraction below.
         }
       } catch (kvErr) {
         console.warn('[Template KV lookup warning]', kvErr);
       }
+    }
+
+    // Reserve 1 credit = 1 URL + 1 viewport before any work happens.
+    const reservation = await reserveCredits(c.env, subscription, {
+      units: 1,
+      runKey: `job_${jobId}`,
+      jobId,
+      source: 'manual',
+    });
+    if (!reservation.ok) {
+      if (createdJobs.length === 0) {
+        return quotaError(c, reservation);
+      }
+      break;
     }
 
     // Insert into D1
@@ -413,12 +414,16 @@ optimizeRoutes.post('/dispatch', async (c) => {
   }
 
   const skipped = viewports.length - createdJobs.length;
+  const freeDeduped = createdJobs.filter((j) => j.status === 'completed').length;
   return c.json(
     {
       success: true,
       data: {
         jobs: createdJobs,
         url: payload.url,
+        // Template-deduped viewports completed instantly from the edge cache
+        // and consumed no optimization credits.
+        freeDeduped,
         ...(skipped > 0
           ? { skippedViewports: skipped, note: 'Some viewports were skipped — monthly credits exhausted.' }
           : {}),

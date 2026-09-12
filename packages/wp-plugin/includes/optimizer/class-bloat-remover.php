@@ -35,6 +35,22 @@ class BloatRemover {
             $this->disable_xmlrpc();
         }
 
+        // Head cruft, block CSS bloat and comment-reply are ON unless
+        // explicitly disabled: they are pure removals of tags WordPress
+        // emits for legacy clients, with per-request guards for the cases
+        // that still need them (block themes, block content, discussion).
+        if (!isset($bloat['disable_head_cruft']) || !empty($bloat['disable_head_cruft'])) {
+            $this->disable_head_cruft();
+        }
+
+        if (!isset($bloat['disable_block_bloat']) || !empty($bloat['disable_block_bloat'])) {
+            add_action('wp_enqueue_scripts', [$this, 'disable_block_bloat'], 100);
+        }
+
+        if (!isset($bloat['disable_comment_reply']) || !empty($bloat['disable_comment_reply'])) {
+            add_action('wp_enqueue_scripts', [$this, 'disable_comment_reply'], 100);
+        }
+
         if (!empty($bloat['disable_oembeds'])) {
             $this->disable_oembeds();
         }
@@ -84,6 +100,71 @@ class BloatRemover {
     private function disable_oembeds(): void {
         remove_action('wp_head', 'wp_oembed_add_discovery_links');
         remove_action('wp_head', 'wp_oembed_add_host_js');
+        // The host resizer script: with discovery gone nothing new can
+        // depend on it; pages rendering legacy embeds keep their HTML.
+        add_action('wp_enqueue_scripts', static function (): void {
+            wp_deregister_script('wp-embed');
+        }, 100);
+    }
+
+    /**
+     * Legacy <head> tags for clients nobody runs anymore (RSD/Blog clients,
+     * Windows Live Writer, adjacent-post prefetchers). The main posts feed
+     * link is kept — readers subscribe to it; extra taxonomy/comment feeds,
+     * the shortlink, the generator meta and the wp-json discovery link go.
+     */
+    private function disable_head_cruft(): void {
+        remove_action('wp_head', 'rsd_link');
+        remove_action('wp_head', 'wlwmanifest_link');
+        remove_action('wp_head', 'wp_generator');
+        remove_action('wp_head', 'wp_shortlink_wp_head', 10);
+        remove_action('wp_head', 'adjacent_posts_rel_link_wp_head', 10);
+        remove_action('wp_head', 'rest_output_link_wp_head', 10);
+        remove_action('wp_head', 'feed_links_extra', 3);
+    }
+
+    /**
+     * Gutenberg asset weight on non-block pages: block-library stylesheets
+     * and the global-styles inline blob (duotone presets, layout variables).
+     * Skipped for block themes and for singular content that actually uses
+     * blocks — those pages need the CSS.
+     */
+    public function disable_block_bloat(): void {
+        if (is_admin()) {
+            return;
+        }
+        if (function_exists('wp_is_block_theme') && wp_is_block_theme()) {
+            return;
+        }
+        if (is_singular()) {
+            $id = get_queried_object_id();
+            if ($id > 0 && function_exists('has_blocks') && has_blocks($id)) {
+                return;
+            }
+        }
+        foreach (['wp-block-library', 'wp-block-library-theme', 'classic-theme-styles'] as $handle) {
+            wp_dequeue_style($handle);
+            wp_deregister_style($handle);
+        }
+        remove_action('wp_enqueue_scripts', 'wp_enqueue_global_styles', 10);
+        remove_action('wp_body_open', 'wp_global_styles_render_svg_filters', 10);
+        remove_action('wp_footer', 'wp_global_styles_render_svg_filters', 10);
+    }
+
+    /**
+     * comment-reply.js is only needed on singular views with open,
+     * threaded comments. Everywhere else it is a wasted render-blocking
+     * request.
+     */
+    public function disable_comment_reply(): void {
+        if (is_admin()) {
+            return;
+        }
+        if (is_singular() && comments_open() && (int) get_option('thread_comments') === 1) {
+            return;
+        }
+        wp_dequeue_script('comment-reply');
+        wp_deregister_script('comment-reply');
     }
 
     private function control_heartbeat(): void {

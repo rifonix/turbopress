@@ -70,6 +70,11 @@ class Plugin {
                     @unlink($file);
                 }
             }
+            // The files are gone, so dispatch-once state must go with them:
+            // otherwise same-fingerprint pages would never re-extract after
+            // the upgrade and stay unstyled.
+            delete_option('wp_instant_css_fingerprints');
+            delete_option('wp_instant_css_dispatched');
             // v1.11.0: LCP URLs measured pre-extraction-bypass pointed at the
             // optimized page (possibly worker-rewritten); re-measure fresh.
             delete_option('wp_instant_lcp_images');
@@ -104,6 +109,10 @@ class Plugin {
 
         // Async optimization pipeline: dispatch to edge, poll, download critical CSS
         add_action('wp_instant_async_optimize', [$this, 'run_async_optimize'], 10, 2);
+
+        // Post-purge cache warmer: re-render invalidated URLs in the
+        // background so visitors never pay the purge -> cold-PHP cost.
+        add_action(CacheWarmer::HOOK, [CacheWarmer::class, 'run']);
 
         // Config sync: after local settings saves, mirror the config to the
         // cloud dashboard (verify_connection) instead of waiting a day for
@@ -380,8 +389,13 @@ class Plugin {
         $transient_key = 'wpins_jobs_' . md5($url);
         $jobs = get_transient($transient_key);
 
-        // Phase 1: dispatch the extraction job(s).
+        // Phase 1: dispatch the extraction job(s). The push callback may have
+        // delivered critical CSS while this event was queued — dispatching
+        // again would process (and charge) the same page twice.
         if (empty($jobs)) {
+            if (CriticalCssTransformer::has_fresh_cache_for_url($url)) {
+                return;
+            }
             $dispatch = $this->api_client->dispatch_optimization($url, ['mobile', 'desktop'], $this->compute_template_hash($url));
             $created = $dispatch['data']['jobs'] ?? null;
 
@@ -559,7 +573,7 @@ class Plugin {
         CacheIntegration::purge_foreign_caches('all');
 
         // Unschedule heartbeats and background optimization tasks
-        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize', 'wp_instant_config_sync', 'wp_instant_localize_font', 'wp_instant_updater_check'] as $hook) {
+        foreach (['wp_instant_health_heartbeat', 'wp_instant_rum_heartbeat', 'wp_instant_media_offload', 'wp_instant_async_optimize', 'wp_instant_config_sync', 'wp_instant_localize_font', 'wp_instant_updater_check', CacheWarmer::HOOK] as $hook) {
             $timestamp = wp_next_scheduled($hook);
             while ($timestamp) {
                 wp_unschedule_event($timestamp, $hook);

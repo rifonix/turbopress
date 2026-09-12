@@ -423,6 +423,68 @@ describe('Security regression tests (review criticals)', () => {
     expect(body.data.jobs.length).toBeGreaterThan(0);
   });
 
+  it('Template dedup: a structure_hash KV hit completes free — no credit reservation, no queue send', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+
+    const app = buildApp(env);
+    // Initialize the usage period via billing status.
+    await app.fetch(
+      new Request('https://api.test/api/v1/billing/status', {
+        headers: { Authorization: 'Bearer user_a' },
+      })
+    );
+
+    // Seed the template cache so thisUrlKey === cached key (no R2 copy needed;
+    // the mock bucket returns null on get).
+    const url = 'https://a.com/dedup-page';
+    const thisUrlKey = `sites/site_1/css/${createHash('sha256').update(url).digest('hex').slice(0, 32)}_mobile`;
+    await env.KV.put(
+      'template:site_1:tmplhash123:mobile',
+      JSON.stringify({
+        criticalCssR2Key: thisUrlKey,
+        criticalCssBytes: 1234,
+        lcpSelector: null,
+        lcpImageUrl: null,
+      })
+    );
+
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url, viewports: ['mobile'], structure_hash: 'tmplhash123' }),
+      })
+    );
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as any;
+    expect(body.data.jobs).toHaveLength(1);
+    expect(body.data.jobs[0].status).toBe('completed');
+    expect(body.data.freeDeduped).toBe(1);
+
+    // No credit was reserved or consumed for the deduped job…
+    const reservations = await env.DB.prepare('SELECT * FROM optimization_credit_reservations')
+      .all()
+      .then((r: any) => r.results);
+    expect(reservations).toHaveLength(0);
+    const period = await env.DB.prepare('SELECT credits_used, credits_reserved FROM usage_periods WHERE subscription_id = ?')
+      .bind('sub_user_a')
+      .first<any>();
+    expect(period.credits_used).toBe(0);
+    expect(period.credits_reserved).toBe(0);
+    // …and nothing was sent to the Chromium queue.
+    expect((env as any).__queueSent).toHaveLength(0);
+    // The completed job carries a NULL reservation id.
+    const job = await env.DB.prepare('SELECT status, credit_reservation_id, critical_css_r2_key FROM optimization_jobs')
+      .first<any>();
+    expect(job.status).toBe('completed');
+    expect(job.credit_reservation_id).toBeNull();
+    expect(job.critical_css_r2_key).toBe(thisUrlKey);
+  });
+
   it('Asset Cutoff: Inactive site returns 403 on GET /assets/css/:site_id/:css_file', async () => {
     const env = createTestEnv();
     await seedSubscription(env, 'user_a');

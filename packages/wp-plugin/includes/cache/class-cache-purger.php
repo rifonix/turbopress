@@ -179,6 +179,11 @@ class CachePurger {
             self::$queued_all = false;
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');
+            // A full purge leaves every page cold — re-render the front
+            // page in the background so the next visitor hits warm cache.
+            if (class_exists(CacheWarmer::class)) {
+                CacheWarmer::queue_homepage();
+            }
             return;
         }
 
@@ -186,11 +191,20 @@ class CachePurger {
             return;
         }
 
+        $warmed = [];
         foreach (self::$queue as $entry) {
             CacheManager::purge_url($entry['url'], $entry['hard']);
             CacheIntegration::purge_foreign_caches('url', $entry['url']);
+            // Hard-purged URLs have no stale twin to serve — warm them.
+            // Soft-purged URLs keep serving .stale + self-revalidate, so
+            // only the invalidated URL itself is re-rendered when cheap.
+            $warmed[] = $entry['url'];
         }
         self::$queue = [];
+
+        if ($warmed !== [] && class_exists(CacheWarmer::class)) {
+            CacheWarmer::queue($warmed);
+        }
     }
 
     private static function visible_post_fields(\WP_Post $post): array {

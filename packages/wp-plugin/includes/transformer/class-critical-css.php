@@ -9,6 +9,17 @@ class CriticalCssTransformer {
     private Config $config;
     private ApiClient $api_client;
 
+    /**
+     * Per-page content fingerprints at last critical-CSS dispatch
+     * (option wp_instant_css_fingerprints: md5(path) => fingerprint).
+     * A page is dispatched for extraction at most ONCE per fingerprint —
+     * repeat views of unchanged content never spend optimization credits
+     * again. Content edits change the fingerprint (and the purger drops the
+     * stored entry), so changed pages re-process exactly once.
+     */
+    private const FINGERPRINT_OPTION = 'wp_instant_css_fingerprints';
+    private const FINGERPRINT_MAX = 500;
+
     public function __construct(Config $config, ApiClient $api_client) {
         $this->config = $config;
         $this->api_client = $api_client;
@@ -28,8 +39,11 @@ class CriticalCssTransformer {
         $inlined = $optimizer->try_inline_all($html);
         if ($inlined !== null) {
             // Keep the edge pipeline flowing: jobs feed LCP-image data and
-            // the dashboard audits even when their CSS output goes unused.
-            $this->maybe_dispatch_generation($current_url);
+            // the dashboard audits even when their CSS output goes unused —
+            // but at most ONCE per page version (this path used to dispatch
+            // every 10 minutes on every high-traffic page, burning credits
+            // for CSS that is never inlined).
+            $this->maybe_dispatch_generation($current_url, $this->page_fingerprint($html));
             return $inlined;
         }
 
@@ -87,7 +101,7 @@ class CriticalCssTransformer {
             }
         } else {
             // Asynchronously dispatch Critical CSS extraction job to Cloudflare Edge
-            $this->maybe_dispatch_generation($current_url);
+            $this->maybe_dispatch_generation($current_url, $this->page_fingerprint($html));
             // Keep stylesheets blocking: no critical CSS yet, async-loading
             // the full sheets would flash unstyled content.
         }
@@ -118,13 +132,50 @@ class CriticalCssTransformer {
     }
 
     /**
+     * True when fresh (unexpired) critical CSS exists on disk for BOTH
+     * viewports of a URL, under any host variant. Used to skip redundant
+     * dispatches (e.g. reconnecting an already-optimized site must not
+     * spend credits re-processing the homepage).
+     */
+    public static function has_fresh_cache_for_url(string $url): bool {
+        if (!defined('WP_INSTANT_CACHE_DIR')) {
+            return false;
+        }
+        $parsed = parse_url($url);
+        $path = $parsed['path'] ?? '/';
+        foreach (['mobile', 'desktop'] as $viewport) {
+            $hash = md5($path . '_' . $viewport);
+            $fresh = false;
+            foreach (glob(WP_INSTANT_CACHE_DIR . '/*/css/' . $hash . '.css') ?: [] as $file) {
+                $mtime = @filemtime($file);
+                if ($mtime && (time() - $mtime) < 30 * DAY_IN_SECONDS) {
+                    $fresh = true;
+                    break;
+                }
+            }
+            if (!$fresh) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Delete cached critical CSS for a URL (both viewports, all host
      * variants). Called on content changes so the next request re-extracts
-     * instead of inlining stale rules indefinitely.
+     * instead of inlining stale rules indefinitely. The stored dispatch
+     * fingerprint is dropped too, so the changed page is processed exactly
+     * once more (dispatch-once would otherwise treat it as already done).
      */
     public static function invalidate_url(string $url): void {
         $parsed = parse_url($url);
         $path = $parsed['path'] ?? '/';
+
+        $fingerprints = get_option(self::FINGERPRINT_OPTION, []);
+        if (is_array($fingerprints) && isset($fingerprints[md5(strtolower($path))])) {
+            unset($fingerprints[md5(strtolower($path))]);
+            update_option(self::FINGERPRINT_OPTION, $fingerprints, false);
+        }
 
         $hosts = [];
         $url_host = isset($parsed['host']) ? strtolower($parsed['host']) : '';
@@ -302,18 +353,111 @@ class CriticalCssTransformer {
         return home_url($href);
     }
 
-    private function maybe_dispatch_generation(string $url): void {
+    /**
+     * Cheap content fingerprint for the dispatch-once guarantee: DOM
+     * structure of the current document + the singular post's modification
+     * time (when resolvable) + theme/plugin versions. Unchanged pages keep
+     * a stable fingerprint across requests; edits, theme updates and
+     * plugin updates change it.
+     */
+    private function page_fingerprint(string $html): string {
+        $parts = [DomEngine::compute_structure_hash($html)];
+
+        $post_id = 0;
+        if (function_exists('url_to_postid')) {
+            $post_id = (int) url_to_postid($this->get_current_url());
+        }
+        if ($post_id <= 0) {
+            $q = $GLOBALS['wp_query'] ?? null;
+            if ($q instanceof \WP_Query && $q->is_singular()) {
+                $post_id = (int) $q->get_queried_object_id();
+            }
+        }
+        if ($post_id > 0) {
+            $post = get_post($post_id);
+            if ($post instanceof \WP_Post) {
+                $parts[] = 'post:' . $post_id . ':' . $post->post_modified_gmt;
+            }
+        }
+
+        $theme = function_exists('wp_get_theme') ? wp_get_theme() : null;
+        if ($theme && method_exists($theme, 'exists') && $theme->exists()) {
+            $parts[] = 'theme:' . get_stylesheet() . ':' . $theme->get('Version');
+        }
+        $parts[] = 'wpins:' . WP_INSTANT_VERSION;
+
+        return md5(implode('|', $parts));
+    }
+
+    private function fingerprint_key(string $url): string {
+        $parsed = parse_url($url);
+        $path = strtolower($parsed['path'] ?? '/');
+        return md5($path);
+    }
+
+    private function stored_fingerprint(string $url): ?string {
+        $all = get_option(self::FINGERPRINT_OPTION, []);
+        if (!is_array($all)) {
+            return null;
+        }
+        $fp = $all[$this->fingerprint_key($url)] ?? null;
+        return is_string($fp) && $fp !== '' ? $fp : null;
+    }
+
+    private function store_fingerprint(string $url, string $fingerprint): void {
+        $all = get_option(self::FINGERPRINT_OPTION, []);
+        if (!is_array($all)) {
+            $all = [];
+        }
+        $all[$this->fingerprint_key($url)] = $fingerprint;
+        if (count($all) > self::FINGERPRINT_MAX) {
+            $all = array_slice($all, -self::FINGERPRINT_MAX, null, true);
+        }
+        update_option(self::FINGERPRINT_OPTION, $all, false);
+    }
+
+    private function maybe_dispatch_generation(string $url, ?string $fingerprint = null): void {
         if (!$this->config->is_connected()) {
             return;
         }
 
-        // Throttle dispatch using transients (once per 10 minutes per URL)
-        $transient_key = 'wpins_dispatch_' . md5($url);
-        if (get_transient($transient_key)) {
+        // A dispatch + poll chain is already running for this URL: never
+        // stack a second one (overlapping chains dispatched the same page
+        // twice and doubled the credit cost).
+        if (get_transient('wpins_jobs_' . md5($url))) {
             return;
         }
 
-        set_transient($transient_key, 1, 600);
+        // Dispatch-once per page version: this exact content was already
+        // processed (its fingerprint was stored when the previous dispatch
+        // was scheduled). Repeat views of an unchanged page must not spend
+        // optimization credits again.
+        //
+        // A CHANGED fingerprint bypasses the 10-minute throttle below: the
+        // throttle only paces repeats of identical content, it must never
+        // delay processing of a page the visitor just edited.
+        $content_changed = false;
+        if ($fingerprint !== null && $fingerprint !== '') {
+            $dispatched = get_option('wp_instant_css_dispatched', []);
+            $url_key = md5($url);
+            if (
+                is_array($dispatched) && !empty($dispatched[$url_key])
+                && $this->stored_fingerprint($url) === $fingerprint
+            ) {
+                return;
+            }
+            $content_changed = $this->stored_fingerprint($url) !== $fingerprint;
+        }
+
+        if (!$content_changed) {
+            // Throttle dispatch using transients (once per 10 minutes per URL)
+            $transient_key = 'wpins_dispatch_' . md5($url);
+            if (get_transient($transient_key)) {
+                return;
+            }
+        }
+
+        set_transient('wpins_dispatch_' . md5($url), 1, 600);
 
         // Track dispatch time so the local fallback knows when the grace
         // window has elapsed (option, survives cache purges).
@@ -326,6 +470,10 @@ class CriticalCssTransformer {
             $dispatched = array_slice($dispatched, -200, null, true);
         }
         update_option('wp_instant_css_dispatched', $dispatched);
+
+        if ($fingerprint !== null && $fingerprint !== '') {
+            $this->store_fingerprint($url, $fingerprint);
+        }
 
         // Non-blocking asynchronous dispatch (positional args: PHP 8 turns
         // associative cron args into named parameters and fatals)

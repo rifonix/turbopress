@@ -108,8 +108,6 @@ export const PRESET_SAFE: SiteConfig = {
     inline_all_threshold: 524288
   },
   assets: {
-    proxy_enabled: false,
-    keep_origins: [],
     serve_own_from_cdn: false
   },
   htaccess: {
@@ -188,6 +186,9 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     disable_dashicons_guest: true,
     disable_xmlrpc: true,
     disable_oembeds: false,
+    disable_head_cruft: true,
+    disable_block_bloat: true,
+    disable_comment_reply: true,
     heartbeat_control: true,
     post_revisions_limit: 3
   },
@@ -207,8 +208,6 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     inline_all_threshold: 524288
   },
   assets: {
-    proxy_enabled: true,
-    keep_origins: [],
     serve_own_from_cdn: true
   },
   htaccess: {
@@ -287,6 +286,9 @@ export const PRESET_LUDICROUS: SiteConfig = {
     disable_dashicons_guest: true,
     disable_xmlrpc: true,
     disable_oembeds: true,
+    disable_head_cruft: true,
+    disable_block_bloat: true,
+    disable_comment_reply: true,
     heartbeat_control: true,
     post_revisions_limit: 3
   },
@@ -306,8 +308,6 @@ export const PRESET_LUDICROUS: SiteConfig = {
     inline_all_threshold: 524288
   },
   assets: {
-    proxy_enabled: true,
-    keep_origins: [],
     serve_own_from_cdn: true
   },
   htaccess: {

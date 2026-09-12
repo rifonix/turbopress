@@ -33,6 +33,7 @@ $required = [
     'WPInstant\Handshake',
     'WPInstant\CacheManager',
     'WPInstant\CachePurger',
+    'WPInstant\CacheWarmer',
     'WPInstant\CacheRules',
     'WPInstant\CacheIntegration',
     'WPInstant\Htaccess_Manager',

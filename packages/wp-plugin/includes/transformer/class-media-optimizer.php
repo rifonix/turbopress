@@ -135,6 +135,16 @@ class MediaOptimizer {
                     if (strpos($attributes, 'decoding=') === false) {
                         $attributes .= ' decoding="async"';
                     }
+                    // Deprioritize below-fold bytes so they never contend
+                    // with the LCP image for bandwidth. LCP and eager
+                    // images return before this branch; explicitly-eager
+                    // images keep the browser default.
+                    if (
+                        strpos($attributes, 'fetchpriority=') === false
+                        && preg_match('/loading\s*=\s*[\'"]lazy[\'"]/i', $attributes)
+                    ) {
+                        $attributes .= ' fetchpriority="low"';
+                    }
                 }
 
                 // Blur-up placeholder: src becomes a 24px CDN derivative, the

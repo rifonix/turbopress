@@ -45,7 +45,7 @@ $GLOBALS['__options'] = [
             'image_quality' => 82,
             'excluded_images' => [],
         ],
-        'assets' => ['serve_own_from_cdn' => true, 'proxy_enabled' => false, 'keep_origins' => []],
+        'assets' => ['serve_own_from_cdn' => true],
         'critical_css' => ['excluded_stylesheets' => []],
         'javascript' => ['exclusions' => []],
     ],

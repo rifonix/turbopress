@@ -314,6 +314,60 @@ describe('media asset route — raw delivery without first-request redirects', (
     expect(rewritten.searchParams.get('s')).toBe(expectedSig);
   });
 
+  it('third-party raw sources are never proxied — short-lived redirect, no R2 fill, origin untouched', async () => {
+    const r2 = createMemoryR2();
+    const env = createTestEnv({ ASSETS_BUCKET: r2 });
+    await seedSite(env);
+    const originFetch = vi.fn(async () => {
+      throw new Error('third-party origin must not be contacted');
+    });
+    vi.stubGlobal('fetch', originFetch);
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const src = 'https://unpkg.com/foreign@1/lib.css';
+    const res = await app.fetch(new Request(mediaUrl(src)));
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(src);
+    expect(res.headers.get('x-wp-instant-media')).toBe('FOREIGN-ORIGIN');
+    expect(res.headers.get('cache-control')).toContain('max-age=60');
+    expect(originFetch).not.toHaveBeenCalled();
+
+    await Promise.all(pending);
+    expect(r2.store.size).toBe(0);
+  });
+
+  it('CSS fill leaves third-party url()s on their origin while rewriting own-host assets', async () => {
+    const r2 = createMemoryR2();
+    const env = createTestEnv({ ASSETS_BUCKET: r2 });
+    await seedSite(env);
+    const ownFont = 'https://a.com/fonts/a.woff2';
+    const foreignFont = 'https://fonts.gstatic.com/s/x/font.woff2';
+    const foreignImg = 'https://unpkg.com/foreign@1/bg.png';
+    const css = `@font-face{font-family:X;src:url(${ownFont})}.y{src:url(${foreignFont})}.hero{background:url("${foreignImg}")}`;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(css, {
+            status: 200,
+            headers: { 'content-type': 'text/css; charset=utf-8', 'content-length': String(css.length) },
+          })
+      )
+    );
+    const pending: Promise<unknown>[] = [];
+    const app = buildApp(env, pending);
+
+    const res = await app.fetch(new Request(mediaUrl('https://a.com/mixed.css')));
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // Own-host asset rewritten to the signed edge route…
+    expect(body).toContain(`/api/v1/assets/media/${SITE_ID}/${urlHashFor(ownFont)}`);
+    // …third-party references pass through byte-identical.
+    expect(body).toContain(`url(${foreignFont})`);
+    expect(body).toContain(`url("${foreignImg}")`);
+  });
+
   it('chunked origin (no Content-Length) still persists to R2 — no perpetual MISS', async () => {
     const r2 = createMemoryR2();
     const env = createTestEnv({ ASSETS_BUCKET: r2 });

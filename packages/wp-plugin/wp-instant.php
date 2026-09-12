@@ -41,6 +41,7 @@ require_once WP_INSTANT_PATH . 'includes/class-handshake.php';
 require_once WP_INSTANT_PATH . 'includes/class-updater.php';
 require_once WP_INSTANT_PATH . 'includes/cache/class-cache-manager.php';
 require_once WP_INSTANT_PATH . 'includes/cache/class-cache-purger.php';
+require_once WP_INSTANT_PATH . 'includes/cache/class-cache-warmer.php';
 require_once WP_INSTANT_PATH . 'includes/cache/class-cache-rules.php';
 require_once WP_INSTANT_PATH . 'includes/transformer/class-dom-engine.php';
 require_once WP_INSTANT_PATH . 'includes/transformer/class-critical-css.php';

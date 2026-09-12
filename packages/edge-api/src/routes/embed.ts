@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
-import { hmacSha256Hex, normalizeDomain, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
+import { hmacSha256Hex, normalizeDomain, sha256, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
 import type { ViewportMode, PlanContract } from '@wpinstant/shared';
 import { checkRateLimit } from '../middleware/rate-limit.js';
 import {
@@ -217,6 +217,8 @@ embedRoutes.post('/site/dispatch', async (c) => {
     Array.isArray(body.viewports) && body.viewports.length > 0
       ? body.viewports
       : ['mobile', 'desktop'];
+  const structureHash: string =
+    typeof body.structure_hash === 'string' ? body.structure_hash : '';
 
   // Only dispatch for this site's own origin.
   let targetHost = '';
@@ -259,8 +261,73 @@ embedRoutes.post('/site/dispatch', async (c) => {
 
   const createdJobs: Array<{ jobId: string; viewport: ViewportMode; status: string }> = [];
   let skippedForQuota = false;
+  let freeDeduped = 0;
   for (const viewport of viewports) {
     const jobId = generateJobId();
+
+    // Template dedup BEFORE any credit reservation: a page sharing another
+    // page's DOM structure completes instantly from the edge KV cache for
+    // free (same guarantee as POST /optimize/dispatch).
+    if (structureHash) {
+      try {
+        const cached = await c.env.KV.get<{
+          criticalCssR2Key: string;
+          criticalCssBytes: number;
+          lcpSelector?: string;
+          lcpImageUrl?: string;
+        }>(`template:${site.id}:${structureHash}:${viewport}`, 'json');
+        if (cached?.criticalCssR2Key) {
+          const thisUrlKey = `sites/${site.id}/css/${(await sha256(url)).slice(0, 32)}_${viewport}`;
+          let fulfilledKey = cached.criticalCssR2Key;
+          if (thisUrlKey !== cached.criticalCssR2Key) {
+            const src = await c.env.ASSETS_BUCKET.get(cached.criticalCssR2Key).catch(() => null);
+            if (src) {
+              await c.env.ASSETS_BUCKET.put(thisUrlKey, src.body, { httpMetadata: src.httpMetadata });
+              fulfilledKey = thisUrlKey;
+            } else {
+              fulfilledKey = '';
+            }
+          }
+          if (fulfilledKey) {
+            await c.env.DB.prepare(`
+              INSERT INTO optimization_jobs (id, site_id, url, viewport, status, priority, credit_reservation_id, critical_css_r2_key, critical_css_bytes, lcp_selector, lcp_image_url, attempts, created_at, completed_at)
+              VALUES (?, ?, ?, ?, 'completed', ?, NULL, ?, ?, ?, ?, 1, unixepoch(), unixepoch())
+            `)
+              .bind(
+                jobId,
+                site.id,
+                url,
+                viewport,
+                jobPriority,
+                fulfilledKey,
+                cached.criticalCssBytes,
+                cached.lcpSelector || null,
+                cached.lcpImageUrl || null
+              )
+              .run();
+            await c.env.KV.put(
+              `job:${jobId}`,
+              JSON.stringify({
+                status: 'completed',
+                url,
+                viewport,
+                siteId: site.id,
+                criticalCssR2Key: fulfilledKey,
+                criticalCssBytes: cached.criticalCssBytes,
+                lcpImageUrl: cached.lcpImageUrl,
+                fromTemplateCache: true,
+              }),
+              { expirationTtl: 86400 }
+            );
+            createdJobs.push({ jobId, viewport, status: 'completed' });
+            freeDeduped++;
+            continue;
+          }
+        }
+      } catch {
+        /* KV/R2 hiccup — fall through to a real extraction */
+      }
+    }
 
     // 1 credit = 1 URL + 1 viewport. Reserve before the row exists so a
     // queue failure or rejection can never leak a charge.
@@ -326,6 +393,6 @@ embedRoutes.post('/site/dispatch', async (c) => {
 
   return c.json({
     success: true,
-    data: { jobs: createdJobs, ...(skippedForQuota ? { skippedViewports: 'monthly credits exhausted' } : {}) },
+    data: { jobs: createdJobs, freeDeduped, ...(skippedForQuota ? { skippedViewports: 'monthly credits exhausted' } : {}) },
   });
 });

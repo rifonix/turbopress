@@ -101,12 +101,36 @@ class ResourceHints {
             'checkout.razorpay' => 'checkout.razorpay.com',
             'cdn.jsdelivr.net' => 'cdn.jsdelivr.net',
             'fonts.bunny.net' => 'fonts.bunny.net',
+            // Video-facade poster/thumbnail origins (injected markup carries
+            // the embed marker, not these hosts, so the tag scans miss them).
+            'youtube.com/embed' => 'i.ytimg.com',
+            'youtu.be' => 'i.ytimg.com',
+            'youtube-nocookie.com' => 'i.ytimg.com',
+            'player.vimeo.com' => 'i.vimeocdn.com',
         ];
         foreach ($known_origins as $marker => $origin) {
             if (stripos($html, $marker) !== false) {
                 $host = strtolower((string) parse_url('https://' . $origin, PHP_URL_HOST));
                 if ($host !== '' && $host !== $own_host) {
                     $candidates[$host] = max($candidates[$host] ?? 0, 6);
+                }
+            }
+        }
+
+        // Deterministic preconnect to our own CDN origins. The tag scans
+        // above can only discover hosts already present in the HTML, and the
+        // 6-slot budget is weight-ordered — the edge hosts serving this
+        // page's images, video and css/js must win the first slots, or the
+        // first CDN fetch pays full DNS+TLS on every navigation.
+        if (
+            $this->config->get('media.offload_images', false)
+            || $this->config->get('media.offload_video', false)
+            || $this->config->get('assets.serve_own_from_cdn', false)
+        ) {
+            foreach ([$this->config->get_cdn_url(), $this->config->get_object_url()] as $base) {
+                $h = strtolower((string) parse_url((string) $base, PHP_URL_HOST));
+                if ($h !== '' && $h !== $own_host) {
+                    $candidates[$h] = max($candidates[$h] ?? 0, 20);
                 }
             }
         }
@@ -143,10 +167,12 @@ class ResourceHints {
         $preconnect = array_slice($hosts, 0, self::MAX_PRECONNECT);
         $prefetch = array_slice($hosts, self::MAX_PRECONNECT, self::MAX_DNS_PREFETCH);
 
-        $font_hosts = ['fonts.googleapis.com', 'fonts.gstatic.com', 'use.typekit.net', 'use.typekit.com', 'cdn.fonts.net'];
+        $font_hosts = ['fonts.googleapis.com', 'fonts.gstatic.com', 'use.typekit.net', 'use.typekit.com', 'cdn.fonts.net', 'fonts.bunny.net'];
         $tags = '';
         foreach ($preconnect as $host) {
-            $crossorigin = in_array($host, $font_hosts, true) ? ' crossorigin' : '';
+            // Font fetches are CORS-anonymous: without crossorigin the
+            // browser opens a second connection when the font is requested.
+            $crossorigin = (in_array($host, $font_hosts, true) || stripos($host, 'font') !== false) ? ' crossorigin' : '';
             $tags .= '<link rel="preconnect" href="https://' . esc_attr($host) . '"' . $crossorigin . '>';
         }
         foreach ($prefetch as $host) {

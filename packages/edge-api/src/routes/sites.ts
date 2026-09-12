@@ -580,6 +580,21 @@ siteRoutes.put('/:site_id/config', saasUserAuthMiddleware, async (c) => {
     }
   }
 
+  // Push dashboard config changes to the plugin instantly through the
+  // HMAC-verified optimize-callback channel (same mechanism as Deploy/Test).
+  // Without this, dashboard toggles (CDN offload, asset delivery, …) only
+  // converged via the daily heartbeat — the dashboard preview looked right
+  // while visitors kept getting day-old HTML without CDN URLs for up to 24h.
+  // Best-effort: the plugin also converges via /verify + heartbeat.
+  const cmdRow = await c.env.DB.prepare('SELECT site_url, callback_secret FROM sites WHERE id = ?')
+    .bind(siteId)
+    .first<{ site_url: string | null; callback_secret: string | null }>();
+  if (cmdRow?.site_url && cmdRow?.callback_secret) {
+    c.executionCtx.waitUntil(
+      pushPluginCommand(c.env, cmdRow, { command: 'config', config: validatedConfig }).then(() => {})
+    );
+  }
+
   return c.json({
     success: true,
     data: {

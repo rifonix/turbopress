@@ -21,6 +21,7 @@ class Page_Advanced extends Settings_Page {
             'caching.ttl' => ['type' => 'int', 'min' => 3600, 'max' => 2592000],
             'caching.purge_on_post_update' => ['type' => 'bool'],
             'caching.purge_on_comment' => ['type' => 'bool'],
+            'caching.warm_after_purge' => ['type' => 'bool'],
             'caching.optimize_only_urls' => ['type' => 'str_list'],
             'dynamic.speculation_rules_prerender' => ['type' => 'bool'],
             'dynamic.nonce_ajax_refresh' => ['type' => 'bool'],
@@ -41,6 +42,7 @@ class Page_Advanced extends Settings_Page {
                 $this->range_field('caching', 'ttl', 'Cache lifetime', 3600, 2592000, 3600, 's');
                 $this->toggle('caching', 'purge_on_post_update', 'Purge when content changes');
                 $this->toggle('caching', 'purge_on_comment', 'Purge on new comments');
+                $this->toggle('caching', 'warm_after_purge', 'Warm cache after purge', 'Re-render purged pages in the background so visitors skip the cold load');
                 $this->list_field('caching', 'optimize_only_urls', 'Optimize-only URLs', 'When set, only these paths are optimized (wildcards ok). Leave empty for everything.', "/landing/*\n/");
                 ?>
             <?php $this->card_close(); ?>
