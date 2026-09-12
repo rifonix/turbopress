@@ -144,14 +144,14 @@ export function MarketingHeader() {
               </button>
 
               <div
-                className={`absolute left-1/2 top-full z-50 w-[44rem] -translate-x-1/2 pt-3 transition-all duration-200 ${
+                className={`fixed left-1/2 top-[4.25rem] z-50 w-[56rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 pt-3 transition-all duration-200 ${
                   megaOpen
                     ? 'visible translate-y-0 opacity-100'
                     : 'invisible translate-y-2 opacity-0 pointer-events-none'
                 }`}
               >
                 <div className="overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white shadow-[0_16px_48px_rgba(23,23,23,0.10)]">
-                  <div className="grid grid-cols-2 gap-x-2 p-4">
+                  <div className="grid grid-cols-4 gap-x-2 p-4">
                     {megaGroups.map((group) => (
                       <div key={group.heading} className="rounded-xl p-2">
                         <p className="px-2 pb-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-[#a1a1aa]">
