@@ -222,14 +222,14 @@ export default function HomePage() {
           <HeroDashboard />
         </div>
 
-        <div className="relative z-10 mx-auto -mt-24 max-w-7xl px-6 md:-mt-32">
-          <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="relative z-10 mx-auto -mt-10 max-w-7xl px-6 md:-mt-14">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-8 lg:grid-cols-4">
             {heroFacts.map((fact) => (
-              <div key={fact.label} className="rounded-2xl bg-white px-6 py-8 text-center shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
-                <dt className="order-2 mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{fact.label}</dt>
-                <dd className="order-1 text-2xl font-semibold tracking-[-0.03em]">
+              <div key={fact.label} className="text-center">
+                <dd className="text-2xl font-semibold tracking-[-0.03em] text-[#171717]">
                   <CountUp value={fact.value} />
                 </dd>
+                <dt className="mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{fact.label}</dt>
               </div>
             ))}
           </dl>
