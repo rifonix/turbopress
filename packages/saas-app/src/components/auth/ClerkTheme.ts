@@ -26,7 +26,9 @@ export const wpInstantClerkAppearance = {
   },
   elements: {
     rootBox: 'w-full',
-    card: 'shadow-none p-0 border-0 bg-transparent w-full',
+    cardBox: 'w-full max-w-full shadow-none',
+    card: 'shadow-none p-0 border-0 bg-transparent w-full max-w-full',
+    main: 'w-full max-w-full p-0',
     headerTitle: 'hidden',
     headerSubtitle: 'hidden',
     header: 'hidden',

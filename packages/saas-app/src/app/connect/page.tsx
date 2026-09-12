@@ -2,10 +2,10 @@
 
 import React, { Suspense, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { useAuth, useUser, UserButton, SignedIn, SignedOut } from '@clerk/nextjs';
 import {
-  Zap,
   ShieldCheck,
   Check,
   ArrowRight,
@@ -281,22 +281,26 @@ function ConnectContent() {
   if (isLoaded && !isSignedIn) {
     return (
       <div className="min-h-screen bg-[#fbfbfa] text-[#171717] flex flex-col antialiased">
-        <header className="border-b border-[#e4e4e7] bg-white/80 backdrop-blur-md sticky top-0 z-30 px-6 py-3.5">
+        <header className="bg-white sticky top-0 z-30 px-6 py-3.5">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#171717] flex items-center justify-center text-white shadow-sm">
-                <Zap className="w-4 h-4 fill-current text-[#f03e2f]" />
-              </div>
+              <Image
+                src="/wp-instant-logo.svg"
+                alt=""
+                width={32}
+                height={32}
+                className="h-8 w-8 rounded-[8px]"
+              />
               <span className="font-semibold text-sm tracking-tight text-[#171717]">WP Instant</span>
             </div>
-            <span className="text-[10px] font-mono text-[#71717a] px-1.5 py-0.5 rounded bg-[#f4f4f5] border border-[#e4e4e7]">
+            <span className="text-[10px] font-mono text-[#71717a] px-1.5 py-0.5 rounded bg-[#f4f4f5]">
               Edge Handshake
             </span>
           </div>
         </header>
 
         <main className="flex-1 flex items-center justify-center p-4 sm:p-6">
-          <div className="w-full max-w-md bg-white border border-[#e4e4e7] rounded-3xl p-8 shadow-xl shadow-black/[0.03] text-center space-y-6 animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-xl shadow-black/[0.03] text-center space-y-6 animate-fade-in">
             <div className="w-12 h-12 rounded-2xl bg-[#fff1ef] border border-red-100 text-[#f03e2f] flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
@@ -347,15 +351,19 @@ function ConnectContent() {
   return (
     <div className="min-h-screen bg-[#fbfbfa] text-[#171717] flex flex-col antialiased">
       {/* Standalone Clean Top Navigation */}
-      <header className="border-b border-[#e4e4e7] bg-white/80 backdrop-blur-md sticky top-0 z-30 px-6 py-3.5">
+      <header className="bg-white sticky top-0 z-30 px-6 py-3.5">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#171717] flex items-center justify-center text-white shadow-sm">
-              <Zap className="w-4 h-4 fill-current text-[#f03e2f]" />
-            </div>
+            <Image
+              src="/wp-instant-logo.svg"
+              alt=""
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-[8px]"
+            />
             <div>
               <span className="font-semibold text-sm tracking-tight text-[#171717]">WP Instant</span>
-              <span className="text-[10px] font-mono text-[#71717a] ml-2 px-1.5 py-0.5 rounded bg-[#f4f4f5] border border-[#e4e4e7]">
+              <span className="text-[10px] font-mono text-[#71717a] ml-2 px-1.5 py-0.5 rounded bg-[#f4f4f5]">
                 {isHandshakeMode ? 'Edge Handshake' : 'Manual Connect'}
               </span>
             </div>
@@ -388,12 +396,16 @@ function ConnectContent() {
       <main className="flex-1 flex items-center justify-center p-4 sm:p-6 my-auto">
         <div className="w-full max-w-lg animate-fade-in">
           {/* Card Container */}
-          <div className="bg-white border border-[#e4e4e7] rounded-3xl p-6 sm:p-8 shadow-xl shadow-black/[0.03]">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl shadow-black/[0.03]">
             {/* Header Badge & Title */}
             <div className="text-center space-y-2 mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-[#fff1ef] border border-red-100 text-[#f03e2f] flex items-center justify-center mx-auto shadow-sm">
-                <Zap className="w-6 h-6 fill-current" />
-              </div>
+              <Image
+                src="/wp-instant-logo.svg"
+                alt=""
+                width={48}
+                height={48}
+                className="h-12 w-12 rounded-[12px] mx-auto shadow-sm"
+              />
               <h1 className="text-2xl font-bold tracking-tight text-[#171717]">
                 {isHandshakeMode ? 'Connect WordPress Site' : 'Connect a Site Manually'}
               </h1>
