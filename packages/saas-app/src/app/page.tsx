@@ -233,23 +233,25 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features */}
+      {/* Features — editorial rows */}
       <section id="features" className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="features-title">
-        <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
-          <SectionHeading
-            eyebrow="Performance engine"
-            title="The complete stack, applied automatically"
-            description="WP Instant works at the WordPress render layer and the edge delivery layer together, so optimization follows the page instead of living in a pile of disconnected settings."
-          />
-          <Link href="/features" className="btn btn-secondary w-fit">
-            Explore features
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
-        </div>
-        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((feature) => (
-            <FeatureCard key={feature.title} {...feature} />
-          ))}
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+          <div className="lg:sticky lg:top-24 lg:self-start">
+            <SectionHeading
+              eyebrow="Performance engine"
+              title="The complete stack, applied automatically"
+              description="WP Instant works at the WordPress render layer and the edge delivery layer together, so optimization follows the page instead of living in a pile of disconnected settings."
+            />
+            <Link href="/features" className="btn btn-secondary mt-8 w-fit">
+              Explore features
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+          <div className="grid content-start gap-5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            {features.map((feature) => (
+              <FeatureCard key={feature.title} {...feature} horizontal />
+            ))}
+          </div>
         </div>
       </section>
 
@@ -266,29 +268,32 @@ export default function HomePage() {
         <OptimizationPipeline />
       </section>
 
-      {/* Automation + trust */}
-      <section className="bg-white" aria-labelledby="automation-title">
+      {/* Automation + trust — dark band */}
+      <section className="bg-[#171717] text-white" aria-labelledby="automation-title">
         <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
-          <SectionHeading
-            eyebrow="Safe automation"
-            title="Automatic where it helps. Accountable where it matters."
-            description="Automation should not mean losing control. Pairing, cache invalidation, tenant isolation, and per-site telemetry are built into the platform contract."
-          />
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Safe automation</p>
+          <h2 id="automation-title" className="mt-4 max-w-2xl text-balance text-[clamp(1.75rem,4vw,2.75rem)] font-semibold leading-[1.08] tracking-[-0.03em]">
+            Automatic where it helps. Accountable where it matters.
+          </h2>
+          <p className="mt-4 max-w-2xl leading-relaxed text-white/65">
+            Automation should not mean losing control. Pairing, cache invalidation, tenant isolation, and per-site
+            telemetry are built into the platform contract.
+          </p>
           <div className="mt-14 grid gap-5 lg:grid-cols-3">
             {automationFeatures.map((feature) => (
-              <article key={feature.title} className="rounded-2xl bg-[#fbfbfa] p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-white text-[#f03e2f] shadow-sm">
+              <article key={feature.title} className="rounded-2xl bg-white/[0.06] p-7 transition-colors duration-300 hover:bg-white/[0.09]">
+                <span className="grid h-11 w-11 place-items-center rounded-xl bg-[#f03e2f] text-white">
                   <feature.icon className="h-5 w-5" aria-hidden="true" />
                 </span>
                 <h3 className="mt-6 text-lg font-semibold tracking-[-0.02em]">{feature.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-[#71717a]">{feature.body}</p>
+                <p className="mt-3 text-sm leading-relaxed text-white/65">{feature.body}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Adoption */}
+      {/* Adoption — numbered timeline */}
       <section className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="adoption-title">
         <SectionHeading
           align="center"
@@ -296,7 +301,8 @@ export default function HomePage() {
           title="From install to optimization in minutes"
           description="The WordPress client and edge engine are already connected by design. There is no DNS switch, separate CDN account, or separate build pipeline to manage."
         />
-        <div className="mt-14 grid gap-5 md:grid-cols-3">
+        <ol className="relative mx-auto mt-16 grid max-w-5xl gap-10 md:grid-cols-3 md:gap-6">
+          <div aria-hidden="true" className="absolute left-0 right-0 top-6 hidden border-t-2 border-dashed border-[#e4e4e7] md:block" />
           {[
             {
               icon: Plug,
@@ -314,35 +320,49 @@ export default function HomePage() {
               body: 'Queue URL audits or crawls. Critical CSS, LCP rules, and media derivatives are generated automatically.',
             },
           ].map((step, index) => (
-            <article key={step.step} className="relative overflow-hidden rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
-              <div className="flex items-center justify-between">
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff1ef] text-[#f03e2f]">
-                  <step.icon className="h-5 w-5" aria-hidden="true" />
+            <li key={step.step} className="relative text-center md:text-left">
+              <div className="relative z-10 mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#171717] text-white shadow-[0_8px_20px_rgba(23,23,23,0.18)] md:mx-0">
+                <step.icon className="h-5 w-5" aria-hidden="true" />
+                <span className="absolute -right-2 -top-2 grid h-6 w-6 place-items-center rounded-full bg-[#f03e2f] font-mono text-[11px] font-bold text-white">
+                  {index + 1}
                 </span>
-                <span className="num text-4xl font-semibold text-[#f1f1f2]">{index + 1}</span>
               </div>
-              <h3 className="mt-6 text-lg font-semibold tracking-[-0.02em]">{step.step}</h3>
-              <p className="mt-3 text-sm leading-relaxed text-[#71717a]">{step.body}</p>
-            </article>
+              <h3 className="mt-5 text-lg font-semibold tracking-[-0.02em]">{step.step}</h3>
+              <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed text-[#71717a] md:mx-0">{step.body}</p>
+            </li>
           ))}
-        </div>
+        </ol>
       </section>
 
-      {/* Presets */}
+      {/* Presets — comparison rows */}
       <section className="bg-[#fbfbfa]" aria-labelledby="presets-title">
-        <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-5xl px-6 py-24 md:py-32">
           <SectionHeading
             eyebrow="Performance presets"
             title="Choose the risk level, not every switch"
             description="Each preset is a named contract. Start safely, then move up when your theme, plugins, and transaction flows are ready."
           />
-          <div className="mt-14 grid gap-5 lg:grid-cols-3">
-            {presets.map((preset) => (
-              <article key={preset.name} className="flex min-h-[16rem] flex-col rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
-                <h3 className="text-xl font-semibold tracking-[-0.02em]">{preset.name}</h3>
-                <p className="meta mt-2 text-[#dc2e20]">{preset.range}</p>
-                <p className="mt-4 text-sm leading-relaxed text-[#71717a]">{preset.body}</p>
-              </article>
+          <div className="mt-12 overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
+            {presets.map((preset, index) => (
+              <div
+                key={preset.name}
+                className={`grid gap-3 p-6 transition-colors hover:bg-[#fbfbfa] sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] sm:items-center sm:gap-6 sm:px-8 ${
+                  index > 0 ? 'border-t border-[#f1f1f2]' : ''
+                }`}
+              >
+                <div>
+                  <h3 className="text-lg font-semibold tracking-[-0.02em]">{preset.name}</h3>
+                  <p className="meta mt-1 text-[#dc2e20]">{preset.range}</p>
+                </div>
+                <p className="text-sm leading-relaxed text-[#71717a]">{preset.body}</p>
+                <Link
+                  href="/sign-up"
+                  className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl bg-[#171717] px-5 text-sm font-semibold text-white transition-all hover:-translate-y-px hover:bg-[#f03e2f]"
+                >
+                  Start with {preset.name.split(' ')[0]}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              </div>
             ))}
           </div>
           <p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-[#a1a1aa]">
