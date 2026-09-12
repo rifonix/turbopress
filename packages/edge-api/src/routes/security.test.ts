@@ -49,6 +49,18 @@ async function seedSubscription(env: any, userId: string) {
     .run();
 }
 
+// The mock D1 shim rewrites double quotes, so site config JSON (which needs
+// them) must be bound as a parameter, never inlined in SQL.
+async function setSiteConfig(env: any, siteId: string, config: unknown) {
+  await env.DB.prepare('UPDATE sites SET config_json = ? WHERE id = ?')
+    .bind(JSON.stringify(config), siteId)
+    .run();
+}
+
+async function setScopeAll(env: any, siteId = 'site_1') {
+  await setSiteConfig(env, siteId, { caching: { optimize_scope: 'all' } });
+}
+
 describe('Security regression tests (review criticals)', () => {
   beforeEach(() => {
     // No real network in tests: JWKS fetch rejects instantly → production
@@ -336,6 +348,7 @@ describe('Security regression tests (review criticals)', () => {
     // Fill up the credits on the usage period
     const app = buildApp(env);
     // Call billing status to initialize the usage period
+    await setScopeAll(env);
     await app.fetch(
       new Request('https://api.test/api/v1/billing/status', {
         headers: { Authorization: 'Bearer user_a' },
@@ -367,6 +380,7 @@ describe('Security regression tests (review criticals)', () => {
     ).run();
 
     // Starter plan has maxConcurrentJobs = 1. Insert 1 active job.
+    await setScopeAll(env);
     await env.DB.prepare(
       "INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, created_at) VALUES ('job_active', 'site_1', 'https://a.com/', 'mobile', 'processing', 1, unixepoch())"
     ).run();
@@ -393,6 +407,7 @@ describe('Security regression tests (review criticals)', () => {
 
     const app = buildApp(env);
     // Initialize usage period
+    await setScopeAll(env);
     await app.fetch(
       new Request('https://api.test/api/v1/billing/status', {
         headers: { Authorization: 'Bearer user_a' },
@@ -440,6 +455,7 @@ describe('Security regression tests (review criticals)', () => {
 
     // Seed the template cache so thisUrlKey === cached key (no R2 copy needed;
     // the mock bucket returns null on get).
+    await setScopeAll(env);
     const url = 'https://a.com/dedup-page';
     const thisUrlKey = `sites/site_1/css/${createHash('sha256').update(url).digest('hex').slice(0, 32)}_mobile`;
     await env.KV.put(
@@ -483,6 +499,102 @@ describe('Security regression tests (review criticals)', () => {
     expect(job.status).toBe('completed');
     expect(job.credit_reservation_id).toBeNull();
     expect(job.critical_css_r2_key).toBe(thisUrlKey);
+  });
+
+  it('Scope: main-pages default lets the homepage through but 403s deep URLs without spending', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+
+    const app = buildApp(env);
+    await app.fetch(
+      new Request('https://api.test/api/v1/billing/status', {
+        headers: { Authorization: 'Bearer user_a' },
+      })
+    );
+
+    const blocked = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/some/deep-page', viewports: ['mobile'] }),
+      })
+    );
+    expect(blocked.status).toBe(403);
+    expect(((await blocked.json()) as any).code).toBe('OUT_OF_SCOPE');
+
+    const home = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/', viewports: ['mobile'] }),
+      })
+    );
+    expect(home.status).toBe(202);
+
+    // Exactly one reservation: the homepage job. The blocked URL spent nothing.
+    const reservations = await env.DB.prepare('SELECT * FROM optimization_credit_reservations')
+      .all()
+      .then((r: any) => r.results);
+    expect(reservations).toHaveLength(1);
+  });
+
+  it('Scope: allowlisted paths pass, other paths are blocked', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+    await setSiteConfig(env, 'site_1', {
+      caching: { optimize_scope: 'main-pages', optimize_only_urls: ['/blog/*'] },
+    });
+
+    const app = buildApp(env);
+    const ok = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/blog/hello', viewports: ['mobile'] }),
+      })
+    );
+    expect(ok.status).toBe(202);
+
+    const denied = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+        body: JSON.stringify({ url: 'https://a.com/shop/item', viewports: ['mobile'] }),
+      })
+    );
+    expect(denied.status).toBe(403);
+  });
+
+  it('Rerun: refuses in-flight jobs instead of orphaning their reservation', async () => {
+    const env = createTestEnv();
+    await seedSubscription(env, 'user_a');
+    await env.DB.prepare(
+      "INSERT INTO sites (id, user_id, subscription_id, domain, site_api_key_hash, config_json, is_active, created_at, updated_at) VALUES ('site_1', 'user_a', 'sub_user_a', 'a.com', 'hash', '{}', 1, unixepoch(), unixepoch())"
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, created_at) VALUES ('job_running', 'site_1', 'https://a.com/', 'mobile', 'processing', 1, unixepoch())"
+    ).run();
+
+    const app = buildApp(env);
+    const res = await app.fetch(
+      new Request('https://api.test/api/v1/optimize/jobs/job_running/rerun', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user_a' },
+      })
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).code).toBe('JOB_ACTIVE');
+
+    const reservations = await env.DB.prepare('SELECT * FROM optimization_credit_reservations')
+      .all()
+      .then((r: any) => r.results);
+    expect(reservations).toHaveLength(0);
   });
 
   it('Asset Cutoff: Inactive site returns 403 on GET /assets/css/:site_id/:css_file', async () => {

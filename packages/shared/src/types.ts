@@ -22,6 +22,10 @@ export interface CachingConfig {
   excluded_cookies: string[];
   /** when non-empty, ONLY these paths are optimized (inverse of excluded_urls) */
   optimize_only_urls: string[];
+  /** which URLs may spend extraction credits (default main-pages) */
+  optimize_scope?: 'all' | 'main-pages' | 'templates-only';
+  /** auto-crawl discovered links after root jobs (default off — each URL costs 2 credits) */
+  crawl_enabled?: boolean;
 }
 
 export interface BloatConfig {

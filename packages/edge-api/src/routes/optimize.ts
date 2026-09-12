@@ -20,6 +20,8 @@ import {
   reserveCredits,
   resolveBillingScope,
 } from '../services/entitlements.js';
+import { hashUrlContent, parseSiteScope, urlInScope } from '../services/scope.js';
+import { completeFromTemplate, completeRerunFromTemplate, lookupTemplate } from '../services/template-dedup.js';
 
 export const optimizeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -209,6 +211,26 @@ optimizeRoutes.post('/dispatch', async (c) => {
     siteId = site.id;
   }
 
+  // Optimization-scope gate: enforced BEFORE any credit reservation so
+  // out-of-scope URLs (bot-discovered, non-main pages) can never spend.
+  // The homepage is always in scope; templates-only mode leans on the
+  // template-dedup branch below (first of each template pays once).
+  const scopeRow = await c.env.DB.prepare('SELECT config_json FROM sites WHERE id = ?')
+    .bind(siteId)
+    .first<{ config_json: string | null }>()
+    .catch(() => null);
+  const siteScope = parseSiteScope(scopeRow?.config_json);
+  if (!urlInScope(payload.url, siteScope)) {
+    return c.json(
+      {
+        success: false,
+        code: 'OUT_OF_SCOPE',
+        error: 'URL is outside this site\u2019s optimization scope. Add it to the main-pages list in site settings to optimize it.',
+      },
+      403
+    );
+  }
+
   const requestedViewports = payload.viewports.length > 0 ? payload.viewports : (['mobile', 'desktop'] as ViewportMode[]);
   const viewports: ViewportMode[] = [...new Set(requestedViewports)];
   const createdJobs: Array<{ jobId: string; viewport: ViewportMode; status: string }> = [];
@@ -271,14 +293,19 @@ optimizeRoutes.post('/dispatch', async (c) => {
   for (const viewport of viewports) {
     const jobId = generateJobId();
 
-    // Cloudflare KV Template Structure Hash Deduplication FIRST — before any
+    // Resolve the template hash edge-side when the plugin did not send one
+    // (old plugin, handshake dispatch, failed loopback): same-template
+    // pages then still complete free via the KV branch below.
+    const structureHash = payload.structure_hash || (await hashUrlContent(c.env, payload.url)) || '';
+
+    // Cloudflare KV Template Structure Hash Deduplication FIRST - before any
     // credit reservation. A page sharing another page's DOM structure is
     // fulfilled instantly from the edge KV cache and costs NO optimization
     // credits: no Chromium job runs, so none is charged. Only genuinely new
     // structures fall through to the reserving path below.
-    if (payload.structure_hash) {
+    if (structureHash) {
       try {
-        const templateKey = `template:${siteId}:${payload.structure_hash}:${viewport}`;
+        const templateKey = `template:${siteId}:${structureHash}:${viewport}`;
         const cachedTemplate = await c.env.KV.get<{
           criticalCssR2Key: string;
           criticalCssBytes: number;
@@ -384,13 +411,14 @@ optimizeRoutes.post('/dispatch', async (c) => {
     // Cache initial status in KV
     await c.env.KV.put(
       `job:${jobId}`,
-      JSON.stringify({ status: 'queued', url: payload.url, viewport, siteId, targetDomain, structureHash: payload.structure_hash }),
+      JSON.stringify({ status: 'queued', url: payload.url, viewport, siteId, targetDomain, structureHash }),
       { expirationTtl: 3600 }
     );
 
-    // Push message to Cloudflare Queue if bound. On failure, roll back the
-    // D1 row + KV marker + credit reservation instead of leaving a zombie
-    // 'queued' job while falsely reporting 202.
+    // Push message to Cloudflare Queue if bound. On failure — or when no
+    // queue is bound at all — roll back the D1 row + KV marker + credit
+    // reservation instead of leaving a zombie 'queued' job while falsely
+    // reporting 202.
     if (c.env.OPTIMIZATION_QUEUE) {
       try {
         await c.env.OPTIMIZATION_QUEUE.send({
@@ -399,7 +427,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
           url: payload.url,
           viewport,
           attempt: 1,
-          structureHash: payload.structure_hash,
+          structureHash,
         });
       } catch (err) {
         console.error('[Optimization Queue Error — rolling back job]', err);
@@ -408,6 +436,14 @@ optimizeRoutes.post('/dispatch', async (c) => {
         await releaseReservationForJob(c.env, jobId);
         return c.json({ success: false, error: 'Failed to enqueue optimization job — please retry' }, 503);
       }
+    } else {
+      // No queue binding (local/test): nothing will ever pick this job up,
+      // so release the reservation and report honestly instead of stranding
+      // the credit as 'reserved'.
+      await c.env.DB.prepare('DELETE FROM optimization_jobs WHERE id = ?').bind(jobId).run();
+      await c.env.KV.delete(`job:${jobId}`);
+      await releaseReservationForJob(c.env, jobId);
+      return c.json({ success: false, error: 'Optimization queue is not configured — please retry' }, 503);
     }
 
     createdJobs.push({ jobId, viewport, status: 'queued' });
@@ -558,10 +594,24 @@ optimizeRoutes.post('/jobs/:job_id/rerun', saasUserAuthMiddleware, async (c) => 
     WHERE j.id = ? ${organizationId ? 'AND (s.user_id = ? OR s.organization_id = ?)' : 'AND s.user_id = ?'}
   `)
     .bind(...(organizationId ? [jobId, userId, organizationId] : [jobId, userId]))
-    .first<{ id: string; site_id: string; url: string; viewport: ViewportMode; domain: string }>();
+    .first<{ id: string; site_id: string; url: string; viewport: ViewportMode; domain: string; status: string }>();
 
   if (!job) {
     return c.json({ success: false, error: 'Job not found' }, 404);
+  }
+
+  // Re-running an in-flight job would orphan its still-reserved credit row
+  // (reservation lookup is by job_id, so one of the two rows stays
+  // 'reserved' forever). Refuse instead of double-spending.
+  if (job.status === 'queued' || job.status === 'processing') {
+    return c.json(
+      {
+        success: false,
+        code: 'JOB_ACTIVE',
+        error: 'Job is already running — wait for it to finish instead of paying twice.',
+      },
+      409
+    );
   }
 
   const loaded = await loadSubscriptionForSite(c.env, job.site_id);
@@ -581,6 +631,34 @@ optimizeRoutes.post('/jobs/:job_id/rerun', saasUserAuthMiddleware, async (c) => 
       },
       429
     );
+  }
+
+  // Free when the template is already cached: resolve the hash edge-side
+  // (reruns carry no structure hash) and complete without reservation.
+  const rerunHash = await hashUrlContent(c.env, job.url);
+  if (rerunHash) {
+    const template = await lookupTemplate(c.env, job.site_id, rerunHash, job.viewport);
+    if (
+      template &&
+      (await completeRerunFromTemplate(c.env, {
+        siteId: job.site_id,
+        url: job.url,
+        viewport: job.viewport,
+        jobId,
+        priority: jobPriorityForPlan(loaded.plan),
+        template,
+      }))
+    ) {
+      return c.json({
+        success: true,
+        data: {
+          jobId,
+          status: 'completed',
+          fromTemplateCache: true,
+          message: 'Template already optimized — completed free of charge.',
+        },
+      });
+    }
   }
 
   const reservation = await reserveCredits(c.env, loaded.subscription, {

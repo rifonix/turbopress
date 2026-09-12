@@ -405,6 +405,18 @@ class DomEngine {
         preg_match_all('/<link[^>]*rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\']/i', $html, $stylesheets);
         preg_match_all('/<script[^>]*src=["\']([^"\']+)["\']/i', $html, $scripts);
 
+        // Strip query strings/fragments from asset URLs (kept byte-identical
+        // with the edge port in edge-api/src/services/structure-hash.ts):
+        // `?ver=` bumps and cache-busters otherwise make identical templates
+        // hash differently and defeat template dedup. Paths stay verbatim so
+        // per-page bundles (e.g. Elementor post-{id}.css) never wrongly share.
+        $normalize_asset = static function (string $u): string {
+            $cut = strcspn($u, '?#');
+            return $cut === strlen($u) ? $u : substr($u, 0, $cut);
+        };
+        $stylesheets[1] = array_map($normalize_asset, $stylesheets[1] ?? []);
+        $scripts[1] = array_map($normalize_asset, $scripts[1] ?? []);
+
         $clean_classes = [];
         foreach ($classes[1] ?? [] as $cls_str) {
             foreach (preg_split('/\s+/', trim($cls_str)) as $cls) {

@@ -231,9 +231,9 @@ function exhausted(period: UsagePeriodRow): ReservationOutcome {
   return {
     ok: false,
     code: 'CREDITS_EXHAUSTED',
-    inPlanRemaining: Math.max(0, period.credit_limit - period.credits_reserved),
+    inPlanRemaining: Math.max(0, period.credit_limit - period.credits_used - period.credits_reserved),
     overageRemaining: period.overage_enabled === 1
-      ? Math.max(0, period.overage_limit_credits - period.overage_credits_reserved)
+      ? Math.max(0, period.overage_limit_credits - period.overage_credits_used - period.overage_credits_reserved)
       : 0,
     overageEnabled: period.overage_enabled === 1,
   };

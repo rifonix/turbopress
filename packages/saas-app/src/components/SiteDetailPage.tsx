@@ -1078,6 +1078,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
                       <th className="pb-2 pr-4">Page</th>
                       <th className="pb-2 pr-4">Critical CSS</th>
                       <th className="pb-2 pr-4">Jobs</th>
+                      <th className="pb-2 pr-4">Credits</th>
                       <th className="pb-2 pr-4">Last Run</th>
                       <th className="pb-2 pr-4"></th>
                     </tr>
@@ -1106,6 +1107,14 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
                             <span className="ml-1.5 chip chip-danger" style={{ padding: '1px 6px' }}>
                               <span className="chip-dot" />
                               {p.failedJobs} failed
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-4">
+                          <span className="font-mono text-[#171717]">{p.credits ?? 0}</span>
+                          {p.sources && Object.keys(p.sources).length > 0 && (
+                            <span className="ml-1.5 text-[10px] text-[#71717a]" title={Object.entries(p.sources).map(([s, n]) => `${s}: ${n}`).join(', ')}>
+                              {Object.entries(p.sources).sort((a, b) => (b[1] as number) - (a[1] as number))[0][0]}
                             </span>
                           )}
                         </td>

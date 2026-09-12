@@ -451,6 +451,30 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
     rumByDay.set(r.day, agg);
   }
 
+  // Paid-credit attribution per URL (only reservations in reserved/consumed
+  // state count — template-deduped jobs carry NULL and cost nothing).
+  const { results: spendRows } = await c.env.DB.prepare(`
+    SELECT lower(rtrim(j.url, '/')) as ukey, r.source as source, SUM(r.units) as units
+    FROM optimization_credit_reservations r
+    JOIN optimization_jobs j ON j.id = r.job_id
+    WHERE j.site_id = ? AND r.state IN ('reserved', 'consumed')
+    GROUP BY ukey, source
+  `)
+    .bind(siteId)
+    .all<{ ukey: string; source: string; units: number }>()
+    .catch(() => ({ results: [] as Array<{ ukey: string; source: string; units: number }> }));
+  const spendByUrl = new Map<string, { credits: number; sources: Record<string, number> }>();
+  for (const row of spendRows) {
+    const key = row.ukey;
+    let entry = spendByUrl.get(key);
+    if (!entry) {
+      entry = { credits: 0, sources: {} };
+      spendByUrl.set(key, entry);
+    }
+    entry.credits += row.units || 0;
+    entry.sources[row.source || 'manual'] = (entry.sources[row.source || 'manual'] || 0) + (row.units || 0);
+  }
+
   return c.json({
     success: true,
     data: {
@@ -477,6 +501,8 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
             ? Math.round((p.critical_css_bytes / 1024) * 10) / 10
             : null,
         lcpImageUrl: p.lcp_image_url || null,
+        credits: spendByUrl.get(p.url.toLowerCase().replace(/\/+$/, ''))?.credits ?? 0,
+        sources: spendByUrl.get(p.url.toLowerCase().replace(/\/+$/, ''))?.sources ?? {},
       })),
       rum: Array.from(rumByDay.values()),
       rumRetentionDays,

@@ -9,9 +9,13 @@ import {
   releaseReservationForJob,
   reserveCredits,
 } from './entitlements.js';
+import { hashUrlContent, parseSiteScope, urlInScope } from './scope.js';
+import { completeFromTemplate, lookupTemplate } from './template-dedup.js';
 
-/** How many additional internal pages to optimize after the homepage. */
-const MAX_CRAWL_PAGES = 5;
+/** Per-seed crawl ceiling: plan caps above this still apply as the max. */
+const CRAWL_PER_SEED_CAP = 25;
+/** Failed URLs are not re-crawled until this long after their last failure. */
+const FAILED_CRAWL_RETRY_AFTER_SEC = 7 * 86400;
 /** Hard cap of queued/processing jobs per site (prevents runaway crawling). */
 const MAX_ACTIVE_JOBS_PER_SITE = 12;
 
@@ -69,9 +73,12 @@ async function pushOptimizationCallback(
 
 /**
  * Multi-page optimization: after a root-page job completes, enqueue jobs for
- * the most prominent internal links discovered on the page. Deduplicates
- * against every non-failed job the site already has, respects the active-jobs
- * cap, and never fails the seed job (best-effort, fully guarded).
+ * the most prominent internal links discovered on the page. Runs only when
+ * the plan allows crawling AND the site opted in (crawl_enabled, default
+ * off). Deduplicates against recent jobs (failed URLs cool down 7 days),
+ * filters by optimization scope, completes known templates free via a cheap
+ * pre-check (no browser), respects the per-seed and active-jobs caps, and
+ * never fails the seed job (best-effort, fully guarded).
  */
 async function enqueueCrawlJobs(
   env: Env,
@@ -96,8 +103,18 @@ async function enqueueCrawlJobs(
     if (!loaded || !loaded.plan.crawlEnabled) {
       return;
     }
+    // Per-site opt-in (default OFF): unattended fan-out at 2 credits per
+    // URL burned entire monthly quotas. The dashboard toggle enables it.
+    const scopeRow = await env.DB.prepare('SELECT config_json FROM sites WHERE id = ?')
+      .bind(siteId)
+      .first<{ config_json: string | null }>()
+      .catch(() => null);
+    const siteScope = parseSiteScope(scopeRow?.config_json);
+    if (!siteScope.crawlEnabled) {
+      return;
+    }
     const { subscription, plan } = loaded;
-    const maxCrawl = Math.max(1, plan.maxCrawlPages);
+    const maxCrawl = Math.min(Math.max(1, plan.maxCrawlPages), CRAWL_PER_SEED_CAP);
     const jobPriority: 'high' | 'normal' =
       plan.priority === 'priority' || plan.priority === 'dedicated' ? 'high' : 'normal';
 
@@ -109,21 +126,58 @@ async function enqueueCrawlJobs(
     const activeCount = active?.n || 0;
     if (activeCount >= MAX_ACTIVE_JOBS_PER_SITE) return;
 
+    const nowSec = Math.floor(Date.now() / 1000);
     const picked: string[] = [];
     for (const link of links) {
       if (picked.length >= maxCrawl || activeCount + picked.length * 2 >= MAX_ACTIVE_JOBS_PER_SITE) break;
+      // Scope filter: out-of-scope links never spend, even as crawl seeds.
+      if (!urlInScope(link, siteScope)) continue;
       const normalized = link.replace(/\/+$/, '');
-      const exists = await env.DB.prepare(
-        "SELECT id FROM optimization_jobs WHERE site_id = ? AND status != 'failed' AND lower(rtrim(url, '/')) = lower(?) LIMIT 1"
+      const latest = await env.DB.prepare(
+        "SELECT status, created_at FROM optimization_jobs WHERE site_id = ? AND lower(rtrim(url, '/')) = lower(?) ORDER BY created_at DESC LIMIT 1"
       )
         .bind(siteId, normalized)
-        .first();
-      if (!exists) picked.push(link);
+        .first<{ status: string; created_at: number }>();
+      if (latest) {
+        // Terminally-failed URLs are retried only after a cooldown — never
+        // re-paid on every root completion. Anything else dedups.
+        if (latest.status === 'failed') {
+          if (nowSec - (latest.created_at || 0) < FAILED_CRAWL_RETRY_AFTER_SEC) continue;
+        } else {
+          continue;
+        }
+      }
+      picked.push(link);
     }
     if (picked.length === 0) return;
 
-    console.log(`[Crawl] Enqueueing ${picked.length} internal pages for site ${siteId} (plan max: ${maxCrawl})`);
+    console.log(`[Crawl] Enqueueing ${picked.length} internal pages for site ${siteId} (per-seed cap: ${maxCrawl})`);
     for (const url of picked) {
+      // Template pre-check via cheap plain-HTTP fetch (no browser): known
+      // templates complete free for both viewports and never touch credits.
+      // The hash is attached to real jobs so extraction saves the KV entry.
+      const linkHash = await hashUrlContent(env, url);
+      if (linkHash) {
+        let freeCount = 0;
+        for (const viewport of ['mobile', 'desktop'] as ViewportMode[]) {
+          const template = await lookupTemplate(env, siteId, linkHash, viewport);
+          if (
+            template &&
+            (await completeFromTemplate(env, {
+              siteId,
+              url,
+              viewport,
+              jobId: generateJobId(),
+              priority: jobPriority,
+              template,
+            }))
+          ) {
+            freeCount++;
+          }
+        }
+        if (freeCount === 2) continue;
+      }
+
       for (const viewport of ['mobile', 'desktop'] as ViewportMode[]) {
         const jobId = generateJobId();
 
@@ -147,11 +201,11 @@ async function enqueueCrawlJobs(
           .run();
         await env.KV.put(
           `job:${jobId}`,
-          JSON.stringify({ status: 'queued', url, viewport, siteId }),
+          JSON.stringify({ status: 'queued', url, viewport, siteId, ...(linkHash ? { structureHash: linkHash } : {}) }),
           { expirationTtl: 3600 }
         );
         try {
-          await env.OPTIMIZATION_QUEUE.send({ jobId, siteId, url, viewport, attempt: 1 });
+          await env.OPTIMIZATION_QUEUE.send({ jobId, siteId, url, viewport, attempt: 1, ...(linkHash ? { structureHash: linkHash } : {}) });
         } catch (sendErr) {
           console.warn('[Crawl] queue send failed:', sendErr);
           // Mark the orphaned job terminally failed too — otherwise it sits

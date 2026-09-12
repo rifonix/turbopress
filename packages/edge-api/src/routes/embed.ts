@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env, AppVariables } from '../types/env.js';
-import { hmacSha256Hex, normalizeDomain, sha256, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
+import { hmacSha256Hex, normalizeDomain, SiteConfigSchema, generateJobId } from '@wpinstant/shared';
 import type { ViewportMode, PlanContract } from '@wpinstant/shared';
 import { checkRateLimit } from '../middleware/rate-limit.js';
 import {
@@ -11,6 +11,8 @@ import {
   reserveCredits,
 } from '../services/entitlements.js';
 import { pushPluginCommand } from '../services/plugin-commands.js';
+import { hashUrlContent, parseSiteScope, urlInScope } from '../services/scope.js';
+import { completeFromTemplate, lookupTemplate } from '../services/template-dedup.js';
 
 /**
  * Embed routes: let the WP-admin iframe drive the SaaS control plane
@@ -231,6 +233,19 @@ embedRoutes.post('/site/dispatch', async (c) => {
     return c.json({ success: false, error: 'URL does not belong to this site' }, 400);
   }
 
+  // Optimization-scope gate: enforced BEFORE any credit reservation.
+  const embedScope = parseSiteScope(site.config_json);
+  if (!urlInScope(url, embedScope)) {
+    return c.json(
+      {
+        success: false,
+        code: 'OUT_OF_SCOPE',
+        error: 'URL is outside this site\u2019s optimization scope. Add it to the main-pages list in site settings to optimize it.',
+      },
+      403
+    );
+  }
+
   // Commercial gate: active subscription + plan concurrency + credits.
   const loaded = await loadSubscriptionForSite(c.env, site.id);
   if (!loaded) {
@@ -265,67 +280,26 @@ embedRoutes.post('/site/dispatch', async (c) => {
   for (const viewport of viewports) {
     const jobId = generateJobId();
 
-    // Template dedup BEFORE any credit reservation: a page sharing another
-    // page's DOM structure completes instantly from the edge KV cache for
-    // free (same guarantee as POST /optimize/dispatch).
-    if (structureHash) {
-      try {
-        const cached = await c.env.KV.get<{
-          criticalCssR2Key: string;
-          criticalCssBytes: number;
-          lcpSelector?: string;
-          lcpImageUrl?: string;
-        }>(`template:${site.id}:${structureHash}:${viewport}`, 'json');
-        if (cached?.criticalCssR2Key) {
-          const thisUrlKey = `sites/${site.id}/css/${(await sha256(url)).slice(0, 32)}_${viewport}`;
-          let fulfilledKey = cached.criticalCssR2Key;
-          if (thisUrlKey !== cached.criticalCssR2Key) {
-            const src = await c.env.ASSETS_BUCKET.get(cached.criticalCssR2Key).catch(() => null);
-            if (src) {
-              await c.env.ASSETS_BUCKET.put(thisUrlKey, src.body, { httpMetadata: src.httpMetadata });
-              fulfilledKey = thisUrlKey;
-            } else {
-              fulfilledKey = '';
-            }
-          }
-          if (fulfilledKey) {
-            await c.env.DB.prepare(`
-              INSERT INTO optimization_jobs (id, site_id, url, viewport, status, priority, credit_reservation_id, critical_css_r2_key, critical_css_bytes, lcp_selector, lcp_image_url, attempts, created_at, completed_at)
-              VALUES (?, ?, ?, ?, 'completed', ?, NULL, ?, ?, ?, ?, 1, unixepoch(), unixepoch())
-            `)
-              .bind(
-                jobId,
-                site.id,
-                url,
-                viewport,
-                jobPriority,
-                fulfilledKey,
-                cached.criticalCssBytes,
-                cached.lcpSelector || null,
-                cached.lcpImageUrl || null
-              )
-              .run();
-            await c.env.KV.put(
-              `job:${jobId}`,
-              JSON.stringify({
-                status: 'completed',
-                url,
-                viewport,
-                siteId: site.id,
-                criticalCssR2Key: fulfilledKey,
-                criticalCssBytes: cached.criticalCssBytes,
-                lcpImageUrl: cached.lcpImageUrl,
-                fromTemplateCache: true,
-              }),
-              { expirationTtl: 86400 }
-            );
-            createdJobs.push({ jobId, viewport, status: 'completed' });
-            freeDeduped++;
-            continue;
-          }
-        }
-      } catch {
-        /* KV/R2 hiccup — fall through to a real extraction */
+    // Template dedup BEFORE any credit reservation (shared helper — same
+    // guarantee as POST /optimize/dispatch). Falls back to an edge-side
+    // hash when the caller sent none.
+    const embedHash = structureHash || (await hashUrlContent(c.env, url)) || '';
+    if (embedHash) {
+      const template = await lookupTemplate(c.env, site.id, embedHash, viewport);
+      if (
+        template &&
+        (await completeFromTemplate(c.env, {
+          siteId: site.id,
+          url,
+          viewport,
+          jobId,
+          priority: jobPriority,
+          template,
+        }))
+      ) {
+        createdJobs.push({ jobId, viewport, status: 'completed' });
+        freeDeduped++;
+        continue;
       }
     }
 
@@ -361,7 +335,7 @@ embedRoutes.post('/site/dispatch', async (c) => {
 
     await c.env.KV.put(
       `job:${jobId}`,
-      JSON.stringify({ status: 'queued', url, viewport, siteId: site.id, targetDomain: site.domain }),
+      JSON.stringify({ status: 'queued', url, viewport, siteId: site.id, targetDomain: site.domain, ...(embedHash ? { structureHash: embedHash } : {}) }),
       { expirationTtl: 3600 }
     );
 
@@ -373,6 +347,7 @@ embedRoutes.post('/site/dispatch', async (c) => {
           url,
           viewport,
           attempt: 1,
+          ...(embedHash ? { structureHash: embedHash } : {}),
         });
       } catch (err) {
         // Roll back instead of leaving a zombie 'queued' job + false 200.

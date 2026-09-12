@@ -396,6 +396,12 @@ class Plugin {
             if (CriticalCssTransformer::has_fresh_cache_for_url($url)) {
                 return;
             }
+            // Scope changed while this event was queued: never dispatch an
+            // out-of-scope URL (the edge would 403 it anyway).
+            $scope_check = new CriticalCssTransformer($this->config, $this->api_client);
+            if (!$scope_check->is_url_in_scope($url)) {
+                return;
+            }
             $dispatch = $this->api_client->dispatch_optimization($url, ['mobile', 'desktop'], $this->compute_template_hash($url));
             $created = $dispatch['data']['jobs'] ?? null;
 

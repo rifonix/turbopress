@@ -82,7 +82,9 @@ export const PRESET_SAFE: SiteConfig = {
     strip_query_params: DEFAULT_QUERY_PARAMS_STRIP,
     excluded_urls: DEFAULT_EXCLUDED_URLS,
     excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
-    optimize_only_urls: []
+    optimize_only_urls: [],
+    optimize_scope: 'main-pages',
+    crawl_enabled: false
   },
   bloat: {
     disable_emojis: true,
@@ -179,7 +181,9 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     strip_query_params: DEFAULT_QUERY_PARAMS_STRIP,
     excluded_urls: DEFAULT_EXCLUDED_URLS,
     excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
-    optimize_only_urls: []
+    optimize_only_urls: [],
+    optimize_scope: 'main-pages',
+    crawl_enabled: false
   },
   bloat: {
     disable_emojis: true,
@@ -279,7 +283,9 @@ export const PRESET_LUDICROUS: SiteConfig = {
     strip_query_params: DEFAULT_QUERY_PARAMS_STRIP,
     excluded_urls: DEFAULT_EXCLUDED_URLS,
     excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
-    optimize_only_urls: []
+    optimize_only_urls: [],
+    optimize_scope: 'main-pages',
+    crawl_enabled: false
   },
   bloat: {
     disable_emojis: true,

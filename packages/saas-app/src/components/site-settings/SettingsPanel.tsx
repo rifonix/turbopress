@@ -188,10 +188,24 @@ export function SettingsPanel({ config, upsert, applyPreset, siteContext, classN
           <Toggle label="Purge on post update" checked={!!getPath(config, 'caching.purge_on_post_update')} onChange={(v) => upsert('caching.purge_on_post_update', v)} />
           <Toggle label="Purge on new comment" checked={!!getPath(config, 'caching.purge_on_comment')} onChange={(v) => upsert('caching.purge_on_comment', v)} />
           <Toggle label="Warm cache after purge" hint="Re-render purged pages in the background" checked={!!getPath(config, 'caching.warm_after_purge')} onChange={(v) => upsert('caching.warm_after_purge', v)} />
+          <div className="py-2.5">
+            <span className="block text-[13px] font-medium text-[#18181b]">Optimization scope</span>
+            <span className="block text-[11px] text-[#71717a] mb-1.5">Which pages may spend extraction credits. Homepage is always included.</span>
+            <select
+              className="w-full rounded-lg border border-[#e4e4e7] bg-white px-2.5 py-2 text-[13px] text-[#18181b]"
+              value={getPath(config, 'caching.optimize_scope') || 'main-pages'}
+              onChange={(e) => upsert('caching.optimize_scope', e.target.value)}
+            >
+              <option value="main-pages">Main pages — homepage + list below (1–2 credits each)</option>
+              <option value="templates-only">Templates only — first of each template pays, repeats free</option>
+              <option value="all">All pages — every URL pays (can burn quotas fast)</option>
+            </select>
+          </div>
+          <Toggle label="Auto-crawl discovered pages" hint="After a homepage run, optimize linked pages too (2 credits each, off by default)" checked={!!getPath(config, 'caching.crawl_enabled')} onChange={(v) => upsert('caching.crawl_enabled', v)} />
           <ListField
             label="Optimize-only URLs"
-            hint="When set, ONLY these paths are optimized (wildcards ok, one per line). Leave empty to optimize everything."
-            placeholder={'/landing/*\n/'}
+            hint="Main-pages list (wildcards ok, one per line). Leave empty for homepage only."
+            placeholder={'/landing/*\n/pricing/'}
             plugins={sitePlugins}
             value={getPath(config, 'caching.optimize_only_urls') || []}
             onChange={(v) => upsert('caching.optimize_only_urls', v)}

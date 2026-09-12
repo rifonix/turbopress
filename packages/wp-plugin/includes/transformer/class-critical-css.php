@@ -389,6 +389,38 @@ class CriticalCssTransformer {
         return md5(implode('|', $parts));
     }
 
+    /**
+     * Mirror of the edge scope gate (edge-api/src/services/scope.ts):
+     * homepage always in scope; 'all' passes everything; 'main-pages'
+     * passes the homepage plus the optimize_only_urls allowlist (same
+     * wildcard semantics as CacheRules); 'templates-only' passes through
+     * to edge-side template dedup (first of each template pays once).
+     */
+    public function is_url_in_scope(string $url): bool {
+        $scope = (string) $this->config->get('caching.optimize_scope', 'main-pages');
+        if ($scope === 'all' || $scope === '') {
+            return true;
+        }
+        $path = strtolower((string) parse_url($url, PHP_URL_PATH));
+        if ($path === '' || $path === '/') {
+            return true;
+        }
+        if ($scope !== 'main-pages') {
+            return true;
+        }
+        foreach ((array) $this->config->get('caching.optimize_only_urls', []) as $pattern) {
+            $pattern = (string) $pattern;
+            if ($pattern === '') {
+                continue;
+            }
+            $regex = '#^' . str_replace('\\*', '.*', preg_quote($pattern, '#')) . '$#i';
+            if (@preg_match($regex, $path) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function fingerprint_key(string $url): string {
         $parsed = parse_url($url);
         $path = strtolower($parsed['path'] ?? '/');
@@ -418,6 +450,13 @@ class CriticalCssTransformer {
 
     private function maybe_dispatch_generation(string $url, ?string $fingerprint = null): void {
         if (!$this->config->is_connected()) {
+            return;
+        }
+
+        // Optimization-scope pre-gate (defense in depth; the edge enforces
+        // the same rule before any credit reservation): out-of-scope URLs
+        // never schedule extraction, so bot-discovered pages cannot spend.
+        if (!$this->is_url_in_scope($url)) {
             return;
         }
 

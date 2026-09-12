@@ -74,6 +74,10 @@ export interface SitePageItem {
   cssAgeHours: number | null;
   criticalCssKb: number | null;
   lcpImageUrl: string | null;
+  /** paid credits attributed to this URL (template-deduped jobs cost 0) */
+  credits: number;
+  /** credit units by reservation source (manual/crawl/rerun) */
+  sources: Record<string, number>;
 }
 
 export interface RumDay {
