@@ -14,7 +14,6 @@ import { MarketingShell } from '@/components/marketing/MarketingShell';
 import { SectionHeading, TitleAccent } from '@/components/marketing/SectionHeading';
 import { FeatureCard } from '@/components/marketing/FeatureCard';
 import { FeaturesShowcase } from '@/components/marketing/FeaturesShowcaseLazy';
-import { CoralZone } from '@/components/marketing/CoralZone';
 import { CountUp } from '@/components/marketing/CountUp';
 import { HeroDashboard } from '@/components/marketing/HeroDashboard';
 import { OptimizationPipeline } from '@/components/marketing/OptimizationPipeline';
@@ -188,7 +187,7 @@ export default function HomePage() {
       />
 
       {/* Hero */}
-      <section className="relative overflow-hidden pt-16 md:pt-20" aria-labelledby="homepage-hero-title">
+      <section className="relative overflow-hidden pb-16 pt-16 md:pb-20 md:pt-20" aria-labelledby="homepage-hero-title">
         <div
           className="pointer-events-none absolute inset-0 -z-10"
           style={{ background: 'radial-gradient(70rem 30rem at 50% -12rem, rgba(240,62,47,0.10), transparent 65%)' }}
@@ -213,7 +212,7 @@ export default function HomePage() {
               Create account
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
-            <a href="#features" className="btn btn-ghost min-h-12 bg-white px-6 text-[15px] shadow-sm hover:shadow">
+            <a href="#features" className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-white px-6 text-[15px] font-medium text-[#171717] shadow-sm transition-all hover:-translate-y-px hover:shadow">
               See how it works
             </a>
           </div>
@@ -223,7 +222,7 @@ export default function HomePage() {
           <HeroDashboard />
         </div>
 
-        <div className="mx-auto mt-16 max-w-7xl px-6">
+        <div className="relative z-10 mx-auto -mt-24 max-w-7xl px-6 md:-mt-32">
           <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {heroFacts.map((fact) => (
               <div key={fact.label} className="rounded-2xl bg-white px-6 py-8 text-center shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
@@ -251,10 +250,12 @@ export default function HomePage() {
             <FeatureCard key={feature.title} {...feature} />
           ))}
         </div>
-        <Link href="/features" className="btn btn-secondary mt-10 w-fit">
-          Explore features
-          <ArrowRight className="h-4 w-4" aria-hidden="true" />
-        </Link>
+          <div className="mt-10 flex justify-center">
+            <Link href="/features" className="btn btn-secondary w-fit">
+              Explore features
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -271,24 +272,23 @@ export default function HomePage() {
         <OptimizationPipeline />
       </section>
 
-      {/* Automation + trust — dark band */}
-      <section className="bg-[#171717] text-white" aria-labelledby="automation-title">
+      {/* Automation + trust */}
+      <section className="bg-[#fbfbfa]" aria-labelledby="automation-title">
         <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <SectionHeading
-            tone="light"
             id="automation-title"
             eyebrow="Safe automation"
-            title={<>Automatic where it helps. <TitleAccent light>Accountable where it matters.</TitleAccent></>}
+            title={<>Automatic where it helps. <TitleAccent>Accountable where it matters.</TitleAccent></>}
             description="Automation should not mean losing control. Pairing, cache invalidation, tenant isolation, and per-site telemetry are built into the platform contract."
           />
           <div className="mt-14 grid gap-5 lg:grid-cols-3">
             {automationFeatures.map((feature) => (
-              <article key={feature.title} className="rounded-2xl bg-white/[0.06] p-7 transition-colors duration-300 hover:bg-white/[0.09]">
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-[#f03e2f] text-white">
+              <article key={feature.title} className="rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
+                <span className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff1ef] text-[#f03e2f]">
                   <feature.icon className="h-5 w-5" aria-hidden="true" />
                 </span>
                 <h3 className="mt-6 text-lg font-semibold tracking-[-0.02em]">{feature.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-white/65">{feature.body}</p>
+                <p className="mt-3 text-sm leading-relaxed text-[#71717a]">{feature.body}</p>
               </article>
             ))}
           </div>
@@ -296,7 +296,8 @@ export default function HomePage() {
       </section>
 
       {/* Adoption — numbered timeline */}
-      <section className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="adoption-title">
+      <section className="bg-white" aria-labelledby="adoption-title">
+        <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
         <SectionHeading
           align="center"
           eyebrow="Getting started"
@@ -334,6 +335,7 @@ export default function HomePage() {
             </li>
           ))}
         </ol>
+        </div>
       </section>
 
       {/* Presets — line-art cards */}
@@ -372,14 +374,6 @@ export default function HomePage() {
             Actual results depend on host, theme, plugins, third-party scripts, and content.
           </p>
         </div>
-      </section>
-
-      {/* More value */}
-      <section className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="more-title">
-        <h2 id="more-title" className="sr-only">
-          More reasons teams choose WP Instant
-        </h2>
-        <CoralZone />
       </section>
 
       {/* Pricing */}
