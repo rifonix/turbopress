@@ -125,18 +125,83 @@ const presets = [
     name: 'Safe Mode',
     range: '80–88 expected mobile score',
     body: 'Drop-in caching, compression, and native prerendering foundations for sites that need conservative behavior.',
+    art: 'shield',
   },
   {
     name: 'Aggressive',
     range: '90–94 expected mobile score',
     body: 'Adds edge Critical CSS inlining and automatic LCP priority preload while retaining defer-only JavaScript handling.',
+    art: 'gauge',
   },
   {
     name: 'Ludicrous',
     range: '96–100 expected mobile score',
     body: 'Adds three-tier interaction-delayed JavaScript plus dynamic nonce and cart hydration for advanced stores and sites.',
+    art: 'bolt',
   },
-];
+  {
+    name: 'Custom',
+    range: 'Your rules, your call',
+    body: 'Start from any preset, then tune every switch per page, template, role, or device until it fits exactly.',
+    art: 'sliders',
+  },
+] as const;
+
+function PresetArt({ kind }: { kind: string }) {
+  const stroke = '#3f3f46';
+  const common = {
+    fill: 'none',
+    stroke,
+    strokeWidth: 1.5,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  } as const;
+  if (kind === 'shield') {
+    return (
+      <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
+        <ellipse cx="60" cy="60" rx="46" ry="46" fill="none" stroke={stroke} strokeWidth="1" strokeDasharray="3 4" opacity="0.55" />
+        <ellipse cx="60" cy="60" rx="46" ry="18" fill="none" stroke={stroke} strokeWidth="1" opacity="0.7" transform="rotate(-24 60 60)" />
+        <circle cx="106" cy="60" r="2" fill={stroke} />
+        <circle cx="14" cy="60" r="2" fill={stroke} />
+        <path d="M60 34l18 7v12c0 12-8 20-18 25-10-5-18-13-18-25V41l18-7z" {...common} />
+        <path d="M53 56l5 5 9-11" {...common} />
+      </svg>
+    );
+  }
+  if (kind === 'gauge') {
+    return (
+      <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
+        <path d="M22 84a38 38 0 0 1 76 0" {...common} />
+        {[22, 34, 60, 86, 98].map((x, i) => (
+          <line key={i} x1={x} y1={i === 2 ? 40 : 46} x2={x} y2={52} {...common} opacity={i === 2 ? 1 : 0.6} />
+        ))}
+        <line x1="60" y1="84" x2="82" y2="58" {...common} />
+        <circle cx="60" cy="84" r="3.5" fill={stroke} />
+        <path d="M96 30l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5z" {...common} />
+      </svg>
+    );
+  }
+  if (kind === 'bolt') {
+    return (
+      <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
+        <rect x="26" y="26" width="68" height="68" fill="none" stroke={stroke} strokeWidth="1" strokeDasharray="4 4" opacity="0.55" />
+        <path d="M66 30L44 64h13l-5 26 24-36H63l3-24z" {...common} />
+        <path d="M92 22l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8z" {...common} />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 120 120" className="h-36 w-36" aria-hidden="true">
+      <rect x="24" y="24" width="72" height="72" fill="none" stroke={stroke} strokeWidth="1" strokeDasharray="4 4" opacity="0.55" />
+      <line x1="34" y1="48" x2="86" y2="48" {...common} opacity="0.6" />
+      <circle cx="52" cy="48" r="6" {...common} fill="#f4f2ec" />
+      <line x1="34" y1="66" x2="86" y2="66" {...common} opacity="0.6" />
+      <circle cx="70" cy="66" r="6" {...common} fill="#f4f2ec" />
+      <line x1="34" y1="84" x2="86" y2="84" {...common} opacity="0.6" />
+      <circle cx="44" cy="84" r="6" {...common} fill="#f4f2ec" />
+    </svg>
+  );
+}
 
 export default function HomePage() {
   return (
@@ -334,35 +399,35 @@ export default function HomePage() {
         </ol>
       </section>
 
-      {/* Presets — comparison rows */}
+      {/* Presets — line-art cards */}
       <section className="bg-[#fbfbfa]" aria-labelledby="presets-title">
-        <div className="mx-auto max-w-5xl px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <SectionHeading
             eyebrow="Performance presets"
             title="Choose the risk level, not every switch"
             description="Each preset is a named contract. Start safely, then move up when your theme, plugins, and transaction flows are ready."
           />
-          <div className="mt-12 overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(23,23,23,0.06)]">
+          <div className="mt-14 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
             {presets.map((preset, index) => (
-              <div
+              <article
                 key={preset.name}
-                className={`grid gap-3 p-6 transition-colors hover:bg-[#fbfbfa] sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] sm:items-center sm:gap-6 sm:px-8 ${
-                  index > 0 ? 'border-t border-[#f1f1f2]' : ''
-                }`}
+                className="group flex flex-col rounded-[20px] bg-[#f1efe9] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.10)]"
               >
-                <div>
-                  <h3 className="text-lg font-semibold tracking-[-0.02em]">{preset.name}</h3>
-                  <p className="meta mt-1 text-[#dc2e20]">{preset.range}</p>
+                <div className="grid place-items-center py-4 text-[#3f3f46] transition-transform duration-500 group-hover:scale-[1.04]">
+                  <PresetArt kind={preset.art} />
                 </div>
-                <p className="text-sm leading-relaxed text-[#71717a]">{preset.body}</p>
+                <p className="meta mt-6 text-[#dc2e20]">0{index + 1}</p>
+                <h3 className="mt-2 text-lg font-semibold tracking-[-0.01em]">{preset.name}</h3>
+                <p className="meta mt-1">{preset.range}</p>
+                <p className="mt-3 text-sm leading-relaxed text-[#71717a]">{preset.body}</p>
                 <Link
                   href="/sign-up"
-                  className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl bg-[#171717] px-5 text-sm font-semibold text-white transition-all hover:-translate-y-px hover:bg-[#f03e2f]"
+                  className="mt-6 inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-[#171717] transition-colors hover:text-[#f03e2f]"
                 >
                   Start with {preset.name.split(' ')[0]}
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true" />
                 </Link>
-              </div>
+              </article>
             ))}
           </div>
           <p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-[#a1a1aa]">
