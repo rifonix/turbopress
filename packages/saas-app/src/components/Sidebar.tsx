@@ -5,6 +5,7 @@ import { LayoutGrid, Globe, Activity, CreditCard, Link2, Sparkles, LogIn } from 
 import { ExtendedSite } from '../types';
 import { SignedIn, SignedOut, OrganizationSwitcher } from '@clerk/nextjs';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { CustomUserButton } from './auth/CustomUserButton';
 
@@ -53,11 +54,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={onClose}
           className="flex items-center gap-2.5 px-2 py-3 mb-1 cursor-pointer group select-none"
         >
-          <span className="w-7 h-7 rounded-lg bg-[#171717] text-white flex items-center justify-center flex-none shadow-sm group-hover:bg-[#f03e2f] transition-colors">
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-              <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" strokeLinejoin="round" />
-            </svg>
-          </span>
+          <Image
+            src="/wp-instant-logo.svg"
+            alt=""
+            width={28}
+            height={28}
+            className="h-7 w-7 flex-none rounded-[7px]"
+          />
           <span className="font-semibold text-[15px] tracking-tight text-[#171717]">
             WP Instant <em className="italic font-normal text-[#71717a] not-italic">Engine</em>
           </span>

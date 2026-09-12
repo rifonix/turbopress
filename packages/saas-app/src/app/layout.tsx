@@ -13,7 +13,8 @@ export const metadata: Metadata = {
   description:
     'Automatic critical CSS, image transcoding, script delay, and full-page caching on the edge. Install the plugin and your WordPress site loads instantly.',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/wp-instant-logo.svg',
+    apple: '/wp-instant-logo.svg',
   },
   robots: {
     index: true,

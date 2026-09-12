@@ -18,6 +18,9 @@ import {
 import { MarketingShell } from '@/components/marketing/MarketingShell';
 import { SectionHeading } from '@/components/marketing/SectionHeading';
 import { FeatureCard } from '@/components/marketing/FeatureCard';
+import { FeaturesShowcase } from '@/components/marketing/FeaturesShowcase';
+import { CoralZone } from '@/components/marketing/CoralZone';
+import { CountUp } from '@/components/marketing/CountUp';
 import { HeroDashboard } from '@/components/marketing/HeroDashboard';
 import { OptimizationPipeline } from '@/components/marketing/OptimizationPipeline';
 import { PricingCards } from '@/components/marketing/PricingCards';
@@ -221,7 +224,9 @@ export default function HomePage() {
             {heroFacts.map((fact) => (
               <div key={fact.label} className="bg-white px-6 py-8 text-center">
                 <dt className="order-2 mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{fact.label}</dt>
-                <dd className="order-1 text-2xl font-semibold tracking-[-0.03em]">{fact.value}</dd>
+                <dd className="order-1 text-2xl font-semibold tracking-[-0.03em]">
+                  <CountUp value={fact.value} />
+                </dd>
               </div>
             ))}
           </dl>
@@ -247,6 +252,8 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      <FeaturesShowcase />
 
       {/* Pipeline */}
       <section className="mx-auto max-w-7xl px-6 pb-24 md:pb-32" aria-labelledby="pipeline-title">
@@ -347,27 +354,10 @@ export default function HomePage() {
 
       {/* More value */}
       <section className="mx-auto max-w-7xl px-6 py-24 md:py-32" aria-labelledby="more-title">
-        <div className="overflow-hidden rounded-[2rem] bg-[#f03e2f] px-6 py-16 text-white md:px-14 md:py-20">
-          <div className="max-w-3xl">
-            <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-white/80">More reasons teams choose WP Instant</p>
-            <h2 id="more-title" className="mt-4 text-balance text-[clamp(1.75rem,4vw,2.5rem)] font-semibold leading-[1.1] tracking-[-0.03em]">
-              Built for stores, publishers, and site fleets
-            </h2>
-          </div>
-          <div className="mt-10 grid gap-4 md:grid-cols-2">
-            {[
-              { title: 'WooCommerce-aware', body: 'Dynamic handling protects cart, checkout, and nonce behavior while static assets stay optimized.' },
-              { title: 'Agency and multisite ready', body: 'Manage up to 25 sites on Agency, or contract Scale capacity for up to 100 sites.' },
-              { title: 'Regression visibility', body: 'Real-user health history helps identify slowdowns after content, plugin, or release changes.' },
-              { title: 'Crawl optimization', body: 'Growth and higher plans can optimize URL collections instead of submitting every page manually.' },
-            ].map((item) => (
-              <article key={item.title} className="rounded-2xl border border-white/20 bg-white/10 p-6 transition-colors hover:bg-white/16">
-                <h3 className="text-base font-semibold">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-white/85">{item.body}</p>
-              </article>
-            ))}
-          </div>
-        </div>
+        <h2 id="more-title" className="sr-only">
+          More reasons teams choose WP Instant
+        </h2>
+        <CoralZone />
       </section>
 
       {/* Pricing */}

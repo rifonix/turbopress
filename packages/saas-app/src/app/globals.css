@@ -250,3 +250,85 @@ body {
     transition: none;
   }
 }
+
+/* Coral zone (sample-style interactive cards on brand gradient) */
+.coral-zone {
+  border-radius: 24px;
+  padding: 56px 44px 44px;
+  color: #fff;
+  background:
+    radial-gradient(ellipse 80% 60% at 85% -10%, #e0654a, transparent 60%),
+    linear-gradient(160deg, #f03e2f, #c52518);
+  box-shadow: 0 18px 42px rgba(23, 23, 23, 0.08);
+}
+.coral-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 36px;
+}
+.coral-card {
+  border-radius: 16px;
+  padding: 24px;
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(6px);
+  transition: background 0.3s, transform 0.3s;
+}
+.coral-card:hover {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-3px);
+}
+.coral-card h3 { font-size: 16px; font-weight: 600; color: #fff; }
+.coral-card p { font-size: 13px; color: rgba(255, 255, 255, 0.88); margin-top: 8px; line-height: 1.6; }
+.coral-card .mini-ui { margin-top: auto; padding-top: 20px; transition: transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.coral-card:hover .mini-ui { transform: translateY(-4px); }
+.chat-mock { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 16px 48px rgba(23, 23, 23, 0.10); color: #171717; }
+.chat-mock .q { font-size: 12.5px; color: #71717a; font-family: var(--font-mono); }
+.chat-mock .a { margin-top: 8px; font-size: 12.5px; line-height: 1.55; border-left: 2px solid #f03e2f; padding-left: 10px; border-radius: 2px; transition: border-color 0.5s, background 0.5s; }
+.coral-card:hover .chat-mock .a { border-left-color: #16a34a; background: rgba(22, 163, 74, 0.06); }
+.chat-mock .apply { margin-top: 10px; display: inline-flex; font-size: 11.5px; font-weight: 500; background: #171717; color: #fff; border-radius: 7px; padding: 6px 12px; transition: transform 0.3s; cursor: pointer; }
+.coral-card:hover .chat-mock .apply { transform: translateY(-2px); animation: applyPulse 1.6s ease-in-out 0.15s infinite; }
+@keyframes applyPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 62, 47, 0.4); }
+  55% { box-shadow: 0 0 0 8px rgba(240, 62, 47, 0); }
+}
+.slider-mock { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 16px 48px rgba(23, 23, 23, 0.10); color: #171717; }
+.slider-mock .row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: #71717a; }
+.slider-mock .row b { color: #16a34a; font-weight: 500; }
+.coral-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.coral-mini {
+  border-radius: 14px; padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.3s, transform 0.3s;
+}
+.coral-mini:hover { background: rgba(255, 255, 255, 0.14); transform: translateY(-3px); }
+.coral-mini h3 { font-size: 14.5px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+.coral-mini p { font-size: 12.5px; color: rgba(255, 255, 255, 0.86); line-height: 1.6; }
+.coral-mini .cm-ic { color: #fff; margin-bottom: 14px; }
+.coral-mini:hover .cm-bell { animation: bellSwing 0.9s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+.cm-bell { transform-box: fill-box; transform-origin: top center; }
+@keyframes bellSwing {
+  0%, 100% { transform: rotate(0); }
+  18% { transform: rotate(12deg); }
+  42% { transform: rotate(-9deg); }
+  66% { transform: rotate(5deg); }
+  84% { transform: rotate(-2deg); }
+}
+.coral-mini:hover .cm-bolt { animation: boltBlink 0.7s ease-in-out; }
+@keyframes boltBlink { 0%, 100% { opacity: 1; } 30% { opacity: 0.15; } 60% { opacity: 1; } }
+.coral-mini:hover .cm-flame { animation: flameFlick 0.8s ease-in-out; transform-box: fill-box; transform-origin: bottom center; }
+@keyframes flameFlick { 0%, 100% { transform: scale(1); } 35% { transform: scale(1.12) rotate(-3deg); } 65% { transform: scale(0.96) rotate(2deg); } }
+
+@media (max-width: 960px) {
+  .coral-cards, .coral-list { grid-template-columns: 1fr; }
+  .coral-zone { padding: 36px 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coral-card:hover .apply, .coral-mini:hover .cm-bell, .coral-mini:hover .cm-bolt, .coral-mini:hover .cm-flame { animation: none; }
+  .coral-card .mini-ui { transition: none; }
+}
