@@ -322,8 +322,6 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({
         inline_all_threshold: 786432,
       },
       assets: {
-        proxy_enabled: true,
-        keep_origins: [],
         serve_own_from_cdn: true,
       },
       htaccess: {

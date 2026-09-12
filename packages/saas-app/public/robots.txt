@@ -1,2 +1,10 @@
 User-agent: *
 Allow: /
+Disallow: /dashboard/
+Disallow: /sign-in/
+Disallow: /sign-up/
+Disallow: /connect/
+Disallow: /sso-callback/
+Disallow: /embed/
+
+Sitemap: https://wpinstant.dev/sitemap.xml

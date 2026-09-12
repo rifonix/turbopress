@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { wpInstantClerkAppearance } from '@/components/auth/ClerkTheme';
+import { site } from '@/lib/marketing';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(site.url),
   title: {
     default: 'WP Instant — Edge performance for WordPress',
     template: '%s · WP Instant',
@@ -13,6 +15,17 @@ export const metadata: Metadata = {
   icons: {
     icon: '/favicon.ico',
   },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1, 'max-video-preview': -1 },
+  },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#f8f8f7',
 };
 
 const PUBLISHABLE_KEY =

@@ -159,9 +159,8 @@ export function SettingsPanel({ config, upsert, applyPreset, siteContext, classN
           <Toggle label="Resource hints" hint="Auto preconnect for 3rd-party origins" checked={!!getPath(config, 'hints.resource_hints')} onChange={(v) => upsert('hints.resource_hints', v)} />
         </Card>
 
-        <Card title="Asset Proxy & Delivery" icon={<Globe className="w-4 h-4" />}>
-          <Toggle label="Proxy 3rd-party css/js" hint="Serve foreign assets through the signed CDN route" checked={!!getPath(config, 'assets.proxy_enabled')} onChange={(v) => upsert('assets.proxy_enabled', v)} />
-          <Toggle label="Serve own css/js from CDN" hint="Theme bundles, combined CSS and scripts via the edge CDN" checked={!!getPath(config, 'assets.serve_own_from_cdn')} onChange={(v) => upsert('assets.serve_own_from_cdn', v)} />
+        <Card title="Asset Delivery" icon={<Globe className="w-4 h-4" />}>
+          <Toggle label="Serve own css/js from CDN" hint="Theme bundles, combined CSS and scripts via the edge CDN (third-party files always stay on their origin)" checked={!!getPath(config, 'assets.serve_own_from_cdn')} onChange={(v) => upsert('assets.serve_own_from_cdn', v)} />
           <Toggle label="Manage .htaccess" hint="Precompressed assets + immutable cache TTLs" checked={!!getPath(config, 'htaccess.enabled')} onChange={(v) => upsert('htaccess.enabled', v)} />
         </Card>
 
@@ -188,6 +187,7 @@ export function SettingsPanel({ config, upsert, applyPreset, siteContext, classN
           <Toggle label="Separate mobile cache" checked={!!getPath(config, 'caching.mobile_cache')} onChange={(v) => upsert('caching.mobile_cache', v)} />
           <Toggle label="Purge on post update" checked={!!getPath(config, 'caching.purge_on_post_update')} onChange={(v) => upsert('caching.purge_on_post_update', v)} />
           <Toggle label="Purge on new comment" checked={!!getPath(config, 'caching.purge_on_comment')} onChange={(v) => upsert('caching.purge_on_comment', v)} />
+          <Toggle label="Warm cache after purge" hint="Re-render purged pages in the background" checked={!!getPath(config, 'caching.warm_after_purge')} onChange={(v) => upsert('caching.warm_after_purge', v)} />
           <ListField
             label="Optimize-only URLs"
             hint="When set, ONLY these paths are optimized (wildcards ok, one per line). Leave empty to optimize everything."
