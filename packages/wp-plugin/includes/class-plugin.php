@@ -287,7 +287,39 @@ class Plugin {
         if (!headers_sent()) {
             header('X-WP-Instant-Pipeline: transform');
         }
-        ob_start([$this, 'process_output_buffer']);
+        // Fragment-safe buffering: themes that "fast-flush" after <head> and
+        // LiteSpeed output filters deliver the document to the OB callback
+        // in pieces. Returning a fragment for transformation would silently
+        // revert every stage, so chunks are accumulated and transformed only
+        // once the document is complete (</body>). Trailing content after
+        // the transformed document passes through untouched.
+        $this->buffer_accumulator = '';
+        $this->buffer_emitted = false;
+        ob_start([$this, 'buffer_chunk']);
+    }
+
+    /** Accumulated document while the response streams in fragments. */
+    private string $buffer_accumulator = '';
+    private bool $buffer_emitted = false;
+
+    /**
+     * OB callback. Swallows intermediate fragments (returns '') until the
+     * accumulated document contains </body>, then transforms and emits the
+     * whole document at once. Anything arriving after that passes through
+     * raw, so trailing bytes (</html>, late echoes) are never lost.
+     */
+    public function buffer_chunk(string $chunk): string {
+        if ($this->buffer_emitted) {
+            return $chunk;
+        }
+        $this->buffer_accumulator .= $chunk;
+        if (stripos($this->buffer_accumulator, '</body>') === false) {
+            return '';
+        }
+        $this->buffer_emitted = true;
+        $document = $this->buffer_accumulator;
+        $this->buffer_accumulator = '';
+        return $this->process_output_buffer($document);
     }
 
     /**
