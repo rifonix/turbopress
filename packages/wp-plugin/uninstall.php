@@ -34,6 +34,7 @@ $wp_instant_options = [
     'wp_instant_media_queue',
     'wp_instant_lcp_images',
     'wp_instant_css_dispatched',
+    'wp_instant_cdn_onboarded',
     'wp_instant_dropin_conflict',
     'wp_instant_do_activation_redirect',
 ];

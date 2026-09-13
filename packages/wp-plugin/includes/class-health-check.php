@@ -147,6 +147,12 @@ class HealthCheck {
                 'detail' => 'HMAC push verification',
             ],
             [
+                'key' => 'cdn_offload_active',
+                'label' => 'CDN media offload active',
+                'status' => $this->cdn_offload_status(),
+                'detail' => $this->cdn_offload_detail(),
+            ],
+            [
                 'key' => 'plugin_version_current',
                 'label' => 'Plugin version current',
                 'status' => get_option('wp_instant_version') === WP_INSTANT_VERSION ? 'ok' : 'warning',
@@ -268,6 +274,40 @@ class HealthCheck {
     private function probe_edge(): bool {
         $result = $this->api_client->verify_connection();
         return !is_wp_error($result) && !empty($result['success']);
+    }
+
+    /**
+     * CDN offload status: ok when images or video actually rewrite to the
+     * edge (flags on + connected), warning when off, error when flags are
+     * on but the site cannot sign URLs (disconnected). Lets the dashboard
+     * surface "toggle on, HTML unchanged" instead of silent origin images.
+     */
+    private function cdn_offload_status(): string {
+        $images = (bool) $this->config->get('media.offload_images', false);
+        $video = (bool) $this->config->get('media.offload_video', false);
+        if (!$images && !$video) {
+            return 'warning';
+        }
+        if ($this->config->get_site_id() === '' || $this->config->get_api_key() === '') {
+            return 'error';
+        }
+        return 'ok';
+    }
+
+    private function cdn_offload_detail(): string {
+        $images = (bool) $this->config->get('media.offload_images', false);
+        $video = (bool) $this->config->get('media.offload_video', false);
+        if (!$images && !$video) {
+            return 'media.offload_images/video are off — images stay on origin';
+        }
+        if ($this->config->get_site_id() === '' || $this->config->get_api_key() === '') {
+            return 'offload enabled but site is not connected — cannot sign CDN URLs';
+        }
+        $queue = get_option('wp_instant_media_queue', []);
+        $pending = is_array($queue) ? count($queue) : 0;
+        $manifest = get_option(Config::PUBLIC_MEDIA_MANIFEST_OPTION, []);
+        $proven = is_array($manifest) ? count($manifest) : 0;
+        return sprintf('rewriting to CDN worker; %d queued, %d direct-R2 proven', $pending, $proven);
     }
 
     /**

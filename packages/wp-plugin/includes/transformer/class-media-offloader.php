@@ -433,8 +433,13 @@ class MediaOffloader {
      * or null when the source must not be rewritten.
      */
     private function rewrite_source(string $src, int $w, string $f, array $excluded, array &$queued): ?string {
-        if (!preg_match('#^https?://#i', $src)) {
-            return null; // data:, blob:, relative, protocol-relative
+        // Absolute-ize root-relative (/wp-content/…) and protocol-relative
+        // (//host/…) sources: themes commonly emit them and they used to be
+        // skipped entirely (data:/blob: stay skipped; bare-relative paths
+        // are ambiguous — resolving them against home could 404 — so stay).
+        $src = $this->absolutize_source($src);
+        if ($src === null) {
+            return null;
         }
         $api_base = rtrim($this->config->get_api_url(), '/');
         $cdn_base = rtrim($this->config->get_cdn_url(), '/');
@@ -454,7 +459,11 @@ class MediaOffloader {
         // JSON-context rule, which was already own-host-only.
         $own = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
         $host = strtolower((string) parse_url($src, PHP_URL_HOST));
-        if ($own === '' || ($host !== $own && ($host === '' || !str_ends_with($host, '.' . $own)))) {
+        // www-insensitive both directions: www.example.com serving
+        // example.com images (and vice versa) is the same site.
+        $own_n = str_starts_with($own, 'www.') ? substr($own, 4) : $own;
+        $host_n = str_starts_with($host, 'www.') ? substr($host, 4) : $host;
+        if ($own === '' || ($host_n !== $own_n && ($host_n === '' || !str_ends_with($host_n, '.' . $own_n)))) {
             return null;
         }
         foreach ($excluded as $ex) {
@@ -477,6 +486,27 @@ class MediaOffloader {
 
         $queued[md5($src . '|' . $w . '|' . $f)] = ['src' => $src, 'w' => $w, 'f' => $f];
         return $url;
+    }
+
+    /**
+     * Resolve root-relative and protocol-relative sources to absolute URLs.
+     * Returns null for data:/blob:/fragment/bare-relative sources.
+     */
+    private function absolutize_source(string $src): ?string {
+        $src = trim($src);
+        if ($src === '') {
+            return null;
+        }
+        if (preg_match('#^https?://#i', $src)) {
+            return $src;
+        }
+        if (str_starts_with($src, '//')) {
+            return (is_ssl() ? 'https:' : 'http:') . $src;
+        }
+        if (str_starts_with($src, '/') && !str_starts_with($src, '//')) {
+            return set_url_scheme(home_url($src));
+        }
+        return null;
     }
 
     public function media_url(string $src, int $w, string $f): ?string {

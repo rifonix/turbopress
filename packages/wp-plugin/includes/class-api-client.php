@@ -59,6 +59,11 @@ class ApiClient {
             // Adopt dashboard-issued Deploy/Test commands without waiting
             // for the daily heartbeat.
             self::apply_remote_deployment($this->config, ['config' => $body['data'] ?? []]);
+            // First successful verify onboards CDN delivery defaults (one
+            // time only): fresh connects never enabled offload, so images
+            // silently stayed on origin. Later user toggles are respected —
+            // the flag prevents any re-flip.
+            Config::maybe_enable_cdn_defaults($this->config);
             return ['success' => true, 'data' => $body['data']];
         }
 

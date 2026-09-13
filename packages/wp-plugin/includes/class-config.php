@@ -303,6 +303,34 @@ class Config {
         return (string) get_option(self::API_KEY_OPTION, '');
     }
 
+    /**
+     * One-time CDN delivery onboarding, run on the first successful edge
+     * verify. Fresh connects never enabled media offload (only the 1.12.0
+     * upgrade migration did, for already-connected sites), so images
+     * silently stayed on origin. The flag option makes this run exactly
+     * once — later user toggles are never overridden. Purges so cached
+     * origin-URL HTML regenerates with CDN URLs.
+     */
+    public static function maybe_enable_cdn_defaults(Config $config): void {
+        if (!empty(get_option('wp_instant_cdn_onboarded'))) {
+            return;
+        }
+        update_option('wp_instant_cdn_onboarded', 1, false);
+        $flipped = false;
+        foreach (['media.offload_images' => true, 'media.offload_video' => true, 'assets.serve_own_from_cdn' => true] as $key => $value) {
+            if (empty($config->get($key, false))) {
+                $config->set($key, $value);
+                $flipped = true;
+            }
+        }
+        if ($flipped && class_exists(CacheManager::class)) {
+            CacheManager::purge_all_static();
+            if (class_exists(CacheIntegration::class)) {
+                CacheIntegration::purge_foreign_caches('all');
+            }
+        }
+    }
+
     public function set_api_key(string $key): bool {
         return update_option(self::API_KEY_OPTION, $key);
     }
