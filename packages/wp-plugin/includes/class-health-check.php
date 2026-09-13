@@ -241,6 +241,9 @@ class HealthCheck {
             }
         }
 
+        // Cap the catalog: plugin-heavy sites exceeded the edge heartbeat
+        // payload cap, silently losing all health reporting.
+        $plugins = array_slice($plugins, 0, 50, true);
         return ['post_types' => $post_types, 'plugins' => array_merge($plugins, $themes)];
     }
 

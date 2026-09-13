@@ -235,6 +235,7 @@ class Plugin {
         // of critical CSS missing JS-rendered elements and their
         // ::before/::after rules, and of skewed LCP measurements.
         if (isset($_GET['wp_instant_extract'])) {
+            $this->emit_bypass_header('extract');
             return;
         }
 
@@ -249,11 +250,23 @@ class Plugin {
             $preview = true;
         } elseif (($this->config->get('deployment.status', 'live')) === 'test') {
             // Test Mode without the flag: visitors get the untouched origin.
+            $this->emit_bypass_header('test-mode');
             return;
         }
 
-        if (!$preview && !CacheRules::should_cache_request($this->config)) {
-            return;
+        // Transform gate ≠ cache gate. DONOTCACHEPAGE, WooCommerce session
+        // cookies, excluded URLs and friends must only disable CACHING —
+        // previously they shut down the ENTIRE optimization pipeline (no
+        // critical CSS, no CDN URLs, no JS handling) site-wide whenever a
+        // third-party plugin defined the constant or set a session cookie.
+        // Cache eligibility is still enforced below at write time and by
+        // the drop-in at serve time.
+        if (!$preview) {
+            $bypass = $this->transform_bypass_reason();
+            if ($bypass !== null) {
+                $this->emit_bypass_header($bypass);
+                return;
+            }
         }
 
         // The beacon must observe real traffic: live mode always, preview so
@@ -271,7 +284,66 @@ class Plugin {
         // response after template_redirect; cacheability is decided at
         // buffer flush via response_allows_cache().
 
+        if (!headers_sent()) {
+            header('X-WP-Instant-Pipeline: transform');
+        }
         ob_start([$this, 'process_output_buffer']);
+    }
+
+    /**
+     * The narrow set of conditions that should skip TRANSFORMING at all.
+     * Everything else (DONOTCACHEPAGE, cart cookies, excluded URLs) only
+     * affects whether the result is CACHED.
+     */
+    private function transform_bypass_reason(): ?string {
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if ($method !== 'GET' && $method !== 'HEAD') {
+            return 'method';
+        }
+        if (is_user_logged_in()) {
+            return 'logged-in';
+        }
+        if (is_search()) {
+            return 'search';
+        }
+        if (is_404()) {
+            return '404';
+        }
+        if (post_password_required()) {
+            return 'password';
+        }
+        // Optimize-only URLs: when the allowlist is non-empty, ONLY those
+        // paths are optimized — that is its documented purpose.
+        $only = (array) $this->config->get('caching.optimize_only_urls', []);
+        if ($only !== []) {
+            $uri = $_SERVER['REQUEST_URI'] ?? '/';
+            $allowed = false;
+            foreach ($only as $pattern) {
+                $pattern = (string) $pattern;
+                if ($pattern === '') {
+                    continue;
+                }
+                $regex = '#^' . str_replace('\\*', '.*', preg_quote($pattern, '#')) . '$#i';
+                if (@preg_match($regex, $uri) === 1) {
+                    $allowed = true;
+                    break;
+                }
+            }
+            if (!$allowed) {
+                return 'scope';
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Self-diagnosing marker so a single curl reveals WHY the pipeline did
+     * not run on this request — no more blind "optimization not applied".
+     */
+    private function emit_bypass_header(string $reason): void {
+        if (!headers_sent()) {
+            header('X-WP-Instant-Pipeline: bypass-' . $reason);
+        }
     }
 
     public function process_output_buffer(string $buffer): string {
@@ -296,6 +368,7 @@ class Plugin {
             if (
                 !$is_preview &&
                 $this->config->get('caching.enabled', true) &&
+                CacheRules::should_cache_request($this->config) &&
                 $this->response_allows_cache($transformed)
             ) {
                 $this->cache_manager->write_cache($transformed);

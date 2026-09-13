@@ -428,7 +428,7 @@ authRoutes.post('/heartbeat', siteAuthMiddleware, async (c) => {
   let healthJson: string | null = null;
   try {
     const body = await c.req.text();
-    if (body.length > 0 && body.length <= 16384) {
+    if (body.length > 0 && body.length <= 65536) {
       parsed = JSON.parse(body); // validate JSON before persisting
       healthJson = body;
     }
@@ -520,7 +520,7 @@ authRoutes.post('/rum', siteAuthMiddleware, async (c) => {
   let body: any;
   try {
     const raw = await c.req.text();
-    if (raw.length === 0 || raw.length > 16384) {
+    if (raw.length === 0 || raw.length > 65536) {
       return c.json({ success: false, error: 'Payload out of bounds' }, 400);
     }
     body = JSON.parse(raw);
