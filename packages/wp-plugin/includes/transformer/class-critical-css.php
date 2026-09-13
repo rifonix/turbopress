@@ -421,6 +421,142 @@ class CriticalCssTransformer {
         return false;
     }
 
+    /**
+     * Params that never identify content — kept byte-identical with
+     * edge-api/src/services/canonical-url.ts. Tracking params (ad clicks),
+     * internal loopbacks (our htaccess check), previews and builder params
+     * all describe the SAME document and must never mint a separate paid
+     * version of the page.
+     */
+    private const TRACKING_PARAMS = [
+        'gclid', 'gbraid', 'wbraid', 'gad_source', 'gad_campaignid', 'gclsrc', 'gclau', 'dclid',
+        '_ga', '_gl', '_gac',
+        'fbclid', 'fb_action_ids', 'fb_action_types', 'fb_source', 'fb_ref',
+        'msclkid', 'ttclid', 'snap_click_id', 'twclid', 'li_fat_id',
+        'mc_cid', 'mc_eid', 'igshid', 'srsltid', 'yclid',
+        'vero_conv', 'vero_id', 'wickedid', 'wickedsource',
+        'oly_anon_id', 'oly_enc_id', 'epik', 'eppfoil',
+    ];
+    private const TRACKING_PREFIXES = ['utm_', 'pk_', 'piwik_', 'matomo_', 'hsa_', 'vero_'];
+    private const INTERNAL_PREFIXES = [
+        'wp_instant_', 'wpins_', 'wpfc_', 'litespeed_',
+        'elementor-preview', 'et_fb', 'fl_builder', 'vc_', 'bt_',
+        'customize', 'doing_wp_cron',
+    ];
+    private const INTERNAL_EXACT = [
+        'preview', 'preview_id', 'preview_nonce', 'theme_preview',
+        'customize_messenger_channel', 'customize_autosaved',
+        'rest_route', 's', 'fbembed',
+    ];
+
+    private static function is_internal_param(string $lower): bool {
+        if (in_array($lower, self::INTERNAL_EXACT, true)) {
+            return true;
+        }
+        foreach (self::INTERNAL_PREFIXES as $prefix) {
+            if ($lower === $prefix || str_starts_with($lower, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function is_tracking_param(string $lower): bool {
+        if (in_array($lower, self::TRACKING_PARAMS, true)) {
+            return true;
+        }
+        foreach (self::TRACKING_PREFIXES as $prefix) {
+            if (str_starts_with($lower, $prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when the URL carries internal params (verification loopbacks,
+     * previews, builder/customizer states). Such URLs never identify
+     * content and must never trigger extraction.
+     */
+    public static function is_internal_url(string $url): bool {
+        $query = parse_url($url, PHP_URL_QUERY);
+        if (!is_string($query) || $query === '') {
+            return false;
+        }
+        parse_str($query, $params);
+        if (!is_array($params) || $params === []) {
+            return false;
+        }
+        foreach ($params as $name => $_value) {
+            if (self::is_internal_param(strtolower((string) $name))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Canonical dispatch identity: lowercase host, no default port or
+     * fragment, tracking/internal/site-stripped params removed, survivors
+     * sorted. Mirrors canonicalizeDispatchUrl() edge-side.
+     */
+    public function canonical_dispatch_url(string $url): ?string {
+        $parts = parse_url($url);
+        if (!is_array($parts) || empty($parts['host']) || empty($parts['scheme'])) {
+            return null;
+        }
+        $scheme = strtolower((string) $parts['scheme']);
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return null;
+        }
+        $strip = array_map('strtolower', (array) $this->config->get('caching.strip_query_params', []));
+        $survivors = [];
+        if (!empty($parts['query']) && is_string($parts['query'])) {
+            parse_str($parts['query'], $params);
+            if (is_array($params)) {
+                foreach ($params as $name => $value) {
+                    $lower = strtolower((string) $name);
+                    if (self::is_internal_param($lower) || self::is_tracking_param($lower)) {
+                        continue;
+                    }
+                    $dropped = false;
+                    foreach ($strip as $pattern) {
+                        $pattern = (string) $pattern;
+                        if ($pattern === '') {
+                            continue;
+                        }
+                        if (
+                            (str_ends_with($pattern, '*') && $lower !== '' && str_starts_with($lower, rtrim($pattern, '*')))
+                            || $lower === $pattern
+                        ) {
+                            $dropped = true;
+                            break;
+                        }
+                    }
+                    if ($dropped) {
+                        continue;
+                    }
+                    if (!is_array($value)) {
+                        $survivors[(string) $name] = (string) $value;
+                    }
+                }
+            }
+        }
+        ksort($survivors, SORT_STRING);
+        $query = http_build_query($survivors, '', '&', PHP_QUERY_RFC3986);
+        $host = strtolower((string) $parts['host']);
+        $port = isset($parts['port']) ? (int) $parts['port'] : null;
+        $authority = $host;
+        if ($port && !(($scheme === 'http' && $port === 80) || ($scheme === 'https' && $port === 443))) {
+            $authority .= ':' . $port;
+        }
+        $path = (string) ($parts['path'] ?? '/');
+        if ($path === '') {
+            $path = '/';
+        }
+        return $scheme . '://' . $authority . $path . ($query !== '' ? '?' . $query : '');
+    }
+
     private function fingerprint_key(string $url): string {
         $parsed = parse_url($url);
         $path = strtolower($parsed['path'] ?? '/');
@@ -452,6 +588,22 @@ class CriticalCssTransformer {
         if (!$this->config->is_connected()) {
             return;
         }
+
+        // Internal URLs (our htaccess verification loopback, previews,
+        // builder/customizer states) never identify content: never dispatch
+        // them at all — each one used to mint its own paid job.
+        if (self::is_internal_url($url)) {
+            return;
+        }
+
+        // Canonical identity: `?utm_…`, `?wbraid=…` and friends describe the
+        // same page — one version is optimized, new visits reuse it. All
+        // throttle/marker keys and the dispatch payload use this form.
+        $canonical = $this->canonical_dispatch_url($url);
+        if ($canonical === null) {
+            return;
+        }
+        $url = $canonical;
 
         // Optimization-scope pre-gate (defense in depth; the edge enforces
         // the same rule before any credit reservation): out-of-scope URLs

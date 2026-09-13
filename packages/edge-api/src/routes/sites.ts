@@ -15,6 +15,7 @@ import {
 import { saasUserAuthMiddleware, siteAuthMiddleware } from '../middleware/auth.js';
 import { loadSubscriptionForScope, resolveBillingScope } from '../services/entitlements.js';
 import { pushPluginCommand } from '../services/plugin-commands.js';
+import { groupingKeyForUrl } from '../services/canonical-url.js';
 
 export const siteRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -453,19 +454,21 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
 
   // Paid-credit attribution per URL (only reservations in reserved/consumed
   // state count — template-deduped jobs carry NULL and cost nothing).
+  // Collapsed by host+path in JS so `/?utm_…` variants roll up under the page.
   const { results: spendRows } = await c.env.DB.prepare(`
-    SELECT lower(rtrim(j.url, '/')) as ukey, r.source as source, SUM(r.units) as units
+    SELECT j.url as url, r.source as source, SUM(r.units) as units
     FROM optimization_credit_reservations r
     JOIN optimization_jobs j ON j.id = r.job_id
     WHERE j.site_id = ? AND r.state IN ('reserved', 'consumed')
-    GROUP BY ukey, source
+    GROUP BY j.url, source
   `)
     .bind(siteId)
-    .all<{ ukey: string; source: string; units: number }>()
-    .catch(() => ({ results: [] as Array<{ ukey: string; source: string; units: number }> }));
+    .all<{ url: string; source: string; units: number }>()
+    .catch(() => ({ results: [] as Array<{ url: string; source: string; units: number }> }));
   const spendByUrl = new Map<string, { credits: number; sources: Record<string, number> }>();
   for (const row of spendRows) {
-    const key = row.ukey;
+    // Host+path collapse: `/?utm_…` spend rolls up under the page.
+    const key = groupingKeyForUrl(row.url);
     let entry = spendByUrl.get(key);
     if (!entry) {
       entry = { credits: 0, sources: {} };
@@ -475,16 +478,43 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
     entry.sources[row.source || 'manual'] = (entry.sources[row.source || 'manual'] || 0) + (row.units || 0);
   }
 
+  // Collapse page rows by host+path for the same reason: query variants
+  // (?utm_…, internal loopbacks) are one page in the dashboard.
+  const mergedPages = new Map<string, (typeof pageRows)[number] & { displayUrl: string }>();
+  for (const p of pageRows) {
+    const key = groupingKeyForUrl(p.url);
+    const existing = mergedPages.get(key);
+    if (!existing) {
+      mergedPages.set(key, { ...p, displayUrl: p.url });
+      continue;
+    }
+    existing.total_jobs += p.total_jobs;
+    existing.completed_jobs += p.completed_jobs;
+    existing.failed_jobs += p.failed_jobs;
+    if (p.last_run_at > existing.last_run_at) {
+      existing.last_run_at = p.last_run_at;
+    }
+    if ((p.last_completed_at || 0) > (existing.last_completed_at || 0)) {
+      existing.last_completed_at = p.last_completed_at;
+      existing.critical_css_bytes = p.critical_css_bytes;
+      existing.lcp_image_url = p.lcp_image_url;
+    }
+    // Prefer the query-less URL as the representative.
+    if (!existing.displayUrl.includes('?') || (p.url.length < existing.displayUrl.length && !p.url.includes('?'))) {
+      existing.displayUrl = p.url;
+    }
+  }
+
   return c.json({
     success: true,
     data: {
-      pages: pageRows.map((p) => ({
-        url: p.url,
+      pages: [...mergedPages.entries()].map(([key, p]) => ({
+        url: p.displayUrl,
         path: (() => {
           try {
-            return new URL(p.url).pathname;
+            return new URL(p.displayUrl).pathname;
           } catch {
-            return p.url;
+            return p.displayUrl;
           }
         })(),
         totalJobs: p.total_jobs,
@@ -501,8 +531,8 @@ siteRoutes.get('/:site_id/pages', saasUserAuthMiddleware, async (c) => {
             ? Math.round((p.critical_css_bytes / 1024) * 10) / 10
             : null,
         lcpImageUrl: p.lcp_image_url || null,
-        credits: spendByUrl.get(p.url.toLowerCase().replace(/\/+$/, ''))?.credits ?? 0,
-        sources: spendByUrl.get(p.url.toLowerCase().replace(/\/+$/, ''))?.sources ?? {},
+        credits: spendByUrl.get(key)?.credits ?? 0,
+        sources: spendByUrl.get(key)?.sources ?? {},
       })),
       rum: Array.from(rumByDay.values()),
       rumRetentionDays,

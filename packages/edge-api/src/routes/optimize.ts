@@ -21,6 +21,7 @@ import {
   resolveBillingScope,
 } from '../services/entitlements.js';
 import { hashUrlContent, parseSiteScope, urlInScope } from '../services/scope.js';
+import { canonicalizeDispatchUrl } from '../services/canonical-url.js';
 import { completeFromTemplate, completeRerunFromTemplate, lookupTemplate } from '../services/template-dedup.js';
 
 export const optimizeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -220,7 +221,15 @@ optimizeRoutes.post('/dispatch', async (c) => {
     .first<{ config_json: string | null }>()
     .catch(() => null);
   const siteScope = parseSiteScope(scopeRow?.config_json);
-  if (!urlInScope(payload.url, siteScope)) {
+  // Canonical identity: tracking params (?utm_…, ?wbraid=…), internal
+  // params (?wp_instant_htaccess_check=…, previews) and site-stripped
+  // params never identify content. Everything downstream — scope check,
+  // dedup, job rows, artifact keys — uses this ONE version per page.
+  const dispatchUrl = canonicalizeDispatchUrl(payload.url, siteScope.stripParams);
+  if (!dispatchUrl) {
+    return c.json({ success: false, error: 'A valid absolute http(s) URL is required' }, 400);
+  }
+  if (!urlInScope(dispatchUrl, siteScope)) {
     return c.json(
       {
         success: false,
@@ -296,7 +305,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
     // Resolve the template hash edge-side when the plugin did not send one
     // (old plugin, handshake dispatch, failed loopback): same-template
     // pages then still complete free via the KV branch below.
-    const structureHash = payload.structure_hash || (await hashUrlContent(c.env, payload.url)) || '';
+    const structureHash = payload.structure_hash || (await hashUrlContent(c.env, dispatchUrl)) || '';
 
     // Cloudflare KV Template Structure Hash Deduplication FIRST - before any
     // credit reservation. A page sharing another page's DOM structure is
@@ -319,7 +328,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
           // marked completed — the plugin downloads per-URL (sha256(url)),
           // so a bare status flip would 404 the fetch and silently drop
           // the deduped page's critical CSS. Copy is cheap (KBs of CSS).
-          const thisUrlKey = `sites/${siteId}/css/${(await sha256(payload.url)).slice(0, 32)}_${viewport}`;
+          const thisUrlKey = `sites/${siteId}/css/${(await sha256(dispatchUrl)).slice(0, 32)}_${viewport}`;
           let fulfilledKey = cachedTemplate.criticalCssR2Key;
           if (thisUrlKey !== cachedTemplate.criticalCssR2Key) {
             try {
@@ -351,7 +360,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
               .bind(
                 jobId,
                 siteId,
-                payload.url,
+                dispatchUrl,
                 viewport,
                 jobPriority,
                 fulfilledKey,
@@ -365,7 +374,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
               `job:${jobId}`,
               JSON.stringify({
                 status: 'completed',
-                url: payload.url,
+                url: dispatchUrl,
                 viewport,
                 siteId,
                 criticalCssR2Key: fulfilledKey,
@@ -405,13 +414,13 @@ optimizeRoutes.post('/dispatch', async (c) => {
       INSERT INTO optimization_jobs (id, site_id, url, viewport, status, priority, credit_reservation_id, attempts, created_at)
       VALUES (?, ?, ?, ?, 'queued', ?, ?, 0, unixepoch())
     `)
-      .bind(jobId, siteId, payload.url, viewport, jobPriority, reservation.reservationId)
+      .bind(jobId, siteId, dispatchUrl, viewport, jobPriority, reservation.reservationId)
       .run();
 
     // Cache initial status in KV
     await c.env.KV.put(
       `job:${jobId}`,
-      JSON.stringify({ status: 'queued', url: payload.url, viewport, siteId, targetDomain, structureHash }),
+      JSON.stringify({ status: 'queued', url: dispatchUrl, viewport, siteId, targetDomain, structureHash }),
       { expirationTtl: 3600 }
     );
 
@@ -424,7 +433,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
         await c.env.OPTIMIZATION_QUEUE.send({
           jobId,
           siteId,
-          url: payload.url,
+          url: dispatchUrl,
           viewport,
           attempt: 1,
           structureHash,
@@ -456,7 +465,7 @@ optimizeRoutes.post('/dispatch', async (c) => {
       success: true,
       data: {
         jobs: createdJobs,
-        url: payload.url,
+        url: dispatchUrl,
         // Template-deduped viewports completed instantly from the edge cache
         // and consumed no optimization credits.
         freeDeduped,
@@ -817,17 +826,21 @@ optimizeRoutes.get('/css', async (c) => {
   const apiKeyHash = await sha256(authHeader.replace('Bearer ', '').trim());
 
   const site = await c.env.DB.prepare(
-    'SELECT id FROM sites WHERE domain = ? AND site_api_key_hash = ? AND is_active = 1'
+    'SELECT id, config_json FROM sites WHERE domain = ? AND site_api_key_hash = ? AND is_active = 1'
   )
     .bind(domain, apiKeyHash)
-    .first<{ id: string }>();
+    .first<{ id: string; config_json: string | null }>();
 
   if (!site) {
     return c.json({ success: false, error: 'Invalid site credentials' }, 403);
   }
 
+  // Canonical identity (same normalization as dispatch): tracking and
+  // internal params never fragment the lookup — `/?utm_…` downloads the
+  // same artifact as `/`.
+  const canonical = canonicalizeDispatchUrl(url, parseSiteScope(site.config_json).stripParams);
   // Match the job URL case-insensitively with/without trailing slash.
-  const normalized = url.replace(/\/+$/, '');
+  const normalized = (canonical || url).replace(/\/+$/, '');
   const candidates = [normalized, normalized + '/'];
 
   const job = await c.env.DB.prepare(

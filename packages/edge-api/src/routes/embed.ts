@@ -12,6 +12,7 @@ import {
 } from '../services/entitlements.js';
 import { pushPluginCommand } from '../services/plugin-commands.js';
 import { hashUrlContent, parseSiteScope, urlInScope } from '../services/scope.js';
+import { canonicalizeDispatchUrl } from '../services/canonical-url.js';
 import { completeFromTemplate, lookupTemplate } from '../services/template-dedup.js';
 
 /**
@@ -235,7 +236,13 @@ embedRoutes.post('/site/dispatch', async (c) => {
 
   // Optimization-scope gate: enforced BEFORE any credit reservation.
   const embedScope = parseSiteScope(site.config_json);
-  if (!urlInScope(url, embedScope)) {
+  // Canonical identity (same normalization as POST /optimize/dispatch):
+  // tracking and internal params never mint a separate paid version.
+  const embedUrl = canonicalizeDispatchUrl(url, embedScope.stripParams);
+  if (!embedUrl) {
+    return c.json({ success: false, error: 'Invalid URL' }, 400);
+  }
+  if (!urlInScope(embedUrl, embedScope)) {
     return c.json(
       {
         success: false,
@@ -283,14 +290,14 @@ embedRoutes.post('/site/dispatch', async (c) => {
     // Template dedup BEFORE any credit reservation (shared helper — same
     // guarantee as POST /optimize/dispatch). Falls back to an edge-side
     // hash when the caller sent none.
-    const embedHash = structureHash || (await hashUrlContent(c.env, url)) || '';
+    const embedHash = structureHash || (await hashUrlContent(c.env, embedUrl)) || '';
     if (embedHash) {
       const template = await lookupTemplate(c.env, site.id, embedHash, viewport);
       if (
         template &&
         (await completeFromTemplate(c.env, {
           siteId: site.id,
-          url,
+          url: embedUrl,
           viewport,
           jobId,
           priority: jobPriority,
@@ -330,12 +337,12 @@ embedRoutes.post('/site/dispatch', async (c) => {
       `INSERT INTO optimization_jobs (id, site_id, url, viewport, status, attempts, priority, credit_reservation_id, created_at)
        VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, unixepoch())`
     )
-      .bind(jobId, site.id, url, viewport, jobPriority, reservation.reservationId)
+      .bind(jobId, site.id, embedUrl, viewport, jobPriority, reservation.reservationId)
       .run();
 
     await c.env.KV.put(
       `job:${jobId}`,
-      JSON.stringify({ status: 'queued', url, viewport, siteId: site.id, targetDomain: site.domain, ...(embedHash ? { structureHash: embedHash } : {}) }),
+      JSON.stringify({ status: 'queued', url: embedUrl, viewport, siteId: site.id, targetDomain: site.domain, ...(embedHash ? { structureHash: embedHash } : {}) }),
       { expirationTtl: 3600 }
     );
 
@@ -344,7 +351,7 @@ embedRoutes.post('/site/dispatch', async (c) => {
         await c.env.OPTIMIZATION_QUEUE.send({
           jobId,
           siteId: site.id,
-          url,
+          url: embedUrl,
           viewport,
           attempt: 1,
           ...(embedHash ? { structureHash: embedHash } : {}),

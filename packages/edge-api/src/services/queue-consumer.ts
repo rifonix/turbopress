@@ -10,6 +10,7 @@ import {
   reserveCredits,
 } from './entitlements.js';
 import { hashUrlContent, parseSiteScope, urlInScope } from './scope.js';
+import { canonicalizeDispatchUrl } from './canonical-url.js';
 import { completeFromTemplate, lookupTemplate } from './template-dedup.js';
 
 /** Per-seed crawl ceiling: plan caps above this still apply as the max. */
@@ -128,11 +129,16 @@ async function enqueueCrawlJobs(
 
     const nowSec = Math.floor(Date.now() / 1000);
     const picked: string[] = [];
+    const seenCanonical = new Set<string>();
     for (const link of links) {
       if (picked.length >= maxCrawl || activeCount + picked.length * 2 >= MAX_ACTIVE_JOBS_PER_SITE) break;
+      // Canonical identity first: `?utm_…` / internal-param variants of an
+      // already-picked page collapse here and never spend twice.
+      const canonical = canonicalizeDispatchUrl(link, siteScope.stripParams) || link;
+      if (seenCanonical.has(canonical.toLowerCase())) continue;
       // Scope filter: out-of-scope links never spend, even as crawl seeds.
-      if (!urlInScope(link, siteScope)) continue;
-      const normalized = link.replace(/\/+$/, '');
+      if (!urlInScope(canonical, siteScope)) continue;
+      const normalized = canonical.replace(/\/+$/, '');
       const latest = await env.DB.prepare(
         "SELECT status, created_at FROM optimization_jobs WHERE site_id = ? AND lower(rtrim(url, '/')) = lower(?) ORDER BY created_at DESC LIMIT 1"
       )
@@ -147,7 +153,8 @@ async function enqueueCrawlJobs(
           continue;
         }
       }
-      picked.push(link);
+      seenCanonical.add(canonical.toLowerCase());
+      picked.push(canonical);
     }
     if (picked.length === 0) return;
 

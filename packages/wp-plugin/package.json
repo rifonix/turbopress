@@ -1,6 +1,6 @@
 {
   "name": "@wpinstant/wp-plugin",
-  "version": "1.17.1",
+  "version": "1.17.2",
   "private": true,
   "description": "WP Instant WordPress Client Plugin",
   "scripts": {

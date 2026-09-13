@@ -9,6 +9,8 @@ export interface SiteScope {
   allowlist: string[];
   /** auto-crawl discovered links after root jobs (default OFF) */
   crawlEnabled: boolean;
+  /** site-configured query params to ignore for URL identity */
+  stripParams: string[];
 }
 
 /**
@@ -32,7 +34,10 @@ export function parseSiteScope(configJson: string | null | undefined): SiteScope
   const allowlist = Array.isArray(caching.optimize_only_urls)
     ? (caching.optimize_only_urls as unknown[]).filter((v): v is string => typeof v === 'string' && v !== '')
     : [];
-  return { scope, allowlist, crawlEnabled: caching.crawl_enabled === true };
+  const stripParams = Array.isArray(caching.strip_query_params)
+    ? (caching.strip_query_params as unknown[]).filter((v): v is string => typeof v === 'string' && v !== '')
+    : [];
+  return { scope, allowlist, crawlEnabled: caching.crawl_enabled === true, stripParams };
 }
 
 /**

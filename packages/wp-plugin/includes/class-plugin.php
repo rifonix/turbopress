@@ -399,6 +399,14 @@ class Plugin {
             // Scope changed while this event was queued: never dispatch an
             // out-of-scope URL (the edge would 403 it anyway).
             $scope_check = new CriticalCssTransformer($this->config, $this->api_client);
+            if (CriticalCssTransformer::is_internal_url($url)) {
+                return;
+            }
+            $canonical = $scope_check->canonical_dispatch_url($url);
+            if ($canonical === null) {
+                return;
+            }
+            $url = $canonical;
             if (!$scope_check->is_url_in_scope($url)) {
                 return;
             }
