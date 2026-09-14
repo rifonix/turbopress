@@ -68,6 +68,7 @@ $required = [
     'WPInstant\Admin\Page_Html_Css',
     'WPInstant\Admin\Page_Javascript',
     'WPInstant\Admin\Page_Advanced',
+    'WPInstant\Admin\Page_Logs',
     'WPInstant\Admin\Icon',
 ];
 

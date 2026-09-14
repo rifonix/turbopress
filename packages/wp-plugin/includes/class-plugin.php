@@ -287,6 +287,9 @@ class Plugin {
         if (!headers_sent()) {
             header('X-WP-Instant-Pipeline: transform');
         }
+        if (class_exists(Logger::class)) {
+            Logger::log('pipeline.transform', ['url' => Logger::request_uri()]);
+        }
         // Fragment-safe buffering: themes that "fast-flush" after <head> and
         // LiteSpeed output filters deliver the document to the OB callback
         // in pieces. Returning a fragment for transformation would silently
@@ -319,6 +322,9 @@ class Plugin {
         $this->buffer_emitted = true;
         $document = $this->buffer_accumulator;
         $this->buffer_accumulator = '';
+        if (class_exists(Logger::class)) {
+            Logger::log('buffer.complete', ['bytes' => strlen($document), 'url' => Logger::request_uri()]);
+        }
         return $this->process_output_buffer($document);
     }
 
@@ -376,6 +382,9 @@ class Plugin {
         if (!headers_sent()) {
             header('X-WP-Instant-Pipeline: bypass-' . $reason);
         }
+        if (class_exists(Logger::class)) {
+            Logger::log('pipeline.bypass-' . $reason, ['url' => Logger::request_uri()]);
+        }
     }
 
     public function process_output_buffer(string $buffer): string {
@@ -397,12 +406,14 @@ class Plugin {
             // Preview requests are never written to the static page cache.
             $is_preview = $this->is_preview_request();
 
+            $cache_state = 'skipped';
             if (
                 !$is_preview &&
                 $this->config->get('caching.enabled', true) &&
                 CacheRules::should_cache_request($this->config) &&
                 $this->response_allows_cache($transformed)
             ) {
+                $cache_state = 'written';
                 $this->cache_manager->write_cache($transformed);
                 if (!headers_sent()) {
                     // Edge-cacheable HTML: fresh renders carry the SAME cache
@@ -426,6 +437,15 @@ class Plugin {
                 if (stripos($transformed, '</body>') !== false) {
                     $transformed = str_ireplace('</body>', $badge . '</body>', $transformed);
                 }
+            }
+
+            if (class_exists(Logger::class)) {
+                Logger::log('transform.done', [
+                    'in' => strlen($buffer),
+                    'out' => strlen($transformed),
+                    'cache' => $cache_state,
+                    'url' => Logger::request_uri(),
+                ]);
             }
 
             return $transformed;

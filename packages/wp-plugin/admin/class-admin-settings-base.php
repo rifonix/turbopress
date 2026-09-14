@@ -403,6 +403,7 @@ abstract class Settings_Page {
             'wp-instant-html-css' => Page_Html_Css::class,
             'wp-instant-js' => Page_Javascript::class,
             'wp-instant-advanced' => Page_Advanced::class,
+            'wp-instant-logs' => Page_Logs::class,
         ];
     }
 

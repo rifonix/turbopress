@@ -323,6 +323,9 @@ class Config {
                 $flipped = true;
             }
         }
+        if (class_exists(Logger::class)) {
+            Logger::log('cdn.onboarded', ['flipped' => $flipped ? 1 : 0]);
+        }
         if ($flipped && class_exists(CacheManager::class)) {
             CacheManager::purge_all_static();
             if (class_exists(CacheIntegration::class)) {

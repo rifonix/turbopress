@@ -1,4 +1,4 @@
-import { sha256, type JobPriority } from '@wpinstant/shared';
+import { sha256, hmacSha256Hex, type JobPriority } from '@wpinstant/shared';
 import type { Env } from '../types/env.js';
 
 export interface TemplateArtifact {
@@ -78,6 +78,7 @@ export async function completeFromTemplate(
     criticalCssBytes: template.criticalCssBytes,
     lcpImageUrl: template.lcpImageUrl || null,
   });
+  await pushCssToPlugin(env, siteId, url, viewport, fulfilledKey, template.lcpImageUrl || null);
   return true;
 }
 
@@ -126,7 +127,48 @@ export async function completeRerunFromTemplate(
     criticalCssBytes: template.criticalCssBytes,
     lcpImageUrl: template.lcpImageUrl || null,
   });
+  await pushCssToPlugin(env, siteId, url, viewport, fulfilledKey, template.lcpImageUrl || null);
   return true;
+}
+
+/**
+ * Push the completed CSS to the plugin's HMAC callback. Template-deduped
+ * jobs never ran the queue consumer, so without this the plugin had to
+ * rely on the cron poll alone — on hosts with dead/slow cron the local
+ * CSS cache stayed empty forever ("0 pages in plugin, 1 on platform").
+ * Best-effort: the poll fallback still covers failures.
+ */
+async function pushCssToPlugin(
+  env: Env,
+  siteId: string,
+  url: string,
+  viewport: string,
+  r2Key: string,
+  lcpImageUrl: string | null
+): Promise<void> {
+  try {
+    const site = await env.DB.prepare('SELECT site_url, callback_secret FROM sites WHERE id = ?')
+      .bind(siteId)
+      .first<{ site_url: string | null; callback_secret: string | null }>();
+    if (!site?.site_url || !site.callback_secret) return;
+    const obj = await env.ASSETS_BUCKET.get(r2Key);
+    if (!obj) return;
+    const css = await obj.text();
+    if (!css) return;
+    const body = JSON.stringify({ url, viewport, css, lcpImageUrl });
+    const signature = await hmacSha256Hex(site.callback_secret, body);
+    await fetch(`${site.site_url.replace(/\/+$/, '')}/wp-json/wp-instant/v1/optimize-callback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-WP-Instant-Signature': signature,
+      },
+      body,
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (err) {
+    console.warn('[Template KV] plugin CSS push failed (polling fallback applies):', err);
+  }
 }
 
 /**

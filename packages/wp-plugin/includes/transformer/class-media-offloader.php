@@ -776,6 +776,10 @@ class MediaOffloader {
 
         update_option(self::QUEUE_OPTION, $queue, false);
 
+        if (class_exists(Logger::class)) {
+            Logger::log('media.batch', ['processed' => $batch, 'remaining' => count($queue)]);
+        }
+
         if ($log !== []) {
             try {
                 (new ApiClient($config))->push_offload_logs($log);

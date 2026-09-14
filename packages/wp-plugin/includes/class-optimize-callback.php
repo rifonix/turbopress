@@ -60,6 +60,9 @@ class OptimizeCallback {
                 ['deployment' => $payload['deployment']],
                 true // signed dashboard command — explicit
             );
+            if (class_exists(Logger::class)) {
+                Logger::log('callback.deploy', ['status' => $status]);
+            }
             return ['success' => true, 'command' => 'deploy', 'status' => $status];
         }
 
@@ -114,6 +117,12 @@ class OptimizeCallback {
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');
             CacheWarmer::queue_homepage();
+            if (class_exists(Logger::class)) {
+                Logger::log('callback.config', [
+                    'offload' => $now_offloading ? 1 : 0,
+                    'kicked' => ($now_offloading && !$was_offloading) || $widths_changed ? 1 : 0,
+                ]);
+            }
 
             if (($now_offloading && !$was_offloading) || $widths_changed) {
                 wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
@@ -128,6 +137,9 @@ class OptimizeCallback {
             CacheManager::purge_all_static();
             CacheIntegration::purge_foreign_caches('all');
             CacheWarmer::queue_homepage();
+            if (class_exists(Logger::class)) {
+                Logger::log('callback.purge');
+            }
             return ['success' => true, 'command' => 'purge'];
         }
 
@@ -149,6 +161,9 @@ class OptimizeCallback {
 
         if ($css !== '') {
             CriticalCssTransformer::write_cache_for_url($url, $viewport, $css);
+            if (class_exists(Logger::class)) {
+                Logger::log('callback.css', ['viewport' => $viewport, 'bytes' => strlen($css), 'url' => $url]);
+            }
         }
 
         if ($lcp_image_url !== '') {

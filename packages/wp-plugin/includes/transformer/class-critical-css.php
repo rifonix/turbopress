@@ -237,6 +237,9 @@ class CriticalCssTransformer {
             }
             @file_put_contents($dir . '/' . $url_hash . '.css', $css);
         }
+        if (class_exists(Logger::class)) {
+            Logger::log('css.stored', ['url' => $url, 'viewport' => $viewport, 'bytes' => strlen($css)]);
+        }
     }
 
     /**
@@ -664,6 +667,10 @@ class CriticalCssTransformer {
 
         if ($fingerprint !== null && $fingerprint !== '') {
             $this->store_fingerprint($url, $fingerprint);
+        }
+
+        if (class_exists(Logger::class)) {
+            Logger::log('css.dispatch', ['url' => $url, 'changed' => $content_changed ? 1 : 0]);
         }
 
         // Non-blocking asynchronous dispatch (positional args: PHP 8 turns
