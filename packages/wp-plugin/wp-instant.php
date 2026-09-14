@@ -3,7 +3,7 @@
  * Plugin Name: WP Instant - Next-Gen Page Optimizer
  * Plugin URI: https://wpinstant.dev
  * Description: Ultra-high performance WordPress page speed optimization engine powered by global Edge Delivery & Real-Browser Engine.
- * Version: 1.17.8
+ * Version: 1.17.9
  * Author: WP Instant Team
  * Author URI: https://wpinstant.dev
  * License: GPLv2 or later
@@ -16,7 +16,18 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WP_INSTANT_VERSION', '1.17.8');
+// Double-copy guard: a second WP Instant copy (e.g. wp-instant-1.17.x from a
+// manual ZIP upload alongside wp-instant/) must never load its classes —
+// class redeclaration is a fatal. The newest copy wins; the other shows a
+// dismissible notice instead of taking the site down.
+if (class_exists('WPInstant\\Plugin', false)) {
+    add_action('admin_notices', static function (): void {
+        echo '<div class="notice notice-error"><p><strong>WP Instant:</strong> another copy of the plugin is active at the same time. Deactivate one copy (check <code>wp-content/plugins/</code> for a version-suffixed folder like <code>wp-instant-1.17.x</code>).</p></div>';
+    });
+    return;
+}
+
+define('WP_INSTANT_VERSION', '1.17.9');
 define('WP_INSTANT_PLUGIN_FILE', __FILE__);
 define('WP_INSTANT_PATH', plugin_dir_path(__FILE__));
 define('WP_INSTANT_URL', plugin_dir_url(__FILE__));

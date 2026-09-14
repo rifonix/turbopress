@@ -269,6 +269,12 @@ class Plugin {
             return $template;
         }
 
+        // Pathological self-reference (can never happen by construction,
+        // but a stale wrapper cached by OPcache must not recurse).
+        if ($template === $wrapper || !is_file($template)) {
+            return $template;
+        }
+
         self::$original_template = $template;
         return $wrapper;
     }
@@ -294,14 +300,27 @@ class Plugin {
  * rendered by the original main template and transforms it once.
  * Do not edit — rewritten by the plugin on upgrades.
  */
-if (!defined('ABSPATH') || \WPInstant\Plugin::$original_template === '') {
+if (
+    !defined('ABSPATH')
+    || !class_exists('WPInstant\\Plugin')
+    || !property_exists('WPInstant\\Plugin', 'original_template')
+    || !is_string(\WPInstant\Plugin::$original_template)
+    || \WPInstant\Plugin::$original_template === ''
+    || !is_file(\WPInstant\Plugin::$original_template)
+) {
     return;
 }
-ob_start();
-include \WPInstant\Plugin::$original_template;
-$wp_instant_document = (string) ob_get_clean();
+$wp_instant_template = \WPInstant\Plugin::$original_template;
 \WPInstant\Plugin::$original_template = '';
-echo \WPInstant\Plugin::get_instance()->process_output_buffer($wp_instant_document);
+ob_start();
+include $wp_instant_template;
+$wp_instant_document = ob_get_clean();
+if ($wp_instant_document === false) {
+    // Another layer stole the buffer: content went wherever it went —
+    // emitting nothing here keeps the page from being duplicated.
+    return;
+}
+echo \WPInstant\Plugin::get_instance()->process_output_buffer((string) $wp_instant_document);
 PHP;
         if (@file_put_contents($wrapper, $code, LOCK_EX) === false) {
             return null;
@@ -712,6 +731,10 @@ PHP;
 
         // Strip .htaccess rules + delete the pre-install backup.
         Htaccess_Manager::remove();
+
+        // The template wrapper is ours too — a stale copy must never be
+        // picked up by OPcache after reactivation at a different version.
+        @unlink(WP_INSTANT_CACHE_DIR . '/template-wrapper.php');
 
         // Clear all cached pages
         CacheManager::purge_all_static();
