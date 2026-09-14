@@ -187,7 +187,7 @@ export default function HomePage() {
       />
 
       {/* Hero */}
-      <section className="relative overflow-hidden pb-16 pt-16 md:pb-20 md:pt-20" aria-labelledby="homepage-hero-title">
+      <section className="relative overflow-hidden pt-16 md:pt-20" aria-labelledby="homepage-hero-title">
         <div
           className="pointer-events-none absolute inset-0 -z-10"
           style={{ background: 'radial-gradient(70rem 30rem at 50% -12rem, rgba(240,62,47,0.10), transparent 65%)' }}
@@ -218,17 +218,14 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="hero-in hero-d5 mx-auto mt-16 max-w-6xl px-6">
+        <div className="hero-in hero-d5 relative z-0 mx-auto mt-16 max-w-6xl px-6">
           <HeroDashboard />
         </div>
 
-        <div className="relative z-10 mx-auto -mt-10 max-w-7xl px-6 md:-mt-14">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{ background: 'radial-gradient(40rem 16rem at 50% 0%, rgba(240,62,47,0.10), transparent 65%)' }}
-          />
-          <dl className="relative grid grid-cols-2 gap-x-6 gap-y-8 lg:grid-cols-4">
+        {/* Feature bar — solid strip at the hero bottom; the dashboard
+            visual slides behind it (negative top margin + z-index). */}
+        <div className="relative z-10 -mt-10 bg-[#f8f8f7] py-12 shadow-[0_-12px_32px_rgba(23,23,23,0.07)] md:-mt-14">
+          <dl className="mx-auto grid max-w-7xl grid-cols-2 gap-x-6 gap-y-8 px-6 lg:grid-cols-4">
             {heroFacts.map((fact) => (
               <div key={fact.label} className="text-center">
                 <dd className="text-2xl font-semibold tracking-[-0.03em] text-[#171717]">
