@@ -85,6 +85,7 @@ class AdminPage {
             'wp-instant-html-css' => 'HTML & CSS',
             'wp-instant-js' => 'JavaScript',
             'wp-instant-advanced' => 'Cache & Advanced',
+            'wp-instant-logs' => 'Logs',
         ];
 
         add_menu_page(
@@ -712,6 +713,25 @@ class AdminPage {
     /* Admin bar: quick actions while browsing the site                     */
     /* ------------------------------------------------------------------ */
 
+    /**
+     * Context-independent signature for admin-bar action URLs. WP nonces
+     * are minted under the nonce_life filter context of the REQUEST that
+     * renders the bar (frontend gets the extended cache TTL, wp-admin does
+     * not), then verified under a different context — the tick mismatch
+     * shows up as "The link you followed has expired". HMAC with wp_salt
+     * is tick- and context-independent and never expires unexpectedly.
+     */
+    private static function bar_signature(string $action, string $url): string {
+        return substr(hash_hmac('sha256', $action . '|' . $url, wp_salt('nonce')), 0, 20);
+    }
+
+    private static function bar_url(string $action, string $url): string {
+        return add_query_arg(
+            ['wp_instant_action' => $action, 'wpins_url' => $url, 'wpins_sig' => self::bar_signature($action, $url)],
+            $url
+        );
+    }
+
     public function register_admin_bar(\WP_Admin_Bar $wp_admin_bar): void {
         if (!current_user_can('manage_options')) {
             return;
@@ -731,10 +751,7 @@ class AdminPage {
                 'id' => 'wp-instant-purge-page',
                 'parent' => 'wp-instant',
                 'title' => '<span class="wpins-ab-icon" style="display:inline-block;line-height:0;vertical-align:-2px;margin-right:5px;">' . Icon::render('trash', 14) . '</span> Purge this page',
-                'href' => wp_nonce_url(
-                    add_query_arg(['wp_instant_action' => 'purge_page', 'wpins_url' => $current], $current),
-                    'wp_instant_bar'
-                ),
+                'href' => self::bar_url('purge_page', $current),
             ]);
         }
 
@@ -742,20 +759,14 @@ class AdminPage {
             'id' => 'wp-instant-purge-all',
             'parent' => 'wp-instant',
             'title' => '<span class="wpins-ab-icon" style="display:inline-block;line-height:0;vertical-align:-2px;margin-right:5px;">' . Icon::render('trash', 14) . '</span> Purge all caches',
-            'href' => wp_nonce_url(
-                add_query_arg(['wp_instant_action' => 'purge_all', 'wpins_url' => home_url('/')], home_url('/')),
-                'wp_instant_bar'
-            ),
+            'href' => self::bar_url('purge_all', home_url('/')),
         ]);
 
         $wp_admin_bar->add_node([
             'id' => 'wp-instant-warm-cache',
             'parent' => 'wp-instant',
             'title' => '<span class="wpins-ab-icon" style="display:inline-block;line-height:0;vertical-align:-2px;margin-right:5px;">' . Icon::render('refresh', 14) . '</span> Warm cache',
-            'href' => wp_nonce_url(
-                add_query_arg(['wp_instant_action' => 'warm_cache', 'wpins_url' => home_url('/')], home_url('/')),
-                'wp_instant_bar'
-            ),
+            'href' => self::bar_url('warm_cache', home_url('/')),
         ]);
     }
 
@@ -769,13 +780,18 @@ class AdminPage {
             return;
         }
 
-        if (!current_user_can('manage_options') || !check_admin_referer('wp_instant_bar')) {
+        $url = isset($_GET['wpins_url']) ? esc_url_raw(wp_unslash($_GET['wpins_url'])) : '';
+        $sig = isset($_GET['wpins_sig']) ? (string) $_GET['wpins_sig'] : '';
+        // Legacy nonce URLs (pre-1.17.8) still verify; new URLs carry the
+        // context-independent HMAC signature.
+        $valid = hash_equals(self::bar_signature($action, $url), $sig)
+            || check_admin_referer('wp_instant_bar');
+        if (!current_user_can('manage_options') || !$valid) {
             return;
         }
 
-        $url = isset($_GET['wpins_url']) ? esc_url_raw(wp_unslash($_GET['wpins_url'])) : '';
         $back = wp_get_referer() ?: home_url('/');
-        $back = remove_query_arg(['wp_instant_action', '_wpnonce', 'wpins_url'], $back);
+        $back = remove_query_arg(['wp_instant_action', '_wpnonce', 'wpins_url', 'wpins_sig'], $back);
 
         switch ($action) {
             case 'purge_page':
