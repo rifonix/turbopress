@@ -51,6 +51,8 @@ class Plugin {
         $installed_version = get_option('wp_instant_version', '');
         if ($installed_version !== WP_INSTANT_VERSION) {
             update_option('wp_instant_version', WP_INSTANT_VERSION);
+            // Regenerate the template wrapper from the new release.
+            @unlink(WP_INSTANT_CACHE_DIR . '/template-wrapper.php');
             CacheManager::purge_all_static();
             // Propagate to host/foreign caches (LiteSpeed etc.): without this,
             // HTML transformed by the OLD release stays served indefinitely.
@@ -197,8 +199,114 @@ class Plugin {
 
         // Initialize Frontend Output Buffering for Cache & DOM Transformation
         if (!is_admin() && !wp_doing_ajax() && !wp_doing_cron()) {
-            add_action('template_redirect', [$this, 'start_output_buffer'], -999999);
+            add_filter('template_include', [$this, 'intercept_template'], PHP_INT_MAX - 100);
         }
+    }
+
+    /**
+     * The original main template path chosen by WP for this request.
+     * Passed to the wrapper file in the cache dir.
+     */
+    public static string $original_template = '';
+
+    /**
+     * Bulletproof transform entry point. The previous template_redirect
+     * output buffer could be DISCARDED by other plugins/host layers that
+     * run ob_end_clean() over inner buffers — the pipeline header said
+     * "transform" while the response stayed byte-identical to the origin.
+     * template_include cannot be discarded: we swap the main template for
+     * our own wrapper, which captures the ENTIRE rendered document and
+     * transforms it. If anything else fights over buffers, the page
+     * breaks visibly instead of silently degrading — never a mystery.
+     */
+    public function intercept_template(string $template): string {
+        // Edge extractor bypass: serve the RAW origin page. Circular
+        // extraction (parsing our own optimized output) was the root cause
+        // of critical CSS missing JS-rendered elements and their
+        // ::before/::after rules, and of skewed LCP measurements.
+        if (isset($_GET['wp_instant_extract'])) {
+            $this->emit_bypass_header('extract');
+            return $template;
+        }
+
+        $preview = false;
+        if (current_user_can('manage_options') && isset($_GET['wpins_preview'])) {
+            $preview = true;
+        } elseif (($this->config->get('deployment.status', 'live')) === 'test') {
+            // Test Mode without the flag: visitors get the untouched origin.
+            $this->emit_bypass_header('test-mode');
+            return $template;
+        }
+
+        // Transform gate ≠ cache gate (see transform_bypass_reason).
+        if (!$preview) {
+            $bypass = $this->transform_bypass_reason();
+            if ($bypass !== null) {
+                $this->emit_bypass_header($bypass);
+                return $template;
+            }
+        }
+
+        // The beacon must observe real traffic: live mode always, preview so
+        // admins can check console health before deploying.
+        $this->dom_engine->enable_rum($preview);
+
+        if ($preview && !headers_sent()) {
+            header('X-WP-Instant-Preview: 1');
+            header('Cache-Control: no-store');
+        }
+        if (!headers_sent()) {
+            header('X-WP-Instant-Pipeline: transform');
+        }
+        if (class_exists(Logger::class)) {
+            Logger::log('pipeline.transform', ['url' => Logger::request_uri()]);
+        }
+
+        $wrapper = $this->wrapper_template_path();
+        if ($wrapper === null) {
+            // Wrapper unavailable (unwritable cache dir): fall back to the
+            // untouched template rather than fatal.
+            return $template;
+        }
+
+        self::$original_template = $template;
+        return $wrapper;
+    }
+
+    /**
+     * Path to the generated wrapper template (created on demand). The
+     * wrapper buffers the original template's full output and pipes it
+     * through process_output_buffer(). Null when the cache dir is
+     * unwritable.
+     */
+    private function wrapper_template_path(): ?string {
+        $wrapper = WP_INSTANT_CACHE_DIR . '/template-wrapper.php';
+        if (file_exists($wrapper)) {
+            return $wrapper;
+        }
+        if (!wp_mkdir_p(WP_INSTANT_CACHE_DIR)) {
+            return null;
+        }
+        $code = <<<'PHP'
+<?php
+/**
+ * WP Instant template wrapper (generated). Captures the complete document
+ * rendered by the original main template and transforms it once.
+ * Do not edit — rewritten by the plugin on upgrades.
+ */
+if (!defined('ABSPATH') || \WPInstant\Plugin::$original_template === '') {
+    return;
+}
+ob_start();
+include \WPInstant\Plugin::$original_template;
+$wp_instant_document = (string) ob_get_clean();
+\WPInstant\Plugin::$original_template = '';
+echo \WPInstant\Plugin::get_instance()->process_output_buffer($wp_instant_document);
+PHP;
+        if (@file_put_contents($wrapper, $code, LOCK_EX) === false) {
+            return null;
+        }
+        return $wrapper;
     }
 
     /**
@@ -227,105 +335,6 @@ class Plugin {
         // Our own namespace mints nonces for frontend verification — it
         // needs the SAME extended TTL as the front end, not core's.
         return !str_starts_with(strtolower($route), '/wp-instant/');
-    }
-
-    public function start_output_buffer(): void {
-        // Edge extractor bypass: serve the RAW origin page. Circular
-        // extraction (parsing our own optimized output) was the root cause
-        // of critical CSS missing JS-rendered elements and their
-        // ::before/::after rules, and of skewed LCP measurements.
-        if (isset($_GET['wp_instant_extract'])) {
-            $this->emit_bypass_header('extract');
-            return;
-        }
-
-        $preview = false;
-
-        // Preview flag: an admin carrying ?wpins_preview=1 always sees (and
-        // verifies) the optimized page — mandatory in Test Mode, and the
-        // verification tool in Live mode (logged-in requests otherwise
-        // bypass the pipeline entirely, which made features like per-page
-        // asset exclusion look "broken" to the admin testing them).
-        if (current_user_can('manage_options') && isset($_GET['wpins_preview'])) {
-            $preview = true;
-        } elseif (($this->config->get('deployment.status', 'live')) === 'test') {
-            // Test Mode without the flag: visitors get the untouched origin.
-            $this->emit_bypass_header('test-mode');
-            return;
-        }
-
-        // Transform gate ≠ cache gate. DONOTCACHEPAGE, WooCommerce session
-        // cookies, excluded URLs and friends must only disable CACHING —
-        // previously they shut down the ENTIRE optimization pipeline (no
-        // critical CSS, no CDN URLs, no JS handling) site-wide whenever a
-        // third-party plugin defined the constant or set a session cookie.
-        // Cache eligibility is still enforced below at write time and by
-        // the drop-in at serve time.
-        if (!$preview) {
-            $bypass = $this->transform_bypass_reason();
-            if ($bypass !== null) {
-                $this->emit_bypass_header($bypass);
-                return;
-            }
-        }
-
-        // The beacon must observe real traffic: live mode always, preview so
-        // admins can check console health before deploying.
-        $this->dom_engine->enable_rum($preview);
-
-        if ($preview && !headers_sent()) {
-            header('X-WP-Instant-Preview: 1');
-            // Preview output is admin-only and must never land in an edge
-            // cache between checks.
-            header('Cache-Control: no-store');
-        }
-        // NOTE: no public Cache-Control here. Later hooks (redirects,
-        // membership/cart plugins, DONOTCACHEPAGE) can still change the
-        // response after template_redirect; cacheability is decided at
-        // buffer flush via response_allows_cache().
-
-        if (!headers_sent()) {
-            header('X-WP-Instant-Pipeline: transform');
-        }
-        if (class_exists(Logger::class)) {
-            Logger::log('pipeline.transform', ['url' => Logger::request_uri()]);
-        }
-        // Fragment-safe buffering: themes that "fast-flush" after <head> and
-        // LiteSpeed output filters deliver the document to the OB callback
-        // in pieces. Returning a fragment for transformation would silently
-        // revert every stage, so chunks are accumulated and transformed only
-        // once the document is complete (</body>). Trailing content after
-        // the transformed document passes through untouched.
-        $this->buffer_accumulator = '';
-        $this->buffer_emitted = false;
-        ob_start([$this, 'buffer_chunk']);
-    }
-
-    /** Accumulated document while the response streams in fragments. */
-    private string $buffer_accumulator = '';
-    private bool $buffer_emitted = false;
-
-    /**
-     * OB callback. Swallows intermediate fragments (returns '') until the
-     * accumulated document contains </body>, then transforms and emits the
-     * whole document at once. Anything arriving after that passes through
-     * raw, so trailing bytes (</html>, late echoes) are never lost.
-     */
-    public function buffer_chunk(string $chunk): string {
-        if ($this->buffer_emitted) {
-            return $chunk;
-        }
-        $this->buffer_accumulator .= $chunk;
-        if (stripos($this->buffer_accumulator, '</body>') === false) {
-            return '';
-        }
-        $this->buffer_emitted = true;
-        $document = $this->buffer_accumulator;
-        $this->buffer_accumulator = '';
-        if (class_exists(Logger::class)) {
-            Logger::log('buffer.complete', ['bytes' => strlen($document), 'url' => Logger::request_uri()]);
-        }
-        return $this->process_output_buffer($document);
     }
 
     /**
