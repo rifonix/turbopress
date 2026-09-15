@@ -15,6 +15,23 @@ const isPublicRoute = createRouteMatcher([
   '/robots.txt',
   '/favicon.ico',
   '/icon',
+  // Marketing site — public, no auth protection. Without these every
+  // logged-out visit (and the SPA's RSC prefetch) redirects to Clerk's
+  // hosted sign-in, which dies as a cross-origin fetch (the CORS errors).
+  '/features(.*)',
+  '/pricing(.*)',
+  '/about(.*)',
+  '/contact(.*)',
+  '/support(.*)',
+  '/status(.*)',
+  '/changelog(.*)',
+  '/blog(.*)',
+  '/docs(.*)',
+  '/security(.*)',
+  '/privacy(.*)',
+  '/terms(.*)',
+  '/sitemap(.*)',
+  '/opengraph-image(.*)',
 ]);
 
 const clerkHandler = clerkMiddleware(async (auth, request) => {
