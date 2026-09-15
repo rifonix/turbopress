@@ -148,7 +148,12 @@ class AssetProxy {
         ) {
             return null; // already a worker/CDN URL
         }
-        return (new MediaOffloader($this->config))->media_url($abs, 0, 'raw');
+        // `rv` = rewrite version. The edge resolves relative url() refs in
+        // CDN-served CSS against the origin sheet and signs them (v2);
+        // bumping the discriminator retires cached pre-fix objects that
+        // served relative refs against the CDN path (broken fonts/icons).
+        $signed = (new MediaOffloader($this->config))->media_url($abs, 0, 'raw');
+        return $signed === null ? null : $signed . '&rv=2';
     }
 
     /** Absolutize an own-host href; null for document-relative values. */

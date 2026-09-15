@@ -100,6 +100,17 @@ class OptimizeCallback {
             $widths_changed = ($current['media']['offload_widths'] ?? null) !== ($incoming['media']['offload_widths'] ?? null)
                 && $now_offloading;
 
+            // Dashboard pushes carry explicit owner intent for the CDN:
+            // a pushed config with offload disabled stops the auto-enable
+            // convergence; re-enabling clears the opt-out marker.
+            if (array_key_exists('media', $incoming) && is_array($incoming['media'])) {
+                if (empty($incoming['media']['offload_images'])) {
+                    update_option('wp_instant_cdn_user_disabled', 1, false);
+                } else {
+                    delete_option('wp_instant_cdn_user_disabled');
+                }
+            }
+
             // Rebuild pushed sections over that preset's defaults; keep
             // unpushed sections from the stored config (older dashboards).
             $preset = (string) ($incoming['preset'] ?? $current['preset'] ?? 'ludicrous');

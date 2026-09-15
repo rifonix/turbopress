@@ -332,7 +332,8 @@ async function rewriteCssAssetUrls(
   siteId: string,
   secret: string,
   cdnBase: string,
-  allowedHost: string | null
+  allowedHost: string | null,
+  cssOriginUrl: string
 ): Promise<string> {
   if (!css || css.indexOf('url(') === -1) return css;
   const rewrite = async (m: string[]): Promise<string> => {
@@ -344,7 +345,19 @@ async function rewriteCssAssetUrls(
     } catch {
       /* keep raw — malformed escapes stay untouched */
     }
-    if (!/^https?:\/\//i.test(url)) return m[0]; // relative/data/fragment stay as-is
+    // Relative and protocol-relative references MUST be resolved against
+    // the origin CSS URL before signing: once the sheet is served from the
+    // CDN host, `url(../webfonts/x.woff2)` resolves against the CDN path
+    // and 400s — the root cause of "styling broken on inner pages".
+    if (/^(data:|blob:|#)/i.test(url)) return m[0];
+    if (url.startsWith('//')) url = 'https:' + url;
+    if (!/^https?:\/\//i.test(url)) {
+      try {
+        url = new URL(url, cssOriginUrl).toString();
+      } catch {
+        return m[0];
+      }
+    }
     if (url.includes('/api/v1/assets/')) return m[0]; // already ours
     if (!CSS_ASSET_EXT.test(url)) return m[0];
     if (allowedHost && !isSameHost(url, allowedHost)) return m[0]; // third-party stays put
@@ -634,7 +647,11 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
 
   const width = Math.max(0, Math.min(4000, parseInt(w, 10) || 0));
   const quality = Math.max(40, Math.min(100, parseInt(q, 10) || 82));
-  const r2Key = `sites/${siteId}/media/${urlHash}_${width}_${quality}.${f}`;
+  // Rewrite-version discriminator: the plugin appends `rv` when its output
+  // shape changes (e.g. the relative-url CSS fix). It shifts the R2 and
+  // Cache-API keys so stale pre-fix objects are never served again.
+  const rv = (c.req.query('rv') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+  const r2Key = `sites/${siteId}/media/${urlHash}_${width}_${quality}.${f}${rv ? `.${rv}` : ''}`;
 
   // AVIF upgrade: when the browser accepts it we can serve an even smaller
   // variant — but the R2 key implies the requested format, so AVIF lives
@@ -875,7 +892,8 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
             siteId,
             secret2.secret,
             new URL(c.req.url).origin,
-            ownerDomain
+            ownerDomain,
+            verified.src
           );
           fillBody = new TextEncoder().encode(rewritten) as unknown as ArrayBuffer;
           fillLength = (fillBody as unknown as Uint8Array).byteLength;

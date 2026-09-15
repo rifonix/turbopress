@@ -312,24 +312,35 @@ class Config {
      * origin-URL HTML regenerates with CDN URLs.
      */
     public static function maybe_enable_cdn_defaults(Config $config): void {
-        if (!empty(get_option('wp_instant_cdn_onboarded'))) {
+        // Explicit owner intent wins forever: once the CDN was deliberately
+        // disabled (dashboard toggle or local settings save), never
+        // auto-enable again. Without the marker, every verify converges a
+        // connected site to the CDN defaults — connecting must enable
+        // image/video offload automatically, and only a decision to opt out
+        // should stick.
+        if (!empty(get_option('wp_instant_cdn_user_disabled'))) {
             return;
         }
-        update_option('wp_instant_cdn_onboarded', 1, false);
         $flipped = false;
-        foreach (['media.offload_images' => true, 'media.offload_video' => true, 'assets.serve_own_from_cdn' => true] as $key => $value) {
+        // Offload images/video only. Serving CSS/JS from the CDN stays an
+        // explicit opt-in: rewrites change the resource base URL, and a
+        // bad first toggle is immediately visible as broken inner-page
+        // styling — never auto-enable that for a customer.
+        foreach (['media.offload_images' => true, 'media.offload_video' => true] as $key => $value) {
             if (empty($config->get($key, false))) {
                 $config->set($key, $value);
                 $flipped = true;
             }
         }
-        if (class_exists(Logger::class)) {
-            Logger::log('cdn.onboarded', ['flipped' => $flipped ? 1 : 0]);
-        }
-        if ($flipped && class_exists(CacheManager::class)) {
-            CacheManager::purge_all_static();
-            if (class_exists(CacheIntegration::class)) {
-                CacheIntegration::purge_foreign_caches('all');
+        if ($flipped) {
+            if (class_exists(Logger::class)) {
+                Logger::log('cdn.onboarded', ['flipped' => 1]);
+            }
+            if (class_exists(CacheManager::class)) {
+                CacheManager::purge_all_static();
+                if (class_exists(CacheIntegration::class)) {
+                    CacheIntegration::purge_foreign_caches('all');
+                }
             }
         }
     }

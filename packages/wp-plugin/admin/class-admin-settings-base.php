@@ -353,6 +353,18 @@ abstract class Settings_Page {
         }
 
         $config->save($incoming);
+
+        // Explicit owner intent for the CDN: a save of the page that owns
+        // the offload toggles with offload disabled stops the auto-enable
+        // convergence from fighting the decision; re-enabling clears it.
+        if (array_key_exists('media.offload_images', $page_class::field_definitions())) {
+            if (empty($incoming['media']['offload_images'])) {
+                update_option('wp_instant_cdn_user_disabled', 1, false);
+            } else {
+                delete_option('wp_instant_cdn_user_disabled');
+            }
+        }
+
         self::after_save($config, false);
 
         wp_safe_redirect(add_query_arg(['page' => $page_slug, 'wpins_saved' => '1'], admin_url('admin.php')));
