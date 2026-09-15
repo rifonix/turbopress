@@ -224,11 +224,11 @@ export default function HomePage() {
 
         {/* Feature bar — solid strip at the hero bottom; the dashboard
             visual slides behind it (negative top margin + z-index). */}
-        <div className="relative z-10 -mt-10 bg-[#f8f8f7] py-12 shadow-[0_-12px_32px_rgba(23,23,23,0.07)] md:-mt-14">
-          <dl className="mx-auto grid max-w-7xl grid-cols-2 gap-x-6 gap-y-8 px-6 lg:grid-cols-4">
+        <div className="relative z-10 -mt-10 bg-[#f8f8f7] py-8 md:-mt-14">
+          <dl className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-6 lg:grid-cols-4">
             {heroFacts.map((fact) => (
-              <div key={fact.label} className="text-center">
-                <dd className="text-2xl font-semibold tracking-[-0.03em] text-[#171717]">
+              <div key={fact.label} className="rounded-2xl bg-white p-5 text-center">
+                <dd className="text-2xl font-semibold tracking-[-0.03em] text-[#f03e2f]">
                   <CountUp value={fact.value} />
                 </dd>
                 <dt className="mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[#71717a]">{fact.label}</dt>
