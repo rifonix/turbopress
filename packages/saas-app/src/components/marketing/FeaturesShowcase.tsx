@@ -25,7 +25,12 @@ function PsiScore() {
   const verdict = on ? 'Good' : 'Poor';
 
   return (
-    <div aria-hidden="true" className="mt-6 flex flex-col items-center gap-5 rounded-2xl bg-[#fbfbfa] p-6">
+    <div
+      aria-hidden="true"
+      className="mt-6 flex flex-col items-center gap-5 rounded-2xl bg-[#fbfbfa] p-6"
+      onMouseEnter={() => setOn(true)}
+      onMouseLeave={() => setOn(false)}
+    >
       <div className="relative h-[104px] w-[104px]">
         <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
           <circle cx="50" cy="50" r={radius} fill="none" stroke="#ececec" strokeWidth="9" />
@@ -98,17 +103,24 @@ export function FeaturesShowcase() {
           </div>
           <div aria-hidden="true" className="relative mt-6">
             <div className="absolute inset-x-0 top-4 z-10 mx-auto w-fit">
-              <div className="wpins-hit-flash flex items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-semibold shadow-md">
+              <div className="wpins-hit-badge flex items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-semibold shadow-md">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" />
                 HIT · 18ms · Frankfurt
               </div>
             </div>
             <div className="relative px-7 pb-7 pt-10 text-[#d4d4d8]">
               <EdgeMap />
-              {/* Visitor → nearest PoP → response animation */}
-              <span className="wpins-req-dot" />
-              <span className="wpins-resp-dot" />
-              <span className="wpins-pop-ping" style={{ left: '55%', top: '30%' }} />
+              {/* Multiple PoP points; hover connects visitor -> nearest PoP */}
+              <span className="wpins-pop-ping2" style={{ left: '55%', top: '30%' }} />
+              <span className="wpins-pop-dot" style={{ left: '55%', top: '30%' }} />
+              <span className="wpins-pop-dot" style={{ left: '30%', top: '34%' }} />
+              <span className="wpins-pop-dot" style={{ left: '70%', top: '48%' }} />
+              <span className="wpins-pop-dot" style={{ left: '42%', top: '58%' }} />
+              <span className="wpins-visitor-dot" style={{ left: '18%', top: '62%' }} />
+              <svg viewBox="0 0 100 50" className="wpins-beam pointer-events-none absolute inset-0 h-full w-full" preserveAspectRatio="none">
+                <line x1="18" y1="31" x2="55" y2="15" stroke="#f03e2f" strokeWidth="0.7" strokeDasharray="64" strokeDashoffset="64" />
+                <line x1="18" y1="31" x2="55" y2="15" stroke="#16a34a" strokeWidth="0.7" strokeDasharray="1.6 2.2" opacity="0.85" />
+              </svg>
             </div>
           </div>
         </article>

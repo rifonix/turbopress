@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { MarketingShell } from '@/components/marketing/MarketingShell';
 import { SectionHeading } from '@/components/marketing/SectionHeading';
-import { PricingCards } from '@/components/marketing/PricingCards';
 import { PricingTable } from '@/components/marketing/PricingTable';
 import { JsonLd } from '@/components/marketing/StructuredData';
 import { pricingPlans, site } from '@/lib/marketing';
@@ -37,7 +36,6 @@ export default function PricingPage() {
           title="WordPress performance plans that scale with your fleet"
           description="Every plan includes the core WP Instant engine. Higher plans add connected sites, optimization credits, crawl automation, edge transfer, telemetry retention, and support."
         />
-        <PricingCards />
         <PricingTable />
         <div className="mt-10 grid gap-4 rounded-3xl border border-[#e4e4e7] bg-white p-6 md:grid-cols-3">
           {[

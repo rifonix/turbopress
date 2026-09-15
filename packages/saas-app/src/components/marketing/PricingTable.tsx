@@ -58,9 +58,8 @@ export function PricingTable() {
   const [annual, setAnnual] = useState(true);
 
   return (
-    <div className="mt-16">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold tracking-[-0.02em]">Full breakdown</h2>
+    <div className="mt-14">
+      <div className="flex items-center justify-end">
         <div role="group" aria-label="Billing period" className="inline-flex rounded-full bg-white p-1 shadow-[0_1px_3px_rgba(23,23,23,0.08)]">
           {(['Monthly', 'Annual'] as const).map((label) => {
             const active = annual === (label === 'Annual');
@@ -111,6 +110,14 @@ export function PricingTable() {
                   >
                     {plan.cta}
                   </Link>
+                  {plan.id === 'starter' && (
+                    <Link
+                      href="/sign-up"
+                      className="mt-2 inline-flex min-h-8 items-center justify-center rounded-lg px-4 text-[11px] font-semibold text-[#f03e2f] transition-colors hover:bg-[#fff1ef]"
+                    >
+                      Start 7-day free trial
+                    </Link>
+                  )}
                 </th>
               ))}
             </tr>
