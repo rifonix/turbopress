@@ -124,8 +124,9 @@ export const pricingPlans: Plan[] = [
     annual: null,
     cta: 'Contact us',
     features: [
-      'Up to 100 sites with contracted limits',
-      '40,000 optimization credits / month',
+      'Unlimited connected sites',
+      'Unlimited optimization credits',
+      'Unlimited pageviews & edge transfer',
       'Custom concurrency and crawl allowance',
       'Dedicated support and SLA options',
     ],

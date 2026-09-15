@@ -13,7 +13,6 @@ import {
   Gauge,
   Globe,
   Image as ImageIcon,
-  LifeBuoy,
   Menu,
   SlidersHorizontal,
   X,
@@ -48,14 +47,6 @@ const megaGroups: MegaGroup[] = [
       { icon: Activity, title: 'Real-user Vitals', desc: 'LCP, INP & CLS from actual visits', href: '/features' },
       { icon: Bell, title: 'Regression Alerts', desc: 'Know the moment a release slows you down', href: '/status' },
       { icon: BarChart3, title: 'Fleet Analytics', desc: 'Hit rates and savings over time', href: '/features' },
-    ],
-  },
-  {
-    heading: 'Support',
-    items: [
-      { icon: LifeBuoy, title: 'Engineers who answer', desc: 'Real WordPress performance help', href: '/support' },
-      { icon: Zap, title: 'One-click Pairing', desc: 'Signed handshake, no DNS migration', href: '/docs' },
-      { icon: BarChart3, title: 'API & Status', desc: 'Programmatic control and live uptime', href: '/docs/api' },
     ],
   },
 ];
@@ -149,7 +140,7 @@ export function MarketingHeader() {
                 }`}
               >
                 <div className="overflow-hidden rounded-2xl bg-white shadow-[0_16px_48px_rgba(23,23,23,0.10)]">
-                  <div className="grid grid-cols-2 gap-x-2 p-4 min-[1280px]:grid-cols-4">
+                  <div className="grid grid-cols-3 gap-x-2 p-4">
                     {megaGroups.map((group) => (
                       <div key={group.heading} className="rounded-xl p-2">
                         <p className="px-2 pb-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-[#a1a1aa]">

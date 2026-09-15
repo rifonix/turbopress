@@ -352,3 +352,62 @@ body {
   .coral-card:hover .apply, .coral-mini:hover .cm-bell, .coral-mini:hover .cm-bolt, .coral-mini:hover .cm-flame { animation: none; }
   .coral-card .mini-ui { transition: none; }
 }
+
+/* Edge map: request travels to the nearest PoP, response travels back */
+@keyframes wpins-req {
+  0%   { left: 18%; top: 62%; opacity: 0; }
+  6%   { opacity: 1; }
+  44%  { left: 55%; top: 30%; opacity: 1; }
+  50%, 100% { left: 55%; top: 30%; opacity: 0; }
+}
+@keyframes wpins-resp {
+  0%, 50% { left: 55%; top: 30%; opacity: 0; }
+  56%  { opacity: 1; }
+  94%  { left: 18%; top: 62%; opacity: 1; }
+  100% { left: 18%; top: 62%; opacity: 0; }
+}
+@keyframes wpins-pop-ping {
+  0%, 40% { transform: scale(0.6); opacity: 0; }
+  46%     { transform: scale(1); opacity: 0.9; }
+  70%     { transform: scale(2.1); opacity: 0; }
+  100%    { transform: scale(2.1); opacity: 0; }
+}
+@keyframes wpins-hit-flash {
+  0%, 44% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  50%     { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0.18); }
+  70%     { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  100%    { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+}
+.wpins-req-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 9999px;
+  background: #f03e2f;
+  animation: wpins-req 4s ease-in-out infinite;
+}
+.wpins-resp-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 9999px;
+  background: #16a34a;
+  animation: wpins-resp 4s ease-in-out infinite;
+}
+.wpins-pop-ping {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 9999px;
+  border: 2px solid #16a34a;
+  animation: wpins-pop-ping 4s ease-out infinite;
+}
+.wpins-hit-flash { animation: wpins-hit-flash 4s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wpins-req-dot, .wpins-resp-dot, .wpins-pop-ping, .wpins-hit-flash { animation: none; opacity: 0; }
+  .wpins-hit-flash { opacity: 1; }
+}

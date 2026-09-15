@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Activity, Globe, MessageCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Activity, Gauge, Globe } from 'lucide-react';
 import DottedMap from 'dotted-map';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
@@ -13,6 +14,63 @@ const fleetStats = [
   { value: '68%', label: 'lighter images via AVIF/WebP' },
   { value: '1.8s', label: 'median mobile LCP' },
 ];
+
+/** PageSpeed-style score dial with an on/off toggle for WP Instant. */
+function PsiScore() {
+  const [on, setOn] = useState(true);
+  const score = on ? 100 : 38;
+  const radius = 40;
+  const circumference = 2 * Math.PI * radius;
+  const color = on ? '#16a34a' : '#dc2626';
+  const verdict = on ? 'Good' : 'Poor';
+
+  return (
+    <div aria-hidden="true" className="mt-6 flex flex-col items-center gap-5 rounded-2xl bg-[#fbfbfa] p-6">
+      <div className="relative h-[104px] w-[104px]">
+        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+          <circle cx="50" cy="50" r={radius} fill="none" stroke="#ececec" strokeWidth="9" />
+          <circle
+            cx="50"
+            cy="50"
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth="9"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - score / 100)}
+            style={{ transition: 'stroke-dashoffset 0.9s cubic-bezier(0.22, 0.61, 0.36, 1), stroke 0.4s' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span key={score} className="num text-3xl font-semibold tracking-[-0.03em] text-[#171717]">
+            {score}
+          </span>
+          <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color }}>
+            {verdict}
+          </span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOn((v) => !v)}
+        aria-pressed={on}
+        className="flex items-center gap-2.5 text-xs font-semibold text-[#3f3f46]"
+      >
+        <span
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ${on ? 'bg-[#16a34a]' : 'bg-[#d4d4d8]'}`}
+        >
+          <span
+            className={`inline-block h-4.5 w-4.5 transform rounded-full bg-white shadow transition-transform duration-300`}
+            style={{ width: 18, height: 18, marginLeft: 3, transform: on ? 'translateX(20px)' : 'translateX(0)' }}
+          />
+        </span>
+        WP Instant {on ? 'on' : 'off'}
+      </button>
+    </div>
+  );
+}
 
 export function FeaturesShowcase() {
   return (
@@ -40,40 +98,31 @@ export function FeaturesShowcase() {
           </div>
           <div aria-hidden="true" className="relative mt-6">
             <div className="absolute inset-x-0 top-4 z-10 mx-auto w-fit">
-              <div className="flex items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-semibold shadow-md">
+              <div className="wpins-hit-flash flex items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-semibold shadow-md">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" />
                 HIT · 18ms · Frankfurt
               </div>
             </div>
-            <div className="px-7 pb-7 pt-10 text-[#d4d4d8]">
+            <div className="relative px-7 pb-7 pt-10 text-[#d4d4d8]">
               <EdgeMap />
+              {/* Visitor → nearest PoP → response animation */}
+              <span className="wpins-req-dot" />
+              <span className="wpins-resp-dot" />
+              <span className="wpins-pop-ping" style={{ left: '55%', top: '30%' }} />
             </div>
           </div>
         </article>
 
         <article className="group flex flex-col rounded-2xl bg-white p-7 shadow-[0_1px_3px_rgba(23,23,23,0.06)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(23,23,23,0.08)]">
           <span className="flex items-center gap-2 text-sm text-[#71717a]">
-            <MessageCircle className="h-4 w-4 text-[#f03e2f]" aria-hidden="true" />
-            Safe automation
+            <Gauge className="h-4 w-4 text-[#f03e2f]" aria-hidden="true" />
+            PageSpeed score
           </span>
-          <h3 className="mt-4 text-xl font-semibold tracking-[-0.02em]">Every fix is reviewable first</h3>
+          <h3 className="mt-4 text-xl font-semibold tracking-[-0.02em]">Flip the switch: 38 → 100</h3>
           <p className="mt-2 text-sm leading-relaxed text-[#71717a]">
-            The engine proposes, you approve. Cart, checkout and nonce behavior stay protected automatically.
+            Same page, same host. WP Instant applies critical CSS, defers scripts and serves media from the edge.
           </p>
-          <div aria-hidden="true" className="mt-6 flex flex-col gap-4 rounded-2xl bg-[#fbfbfa] p-5">
-            <div>
-              <p className="text-[11px] font-medium text-[#a1a1aa]">Store owner · Tue</p>
-              <div className="mt-1.5 w-4/5 rounded-2xl rounded-tl-md bg-white p-3 text-xs leading-relaxed shadow-sm">
-                Will delaying my upsell scripts break checkout?
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 ml-auto w-4/5 rounded-2xl rounded-tr-md bg-[#171717] p-3 text-xs leading-relaxed text-white">
-                No — cart and checkout scripts stay synchronous. 31 others deferred, LCP back under 2s.
-              </div>
-              <p className="text-right text-[11px] text-[#a1a1aa]">Engine · now</p>
-            </div>
-          </div>
+          <PsiScore />
         </article>
       </div>
 

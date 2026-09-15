@@ -379,7 +379,7 @@ export default function HomePage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="mx-auto max-w-7xl px-6 pb-24 md:pb-32" aria-labelledby="pricing-title">
+      <section id="pricing" className="mx-auto max-w-7xl scroll-mt-20 px-6 pb-24 pt-24 md:pb-32 md:pt-32" aria-labelledby="pricing-title">
         <SectionHeading
           eyebrow="Pricing"
           title={<>Plans matched to <TitleAccent>fleet size and throughput</TitleAccent></>}
