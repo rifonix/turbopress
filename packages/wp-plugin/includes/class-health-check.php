@@ -32,6 +32,22 @@ class HealthCheck {
         $this->run();
     }
 
+    /**
+     * Push the latest report to the edge at most once per throttle window.
+     * Without this the first report would wait for the daily cron, leaving
+     * dashboard plugin-aware controls locked for up to a day after connect.
+     */
+    public function maybe_push(): void {
+        if (! $this->config->is_connected()) {
+            return;
+        }
+        if (get_transient('wp_instant_health_push')) {
+            return;
+        }
+        set_transient('wp_instant_health_push', 1, self::THROTTLE);
+        $this->push_to_edge();
+    }
+
     public function run(): array {
         $host = strtolower((string) parse_url(home_url(), PHP_URL_HOST));
         $css_glob = WP_INSTANT_CACHE_DIR . '/' . md5($host) . '/css/*.css';

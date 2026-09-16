@@ -642,6 +642,12 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   const q = c.req.query('q') || '82';
   const s = c.req.query('s') || '';
 
+  // CDN responses now feed cross-origin consumers (fonts from @font-face,
+  // canvas reads). Font fetches are CORS-required once the CSS is served
+  // from cdn.wpinstant.dev — without this header every offloaded font
+  // would be rejected by the browser.
+  c.header('Access-Control-Allow-Origin', '*');
+
   const verified = await verifyMediaSignature(c, siteId, u, w, f, s);
   if (!verified.ok) return verified.response;
 

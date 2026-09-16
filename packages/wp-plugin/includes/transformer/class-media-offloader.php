@@ -208,11 +208,35 @@ class MediaOffloader {
             $html = preg_replace_callback(
                 '/url\((["\']?)(https?:\/\/[^"\')\s]+)\1\)/i',
                 function ($m) use ($excluded, $widths, $max_w, &$queued) {
+                    if (preg_match('~\.(?:woff2?|ttf|otf|eot)(?:[?#]|$)~i', $m[2])) {
+                        // Fonts ride the CDN as ORIGINAL bytes (no transform);
+                        // the worker sends CORS headers now, so cross-origin
+                        // @font-face is safe.
+                        $new = $this->rewrite_source($m[2], 0, 'orig', $excluded, $queued);
+                        return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
+                    }
                     if (!preg_match('~\.(?:png|jpe?g|webp|gif|svg|avif)(?:[?#]|$)~i', $m[2])) {
-                        return $m[0]; // fonts, icons-as-font, video posters, etc.
+                        return $m[0]; // masks, video posters, etc.
                     }
                     $new = $this->rewrite_source($m[2], $max_w, 'webp', $excluded, $queued);
                     return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
+                },
+                $html
+            ) ?? $html;
+
+            // Elementor gallery items keep their real image in data-thumbnail
+            // (e-gallery builds the masonry client-side from it). Without this
+            // pass those URLs stay on origin and the gallery renders empty
+            // whenever origin assets are throttled.
+            $html = preg_replace_callback(
+                '~data-(thumbnail|large_image)\s*=\s*"([^"]+)"~i',
+                function ($m) use ($excluded, $max_w, &$queued) {
+                    $url = html_entity_decode($m[2], ENT_QUOTES);
+                    if ($url === '' || strpos($url, 'data:') === 0) {
+                        return $m[0];
+                    }
+                    $new = $this->rewrite_source($url, $max_w, 'webp', $excluded, $queued);
+                    return $new !== null ? 'data-' . $m[1] . '="' . esc_url($new) . '"' : $m[0];
                 },
                 $html
             ) ?? $html;
@@ -426,8 +450,12 @@ class MediaOffloader {
                     $new = $this->rewrite_source($url, 0, 'orig', $excluded, $queued);
                     return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
                 }
+                if (preg_match('~\.(?:woff2?|ttf|otf|eot)(?:[?#]|$)~i', $url)) {
+                    $new = $this->rewrite_source($url, 0, 'orig', $excluded, $queued);
+                    return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
+                }
                 if (!preg_match('~\.(?:png|jpe?g|webp|gif|avif)(?:[?#]|$)~i', $url)) {
-                    return $m[0]; // fonts, masks, etc.
+                    return $m[0]; // masks, etc.
                 }
                 $new = $this->rewrite_source($url, $max_w, 'webp', $excluded, $queued);
                 return $new !== null ? 'url(' . esc_url_raw($new) . ')' : $m[0];
@@ -633,7 +661,7 @@ class MediaOffloader {
             return null;
         }
         $extension = strtolower($m[1]);
-        return in_array($extension, ['gif', 'jpg', 'jpeg', 'png', 'webp', 'avif', 'svg', 'mp4', 'm4v', 'webm', 'mov', 'woff', 'woff2', 'ttf', 'otf'], true)
+        return in_array($extension, ['gif', 'jpg', 'jpeg', 'png', 'webp', 'avif', 'svg', 'mp4', 'm4v', 'webm', 'mov', 'woff', 'woff2', 'ttf', 'otf', 'eot'], true)
             ? $extension
             : null;
     }
