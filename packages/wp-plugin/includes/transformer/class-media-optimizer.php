@@ -159,7 +159,14 @@ class MediaOptimizer {
                 // the element nears the viewport — perceived load is instant
                 // (blur first, sharp transition) instead of an empty box.
                 // LCP and native-eager images never take the detour.
-                if ($lqip_enabled && $orig_src !== '' && !$is_tiny) {
+                if (
+                    $lqip_enabled
+                    && $orig_src !== ''
+                    && !$is_tiny
+                    // Vectors can't have a raster placeholder; they are
+                    // served as f=orig CDN pass-through instead.
+                    && !preg_match('~\.svg(?:[?#]|$)~i', $orig_src)
+                ) {
                     if ($offloader === null) {
                         $offloader = new MediaOffloader($this->config);
                     }
@@ -454,7 +461,7 @@ class MediaOptimizer {
             . 'im.onload=function(){if(im.decode){im.decode().then(done,function(){done()})}else{done()}};'
             . 'im.onerror=function(){'
             . 'var o=el.getAttribute("data-wpins-orig-src");if(!o)return;' // else keep the blur placeholder
-            . 'el.removeAttribute("srcset");el.setAttribute("src",o);'
+            . 'el.removeAttribute("srcset");el.setAttribute("src",o+(o.indexOf("?")===-1?"?":"&")+"wpins_retry="+Date.now());'
             . 'el.removeAttribute("data-wpins-full-src");el.removeAttribute("data-wpins-srcset");'
             . 'if(el.classList)el.classList.add("wpins-lqip-done");else el.className+=" wpins-lqip-done";'
             . '};'

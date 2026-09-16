@@ -486,11 +486,13 @@ class MediaOffloader {
             }
         }
 
-        // SVG is vector: rasterizing is impossible (GD 302s to origin under a
-        // 24px LQIP placeholder, which then looks broken) and the bytes are
-        // already tiny — leave vectors on the origin entirely.
+        // SVG is vector: rasterizing is impossible. Serve it through the CDN
+        // in original form (f=orig, w=0) so it still leaves the origin; the
+        // LQIP pass explicitly skips vectors so the tiny placeholder is never
+        // requested for them.
         if (preg_match('~\.svg(?:[?#]|$)~i', $src)) {
-            return null;
+            $w = 0;
+            $f = 'orig';
         }
 
         $url = $this->media_url($src, $w, $f);
@@ -696,6 +698,10 @@ class MediaOffloader {
      * narrowest member of the srcset family.
      */
     public function lqip_url(string $origin_src): ?string {
+        // Vectors can't be rasterized into a webp placeholder.
+        if (preg_match('~\.svg(?:[?#]|$)~i', $origin_src)) {
+            return null;
+        }
         return $this->media_url($origin_src, self::LQIP_WIDTH, 'webp');
     }
 
