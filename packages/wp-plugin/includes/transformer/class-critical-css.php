@@ -634,11 +634,20 @@ class CriticalCssTransformer {
         if ($fingerprint !== null && $fingerprint !== '') {
             $dispatched = get_option('wp_instant_css_dispatched', []);
             $url_key = md5($url);
+            $last_dispatch = is_array($dispatched) ? (int) ($dispatched[$url_key] ?? 0) : 0;
             if (
-                is_array($dispatched) && !empty($dispatched[$url_key])
+                $last_dispatch > 0
                 && $this->stored_fingerprint($url) === $fingerprint
             ) {
-                return;
+                // Auto-heal: the previous dispatch never delivered CSS (job
+                // failed, credits, lost cron event). Without this the
+                // dispatch-once marker blocked regeneration until the page
+                // changed — users had to start generation manually. Retry at
+                // most every 6 hours while no CSS exists on disk.
+                $delivered = self::has_fresh_cache_for_url($url);
+                if ($delivered || (time() - $last_dispatch) < 21600) {
+                    return;
+                }
             }
             $content_changed = $this->stored_fingerprint($url) !== $fingerprint;
         }

@@ -64,6 +64,20 @@ class MediaOffloader {
                 '/<img\b[^>]*>/i',
                 function ($m) use ($excluded, $widths, $max_w, &$queued) {
                     $tag = $m[0];
+
+                    // Promote JS-lazyload markup: when a tag has no real
+                    // src but carries a data-src / data-original placeholder
+                    // URL, promote it so the image still renders if the
+                    // theme's lazy-load script is delayed or disabled (our
+                    // own lazyload below takes over from there).
+                    if (!preg_match('/\ssrc=["\']/i', $tag)) {
+                        if (preg_match('/\sdata-(?:lazy-)?src=["\']([^"\']+)["\']/i', $tag, $dm)
+                            || preg_match('/\sdata-original=["\']([^"\']+)["\']/i', $tag, $dm)) {
+                            $promoted = esc_url(html_entity_decode($dm[1], ENT_QUOTES));
+                            $tag = preg_replace('/<img\b/i', '<img src="' . $promoted . '"', $tag, 1);
+                        }
+                    }
+
                     $has_srcset = (bool) preg_match('/\ssrcset=["\']/i', $tag);
                     $has_sizes = (bool) preg_match('/\ssizes=["\']/i', $tag);
                     $synth = '';
@@ -472,11 +486,11 @@ class MediaOffloader {
             }
         }
 
-        // SVG is vector: a webp derivative is meaningless and GD cannot
-        // rasterize it — route original bytes through R2 instead.
-        if ($f === 'webp' && preg_match('~\.svg(?:[?#]|$)~i', $src)) {
-            $f = 'orig';
-            $w = 0;
+        // SVG is vector: rasterizing is impossible (GD 302s to origin under a
+        // 24px LQIP placeholder, which then looks broken) and the bytes are
+        // already tiny — leave vectors on the origin entirely.
+        if (preg_match('~\.svg(?:[?#]|$)~i', $src)) {
+            return null;
         }
 
         $url = $this->media_url($src, $w, $f);
@@ -510,10 +524,10 @@ class MediaOffloader {
     }
 
     public function media_url(string $src, int $w, string $f): ?string {
-        $direct = $this->known_public_media_url($src, $w, $f);
-        if ($direct !== null) {
-            return $direct;
-        }
+        // Always the signed Worker URL on the CDN host. The direct
+        // objects.wpinstant.dev URLs required a manifest that could lag or
+        // evict (mixed hosts in one page confused caching) — one host keeps
+        // browser and CDN caching predictable.
         return $this->worker_media_url($src, $w, $f);
     }
 

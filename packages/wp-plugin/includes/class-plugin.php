@@ -166,6 +166,16 @@ class Plugin {
         // until the localized package exists.
         add_action('wp_instant_localize_font', [FontOptimizer::class, 'localize_scheduled']);
 
+        // When our media pipeline lazy-loads images, Elementor's own lazy
+        // load must not run alongside it: its JS re-reads the data-src stubs
+        // and never sees the swapped src (loops/galleries went blank or
+        // mismatched). Force its performance options off — ours is the only
+        // lazy loader in control.
+        if ((bool) $this->config->get('media.lazyload_images', true)) {
+            add_filter('pre_option_elementor_lazyload_images', '__return_false');
+            add_filter('pre_option_elementor_lazyload_background_images', '__return_false');
+        }
+
         // Edge push callback (HMAC-verified REST route)
         OptimizeCallback::register_routes();
 

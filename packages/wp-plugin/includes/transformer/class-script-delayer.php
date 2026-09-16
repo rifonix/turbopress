@@ -228,7 +228,7 @@ class ScriptDelayer {
 
         // Inject Micro-Loader in <head> (deferred: never render-blocking)
         if ($mode === 'interaction_delay') {
-            $loader_url = WP_INSTANT_URL . 'assets/js/wp-instant-loader.min.js';
+            $loader_url = WP_INSTANT_URL . 'assets/js/wp-instant-loader.min.js?ver=' . WP_INSTANT_VERSION;
             $loader_tag = sprintf(
                 '<script id="wp-instant-loader-config" wpins-exclude>' .
                 'window._tpLoaderConfig = { timeout: %d };' .

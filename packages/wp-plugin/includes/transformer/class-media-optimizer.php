@@ -67,7 +67,13 @@ class MediaOptimizer {
             '/<img\s+([^>]+)>/i',
             function ($matches) use (&$lcp_image, &$lcp_img_final, &$lqip_count, &$offloader, $verified_lcp, $lqip_enabled) {
                 $full_tag = $matches[0];
-                $attributes = $matches[1];
+                // Normalize self-closing markup: a trailing " /" left the
+                // slash mid-tag once attributes were appended, producing
+                // invalid HTML like `alt="x" / fetchpriority="high"`.
+                $attributes = rtrim($matches[1]);
+                if (str_ends_with($attributes, '/')) {
+                    $attributes = rtrim(substr($attributes, 0, -1));
+                }
 
                 // Extract src (and the pre-offload original when present —
                 // the media offload stage runs before this one, so src may
@@ -446,7 +452,12 @@ class MediaOptimizer {
             . '};'
             . 'var im=new Image();'
             . 'im.onload=function(){if(im.decode){im.decode().then(done,function(){done()})}else{done()}};'
-            . 'im.onerror=function(){};' // keep the blur placeholder on failure
+            . 'im.onerror=function(){'
+            . 'var o=el.getAttribute("data-wpins-orig-src");if(!o)return;' // else keep the blur placeholder
+            . 'el.removeAttribute("srcset");el.setAttribute("src",o);'
+            . 'el.removeAttribute("data-wpins-full-src");el.removeAttribute("data-wpins-srcset");'
+            . 'if(el.classList)el.classList.add("wpins-lqip-done");else el.className+=" wpins-lqip-done";'
+            . '};'
             . 'im.src=s;'
             . 'if(im.complete)done();'
             . '})},{rootMargin:"' . (int) $offset . 'px 0px"});'
