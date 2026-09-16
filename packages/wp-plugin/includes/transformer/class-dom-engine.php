@@ -270,6 +270,14 @@ class DomEngine {
         return null;
     }
 
+    /**
+     * True when the document was already produced by this exact plugin
+     * version — lets the shutdown capture skip double processing.
+     */
+    public function already_transformed(string $html): bool {
+        return $this->transformed_version($html) === WP_INSTANT_VERSION;
+    }
+
     private function stamp_version(string $html): string {
         // Never run replacement regexes over the whole document (a PCRE
         // failure on a large buffer returns NULL and would blank the page).

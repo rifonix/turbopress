@@ -7,6 +7,8 @@ if (!defined('ABSPATH')) {
 
 class Plugin {
     private static ?Plugin $instance = null;
+    private static bool $capture_armed = false;
+    private static int $capture_level = 0;
     public Config $config;
     public ApiClient $api_client;
     public CacheManager $cache_manager;
@@ -273,10 +275,23 @@ class Plugin {
             Logger::log('pipeline.transform', ['url' => Logger::request_uri()]);
         }
 
+        // Belt-and-braces capture: whatever this filter returns, every byte
+        // rendered afterwards flows through our own buffer. If the generated
+        // wrapper is unavailable (deleted by a host cache cleaner, unwritable
+        // cache dir) or another template_include filter swaps our wrapper for
+        // the raw template, the untouched document is still transformed at
+        // shutdown instead of being served unoptimized.
+        if (!self::$capture_armed) {
+            self::$capture_armed = true;
+            self::$capture_level = ob_get_level();
+            ob_start();
+            add_action('shutdown', [$this, 'finalize_captured_output'], 0);
+        }
+
         $wrapper = $this->wrapper_template_path();
         if ($wrapper === null) {
-            // Wrapper unavailable (unwritable cache dir): fall back to the
-            // untouched template rather than fatal.
+            // Wrapper unavailable (unwritable cache dir): the shutdown
+            // capture above still transforms the raw render.
             return $template;
         }
 
@@ -291,6 +306,40 @@ class Plugin {
     }
 
     /**
+     * Shutdown safety net for intercept_template(). Runs before PHP's
+     * implicit buffer flush: grabs the full rendered document from our
+     * capture buffer and pipes it through the transform pipeline when the
+     * wrapper never got the chance to (wrapper missing/unwritable, template
+     * swapped by another filter, buffer layers closing early). Documents
+     * already stamped by the wrapper pass through untouched.
+     */
+    public function finalize_captured_output(): void {
+        if (!self::$capture_armed) {
+            return;
+        }
+        self::$capture_armed = false;
+
+        if (ob_get_level() <= self::$capture_level) {
+            // Another layer closed our buffer — nothing left to recover.
+            return;
+        }
+
+        $document = ob_get_clean();
+        if (!is_string($document) || $document === '') {
+            return;
+        }
+
+        // Tiny fragments never carry a document; already-transformed output
+        // came back from the wrapper pipeline (idempotency guard).
+        if (strlen($document) < 256 || $this->dom_engine->already_transformed($document)) {
+            echo $document;
+            return;
+        }
+
+        echo $this->process_output_buffer($document);
+    }
+
+    /**
      * Path to the generated wrapper template (created on demand). The
      * wrapper buffers the original template's full output and pipes it
      * through process_output_buffer(). Null when the cache dir is
@@ -302,6 +351,7 @@ class Plugin {
             return $wrapper;
         }
         if (!wp_mkdir_p(WP_INSTANT_CACHE_DIR)) {
+            $this->log_wrapper_unavailable('cache-dir-unwritable');
             return null;
         }
         $code = <<<'PHP'
@@ -333,10 +383,24 @@ if ($wp_instant_document === false) {
 }
 echo \WPInstant\Plugin::get_instance()->process_output_buffer((string) $wp_instant_document);
 PHP;
-        if (@file_put_contents($wrapper, $code, LOCK_EX) === false) {
+        if (@file_put_contents($wrapper, $code, LOCK_EX) === false || !file_exists($wrapper)) {
+            $this->log_wrapper_unavailable('wrapper-write-failed');
             return null;
         }
         return $wrapper;
+    }
+
+    /**
+     * Records why the generated template wrapper could not be used, so the
+     * dashboard log page can surface host-level file-write blocks.
+     */
+    private function log_wrapper_unavailable(string $reason): void {
+        if (class_exists(Logger::class)) {
+            Logger::log('pipeline.wrapper-unavailable', [
+                'reason' => $reason,
+                'dir' => WP_INSTANT_CACHE_DIR,
+            ]);
+        }
     }
 
     /**
