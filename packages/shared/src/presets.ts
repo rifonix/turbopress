@@ -83,7 +83,7 @@ export const PRESET_SAFE: SiteConfig = {
     excluded_urls: DEFAULT_EXCLUDED_URLS,
     excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
     optimize_only_urls: [],
-    optimize_scope: 'main-pages',
+    optimize_scope: 'all',
     crawl_enabled: false
   },
   bloat: {
@@ -182,7 +182,7 @@ export const PRESET_AGGRESSIVE: SiteConfig = {
     excluded_urls: DEFAULT_EXCLUDED_URLS,
     excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
     optimize_only_urls: [],
-    optimize_scope: 'main-pages',
+    optimize_scope: 'all',
     crawl_enabled: false
   },
   bloat: {
@@ -284,7 +284,7 @@ export const PRESET_LUDICROUS: SiteConfig = {
     excluded_urls: DEFAULT_EXCLUDED_URLS,
     excluded_cookies: DEFAULT_EXCLUDED_COOKIES,
     optimize_only_urls: [],
-    optimize_scope: 'main-pages',
+    optimize_scope: 'all',
     crawl_enabled: false
   },
   bloat: {

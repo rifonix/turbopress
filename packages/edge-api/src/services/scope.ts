@@ -28,9 +28,9 @@ export function parseSiteScope(configJson: string | null | undefined): SiteScope
   } catch {
     caching = {};
   }
-  const rawScope = typeof caching.optimize_scope === 'string' ? caching.optimize_scope : 'main-pages';
+  const rawScope = typeof caching.optimize_scope === 'string' ? caching.optimize_scope : 'all';
   const scope: OptimizeScope =
-    rawScope === 'all' || rawScope === 'templates-only' ? rawScope : 'main-pages';
+    rawScope === 'main-pages' || rawScope === 'templates-only' ? rawScope : 'all';
   const allowlist = Array.isArray(caching.optimize_only_urls)
     ? (caching.optimize_only_urls as unknown[]).filter((v): v is string => typeof v === 'string' && v !== '')
     : [];

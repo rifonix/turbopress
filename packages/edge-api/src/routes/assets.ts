@@ -253,6 +253,14 @@ assetRoutes.put(
 /* Zero-DNS media CDN (R2-backed, signed, 302-to-origin on miss)       */
 /* ------------------------------------------------------------------ */
 
+// Cloudflare may have cached an origin 429 (LiteSpeed rate-limit) under the
+// exact asset URL. Every outgoing origin fetch and redirect target appends a
+// per-request query param so the origin edge treats it as a fresh URL —
+// bypassing poisoned entries — while R2/Cache-API keys stay bound to src.
+function bustOriginCache(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}wpins_rb=${Date.now()}`;
+}
+
 const MEDIA_TYPES: Record<string, string> = {
   webp: 'image/webp',
   orig: 'application/octet-stream',
@@ -834,7 +842,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     // stored under the full-object key).
     const rangeHeader = c.req.header('range');
     if (rangeHeader) {
-      const ranged = await fetch(verified.src, { headers: { Range: rangeHeader }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+      const ranged = await fetch(bustOriginCache(verified.src), { headers: { Range: rangeHeader }, signal: AbortSignal.timeout(8000) }).catch(() => null);
       if (ranged && (ranged.status === 206 || ranged.status === 200) && ranged.body) {
         return new Response(ranged.body, {
           status: ranged.status,
@@ -852,7 +860,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
       // Origin ignored/refused Range: fall through to the full GET below.
     }
 
-    const origin = await fetch(verified.src, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+    const origin = await fetch(bustOriginCache(verified.src), { signal: AbortSignal.timeout(8000) }).catch(() => null);
     if (!origin || !origin.ok || !origin.body) {
       const upstreamStatus = origin && origin.status >= 400 && origin.status < 600 ? origin.status : 502;
       return originFailure(upstreamStatus);
@@ -919,7 +927,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
         console.warn('[assets] css rewrite failed, serving raw', e);
         // Fall through to the generic raw path with the consumed body —
         // re-fetch instead of serving a half-processed stream.
-        const refetch = await fetch(verified.src, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        const refetch = await fetch(bustOriginCache(verified.src), { signal: AbortSignal.timeout(8000) }).catch(() => null);
         if (refetch && refetch.ok && refetch.body) {
           return serveRawStream(refetch, verified.src, siteId, c, r2Key, cache, cacheKey);
         }
@@ -931,7 +939,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   }
 
   // Images: fetch the origin bytes once, then optimize AT THE EDGE.
-  const srcRes = await fetch(verified.src, {
+  const srcRes = await fetch(bustOriginCache(verified.src), {
     headers: { Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
     cf: { cacheKey: verified.src } as any,
     signal: AbortSignal.timeout(8000),
@@ -942,7 +950,7 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
     // a rewrite can never permanently break an image).
     c.header('Cache-Control', 'public, max-age=60');
     c.header('X-WP-Instant-Media', 'MISS');
-    return c.redirect(verified.src, 302);
+    return c.redirect(bustOriginCache(verified.src), 302);
   }
 
   // Guard against Worker OOM: origin files > 5MB skip synchronous edge WASM transcoding
@@ -950,14 +958,14 @@ assetRoutes.get('/media/:site_id/:url_hash', async (c) => {
   if (contentLength > 5 * 1024 * 1024) {
     c.header('Cache-Control', 'public, max-age=300');
     c.header('X-WP-Instant-Media', 'PASS-OVERSIZE');
-    return c.redirect(verified.src, 302);
+    return c.redirect(bustOriginCache(verified.src), 302);
   }
 
   const srcBytes = await srcRes.arrayBuffer();
   if (srcBytes.byteLength > 5 * 1024 * 1024) {
     c.header('Cache-Control', 'public, max-age=300');
     c.header('X-WP-Instant-Media', 'PASS-OVERSIZE');
-    return c.redirect(verified.src, 302);
+    return c.redirect(bustOriginCache(verified.src), 302);
   }
 
   const srcType = srcRes.headers.get('content-type') || '';

@@ -4,10 +4,10 @@ import { parseSiteScope, urlInScope, wildcardMatch } from './scope.js';
 import { canonicalizeDispatchUrl, groupingKeyForUrl } from './canonical-url.js';
 
 describe('optimize scope', () => {
-  it('fails closed to main-pages with crawling off', () => {
-    expect(parseSiteScope(null)).toEqual({ scope: 'main-pages', allowlist: [], crawlEnabled: false, stripParams: [] });
-    expect(parseSiteScope('not-json')).toEqual({ scope: 'main-pages', allowlist: [], crawlEnabled: false, stripParams: [] });
-    expect(parseSiteScope('{"caching":{"optimize_scope":"nonsense"}}').scope).toBe('main-pages');
+  it('defaults to all when config is missing or malformed (fail open to the product default)', () => {
+    expect(parseSiteScope(null)).toEqual({ scope: 'all', allowlist: [], crawlEnabled: false, stripParams: [] });
+    expect(parseSiteScope('not-json')).toEqual({ scope: 'all', allowlist: [], crawlEnabled: false, stripParams: [] });
+    expect(parseSiteScope('{"caching":{"optimize_scope":"nonsense"}}').scope).toBe('all');
   });
 
   it('parses explicit scope, allowlist and crawl flag', () => {

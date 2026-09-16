@@ -112,6 +112,15 @@ class Handshake {
             wp_schedule_single_event(time(), 'wp_instant_media_offload', []);
             spawn_cron();
 
+            // Push the first health report immediately so the dashboard's
+            // plugin-aware controls (Plugin Asset Control) unlock at connect
+            // instead of waiting up to a day for the daily health cron.
+            if (class_exists(HealthCheck::class)) {
+                $health = new HealthCheck($config, $api_client);
+                $health->run();
+                $health->push_to_edge();
+            }
+
             // Clean redirect back to main settings page with success flag
             wp_safe_redirect(add_query_arg(['page' => 'wp-instant', 'connected' => '1'], admin_url('admin.php')));
             exit;

@@ -18,10 +18,10 @@ export const CachingConfigSchema = z.object({
   excluded_cookies: z.array(z.string()).default([]),
   optimize_only_urls: z.array(z.string()).default([]),
   // Optimization scope: which URLs may spend extraction credits.
-  // 'all' = every URL, 'main-pages' = homepage + optimize_only_urls,
+  // 'all' = every URL (default), 'main-pages' = homepage + optimize_only_urls,
   // 'templates-only' = one paid extraction per unique template (structure
   // hash); repeat templates complete free from the edge cache.
-  optimize_scope: z.enum(['all', 'main-pages', 'templates-only']).default('main-pages'),
+  optimize_scope: z.enum(['all', 'main-pages', 'templates-only']).default('all'),
   // Auto-crawl discovered links after a root-page job. Off by default:
   // each crawled URL costs 2 credits and fan-out burned whole quotas.
   crawl_enabled: z.boolean().default(false)

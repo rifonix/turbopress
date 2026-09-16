@@ -400,7 +400,7 @@ class CriticalCssTransformer {
      * to edge-side template dedup (first of each template pays once).
      */
     public function is_url_in_scope(string $url): bool {
-        $scope = (string) $this->config->get('caching.optimize_scope', 'main-pages');
+        $scope = (string) $this->config->get('caching.optimize_scope', 'all');
         if ($scope === 'all' || $scope === '') {
             return true;
         }
@@ -685,6 +685,13 @@ class CriticalCssTransformer {
         // Non-blocking asynchronous dispatch (positional args: PHP 8 turns
         // associative cron args into named parameters and fatals)
         wp_schedule_single_event(time(), 'wp_instant_async_optimize', [$url]);
+
+        // Kick WP-Cron so the queued job runs now instead of waiting for the
+        // next organic cron tick (low-traffic sites could otherwise sit for
+        // hours with no critical CSS even though a dispatch was scheduled).
+        if (function_exists('spawn_cron')) {
+            spawn_cron();
+        }
     }
 
     private function get_current_url(): string {
